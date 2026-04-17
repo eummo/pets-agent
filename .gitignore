@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Config files with secrets
+.env
+config/config.yaml
+
+
+# Learning notes (personal)
+LEARNING.md
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Logs
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
