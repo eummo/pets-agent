@@ -1,35 +1,23 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
+# Dependencies
+node_modules/
 
-# Virtual environment
-.venv/
+# Build output
+dist/
+
+# Environment variables
+.env
 
 # IDE
 .idea/
 .vscode/
 
-# Config files with secrets
-.env
-config/config.yaml
-
-
-# Learning notes (personal)
-LEARNING.md
-
-# Claude Code
-.claude/
-CLAUDE.md
-
 # Logs
 logs/
-
-# Scripts
-scripts/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code
+.claude/
+CLAUDE.md

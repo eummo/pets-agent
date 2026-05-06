@@ -1,19 +1,26 @@
 # LLM 提供商配置
 llm:
   # 当前使用的提供商名称
-  provider: "openai"
+  provider: "minimax-cn"
 
   # 提供商列表（可配置多个）
   providers:
     openai:
       model_id: "gpt-4"
       base_url: "https://api.openai.com/v1"
-      api_key_env: "LLM_API_KEY"  # 环境变量名
+      api_key_env: "LLM_API_KEY"
     anthropic:
       model_id: "claude-3-sonnet"
-      # anthropic 不需要 base_url
       base_url: "https://api.openai.com/v1"
-      api_key_env: "LLM_API_KEY"  # 环境变量名
+      api_key_env: "LLM_API_KEY"
+    minimax-cn:
+      model_id: "MiniMax-M2.7"
+      base_url: "https://api.minimaxi.com/anthropic"
+      api_key_env: "MINIMAX_API_KEY"
+    minimax:
+      model_id: "MiniMax-M2.7"
+      base_url: "https://api.minimaxi.com/anthropic"
+      api_key_env: "MINIMAX_API_KEY"
   # 重试配置
   max_retries: 3
   retry_delay: 1.0

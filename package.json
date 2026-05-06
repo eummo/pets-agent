@@ -1,0 +1,24 @@
+{
+  "name": "pets-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "file:../pi-mono/packages/agent",
+    "@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.1",
+    "ignore": "^7.0.5",
+    "js-yaml": "^4.1.0",
+    "yaml": "^2.8.4"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
