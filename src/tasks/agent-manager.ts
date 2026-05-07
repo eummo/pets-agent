@@ -7,14 +7,14 @@ function generateId(): string {
   return randomBytes(8).toString("hex");
 }
 
-interface RunningTask {
+export interface RunningTask {
   task: Task;
   child: ChildProcess;
   stdoutBuffer: string;
   stderrBuffer: string;
 }
 
-type TaskUpdate = Pick<Task, "id" | "status" | "progress" | "error" | "exitCode" | "startedAt" | "endedAt">;
+export type TaskUpdate = Pick<Task, "id" | "status" | "progress" | "error" | "exitCode" | "startedAt" | "endedAt">;
 
 class AgentManager extends EventEmitter {
   private tasks = new Map<string, Task>();
@@ -283,7 +283,6 @@ class AgentManager extends EventEmitter {
     }
     this.subscriptions.get(taskId)!.add(callback);
 
-    // Emit current state immediately
     const task = this.tasks.get(taskId);
     if (task) {
       callback(this.broadcastUpdate(task));
