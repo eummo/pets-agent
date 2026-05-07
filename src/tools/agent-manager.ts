@@ -1,6 +1,8 @@
 import { registry } from "./registry.js";
 import { agentManager } from "../tasks/agent-manager.js";
 import type { AgentType } from "../tasks/task.js";
+import { taskHistory } from "../tasks/task-history.js";
+import type { TaskHistoryQuery } from "../tasks/task-history.js";
 import type { ToolDef } from "./registry.js";
 
 const RECENT_LINES = 20;
@@ -200,9 +202,97 @@ const killTaskTool: ToolDef = makeTool({
   },
 });
 
+const listTaskHistoryTool: ToolDef = makeTool({
+  name: "list_task_history",
+  label: "查看任务历史",
+  description: "查询子 agent 执行历史记录，支持按类型/状态/时间过滤。传入 taskId 可查看完整日志",
+  parameters: {
+    type: "object",
+    properties: {
+      taskId: {
+        type: "string",
+        description: "任务 ID（可选，传入则返回该任务的完整日志内容）",
+      },
+      agentType: {
+        type: "string",
+        description: "按 agent 类型过滤: claude-code, codex, kiro, pi-agent",
+      },
+      status: {
+        type: "string",
+        description: "按状态过滤: done, failed, cancelled",
+      },
+      since: {
+        type: "string",
+        description: "起始时间 (ISO 格式，如 2026-05-01)",
+      },
+      limit: {
+        type: "number",
+        description: "返回条数，默认 20",
+      },
+    },
+  },
+  prepareArguments(args: unknown) {
+    if (typeof args === "string") args = JSON.parse(args);
+    return args as { taskId?: string; agentType?: string; status?: string; since?: string; limit?: number };
+  },
+  async execute(_toolCallId, params) {
+    const p = params as { taskId?: string; agentType?: string; status?: string; since?: string; limit?: number };
+
+    // 如果传了 taskId，直接返回该任务的完整日志
+    if (p.taskId) {
+      const logLines = taskHistory.readLog(p.taskId);
+      const entry = taskHistory.getAll().find((e) => e.id === p.taskId);
+      if (logLines.length === 0 && !entry) {
+        return { content: [{ type: "text", text: `未找到任务: ${p.taskId}` }], details: {} };
+      }
+      const lines = [`=== 任务 ${p.taskId} ===`];
+      if (entry) {
+        lines.push(`名称: ${entry.name} | 类型: ${entry.agentType} | 状态: ${entry.status}`);
+        lines.push(`创建: ${new Date(entry.createdAt).toLocaleString("zh-CN")}`);
+        lines.push(`提示: ${entry.prompt}`);
+        lines.push("");
+      }
+      if (logLines.length > 0) {
+        lines.push(...logLines);
+      } else {
+        lines.push("(日志为空)");
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }], details: { entry, logLines } };
+    }
+
+    const query: TaskHistoryQuery = {
+      agentType: p.agentType,
+      status: p.status,
+      since: p.since,
+      limit: p.limit ?? 20,
+    };
+    const entries = taskHistory.query(query);
+
+    if (entries.length === 0) {
+      return { content: [{ type: "text", text: "没有找到历史记录" }], details: {} };
+    }
+
+    const lines = [`共 ${entries.length} 条记录：`, ""];
+    for (const e of entries) {
+      const date = new Date(e.createdAt).toLocaleString("zh-CN");
+      const duration = e.startedAt && e.endedAt
+        ? Math.round((new Date(e.endedAt).getTime() - new Date(e.startedAt).getTime()) / 1000) + "s"
+        : "-";
+      const files = e.fileCount !== undefined ? ` ${e.fileCount}文件` : "";
+      const error = e.status === "failed" ? ` ⚠️ ${e.error?.slice(0, 50) ?? "error"}` : "";
+      lines.push(`[${e.status}] ${date} | ${e.agentType} | ${duration} | ${e.name}${files}${error}`);
+      const promptSummary = e.prompt.length > 60 ? e.prompt.slice(0, 60) + "..." : e.prompt;
+      lines.push(`  → ${promptSummary}`);
+    }
+
+    return { content: [{ type: "text", text: lines.join("\n") }], details: { entries } };
+  },
+});
+
 export function registerAgentManagerTools(): void {
   registry.register(spawnAgentTool);
   registry.register(listTasksTool);
   registry.register(getTaskTool);
   registry.register(killTaskTool);
+  registry.register(listTaskHistoryTool);
 }

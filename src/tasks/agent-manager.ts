@@ -3,6 +3,7 @@ import { EventEmitter } from "events";
 import { randomBytes } from "crypto";
 import * as fs from "fs";
 import type { Task, TaskStatus, AgentType } from "./task.js";
+import { taskHistory } from "./task-history.js";
 
 function generateId(): string {
   return randomBytes(8).toString("hex");
@@ -58,6 +59,7 @@ class AgentManager extends EventEmitter {
     this.running.delete(taskId);
     this.emit("update", this.broadcastUpdate(task));
     this.emit("exit", { taskId, exitCode: child.exitCode });
+    taskHistory.add(task);
   }
 
   private broadcastUpdate(task: Task): TaskUpdate {
@@ -184,6 +186,7 @@ class AgentManager extends EventEmitter {
       for (const line of lines) {
         if (line.trim()) {
           task.progress.push(line);
+          taskHistory.appendLog(task.id, [line]);
           this.emitUpdate(task);
         }
       }
@@ -197,6 +200,7 @@ class AgentManager extends EventEmitter {
       for (const line of lines) {
         if (line.trim()) {
           task.progress.push(`[stderr] ${line}`);
+          taskHistory.appendLog(task.id, [`[stderr] ${line}`]);
           this.emitUpdate(task);
         }
       }
@@ -213,6 +217,7 @@ class AgentManager extends EventEmitter {
     child.on("close", (code) => {
       if (rt.stdoutBuffer.trim()) {
         task.progress.push(rt.stdoutBuffer);
+        taskHistory.appendLog(task.id, [rt.stdoutBuffer]);
         this.emitUpdate(task);
       }
       if (this.running.has(id)) {

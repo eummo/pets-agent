@@ -2,9 +2,10 @@ import "dotenv/config";
 import * as readline from "readline";
 import { createOrchestratorAgent, subscribeToOrchestrator } from "./orchestrator.js";
 import { agentManager } from "./tasks/agent-manager.js";
+import { taskHistory } from "./tasks/task-history.js";
 import type { Task } from "./tasks/task.js";
 
-const SLASH_COMMANDS = ["/quit", "/exit", "/clear", "/logs", "/tasks", "/help"];
+const SLASH_COMMANDS = ["/quit", "/exit", "/clear", "/logs", "/tasks", "/history", "/help"];
 
 function createRL(): readline.Interface {
   return readline.createInterface({
@@ -32,7 +33,8 @@ function printHelp() {
   /help          - 显示此帮助
   /quit, /exit   - 退出程序
   /clear         - 清屏
-  /tasks         - 列出所有任务
+  /tasks         - 列出所有任务（当前会话）
+  /history       - 查看任务执行历史
   /logs [taskId] - 实时查看任务输出（省略 taskId 查看所有运行中任务）
 `);
 }
@@ -185,6 +187,56 @@ async function runREPL() {
 
       if (trimmed === "/tasks") {
         printTasks();
+        promptUser();
+        return;
+      }
+
+      if (trimmed === "/history") {
+        const parts = trimmed.split(" ");
+        const taskId = parts[1]?.trim();
+
+        if (taskId) {
+          // 查看指定任务的完整日志
+          const logLines = taskHistory.readLog(taskId);
+          const entry = taskHistory.getAll().find((e) => e.id === taskId);
+          if (logLines.length === 0 && !entry) {
+            console.log(`\n未找到任务: ${taskId}`);
+          } else {
+            console.log(`\n=== 任务 ${taskId} 日志 ===`);
+            if (entry) {
+              const date = new Date(entry.createdAt).toLocaleString("zh-CN");
+              console.log(`名称: ${entry.name} | 类型: ${entry.agentType} | 状态: ${entry.status}`);
+              console.log(`创建: ${date}`);
+              console.log(`提示: ${entry.prompt}`);
+              console.log();
+            }
+            if (logLines.length > 0) {
+              logLines.forEach((line) => console.log(line));
+            } else {
+              console.log("(日志文件为空或不存在)");
+            }
+          }
+        } else {
+          // 列出所有历史
+          const entries = taskHistory.getAll();
+          if (entries.length === 0) {
+            console.log("\n暂无历史记录");
+          } else {
+            console.log(`\n历史记录 (共 ${entries.length} 条):`);
+            for (const e of entries.slice(0, 20)) {
+              const date = new Date(e.createdAt).toLocaleString("zh-CN");
+              const duration = e.startedAt && e.endedAt
+                ? Math.round((new Date(e.endedAt).getTime() - new Date(e.startedAt).getTime()) / 1000) + "s"
+                : "-";
+              const files = e.fileCount !== undefined ? ` ${e.fileCount}文件` : "";
+              const error = e.status === "failed" ? ` ⚠️` : "";
+              const promptSummary = e.prompt.length > 50 ? e.prompt.slice(0, 50) + "..." : e.prompt;
+              console.log(`[${e.status}] ${date} | ${e.agentType} | ${duration} | ${e.name}${files}${error}`);
+              console.log(`  → ${promptSummary}`);
+            }
+            if (entries.length > 20) console.log(`\n(还有 ${entries.length - 20} 条记录)`);
+          }
+        }
         promptUser();
         return;
       }
