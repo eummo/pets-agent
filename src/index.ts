@@ -5,6 +5,13 @@ import { agentManager } from "./tasks/agent-manager.js";
 import { taskHistory } from "./tasks/task-history.js";
 import type { Task } from "./tasks/task.js";
 
+// Ensure history is persisted on unexpected exit
+process.on("exit", () => taskHistory.flush());
+process.on("SIGTERM", () => {
+  taskHistory.flush();
+  agentManager.destroy();
+});
+
 const SLASH_COMMANDS = ["/quit", "/exit", "/clear", "/logs", "/tasks", "/history", "/help"];
 
 function createRL(): readline.Interface {
@@ -52,16 +59,16 @@ async function runREPL() {
   const agent = createOrchestratorAgent();
   subscribeToOrchestrator(agent);
 
-  // Forward agent manager events to console
+  // Forward agent manager events to console (use write to avoid REPL buffering)
   agentManager.on("update", (update) => {
     if (update.progress.length > 0) {
       const latest = update.progress[update.progress.length - 1];
-      console.log(`\n[任务 ${update.id.slice(0, 8)}] ${latest}`);
+      process.stdout.write(`\n[任务 ${update.id.slice(0, 8)}] ${latest}\n`);
     }
   });
 
   agentManager.on("exit", ({ taskId, exitCode }) => {
-    console.log(`\n[任务 ${taskId.slice(0, 8)}] 已结束，退出码: ${exitCode}`);
+    process.stdout.write(`\n[任务 ${taskId.slice(0, 8)}] 已结束，退出码: ${exitCode}\n`);
   });
 
   // --- Task watching state ---
@@ -138,11 +145,11 @@ async function runREPL() {
   }
 
   async function sendToAgent(input: string) {
-    console.log(`\n用户: ${input}`);
-    console.log("=".repeat(50));
+    process.stdout.write(`\n用户: ${input}\n`);
+    process.stdout.write(`${"=".repeat(50)}\n`);
     await agent.prompt(input);
     await agent.waitForIdle();
-    console.log("=".repeat(50));
+    process.stdout.write(`${"=".repeat(50)}\n`);
   }
 
   // --- REPL loop ---
@@ -173,7 +180,7 @@ async function runREPL() {
       }
 
       if (trimmed === "/clear") {
-        console.clear();
+        process.stdout.write("\x1b[2J\x1b[H"); // ANSI clear screen
         printBanner();
         promptUser();
         return;
@@ -273,6 +280,7 @@ async function runREPL() {
   };
 
   process.on("SIGINT", () => {
+    taskHistory.flush();
     if (watchingTaskId) {
       stopWatching();
       console.log("\n(监控已退出)");

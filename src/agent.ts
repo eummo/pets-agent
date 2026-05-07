@@ -116,6 +116,10 @@ export function subscribeToAgent(agent: Agent): void {
         }
         break;
       }
+      case "error": {
+        console.error(`\n[错误] ${event.message ?? "Unknown error"}`);
+        break;
+      }
     }
   });
 }

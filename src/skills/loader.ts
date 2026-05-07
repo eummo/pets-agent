@@ -105,7 +105,9 @@ function addIgnoreRules(ig: IgnorePatterns, dir: string, rootDir: string): void 
         })
         .filter((line): line is string => Boolean(line));
       if (patterns.length > 0) ig.add(patterns);
-    } catch {}
+    } catch (err) {
+      console.warn(`[SkillLoader] Failed to read ignore file ${ignorePath}:`, err);
+    }
   }
 }
 
@@ -185,8 +187,13 @@ function parseFrontmatter(content: string): { frontmatter: SkillFrontmatter; bod
 
   const yamlString = normalized.slice(4, endIndex);
   const body = normalized.slice(endIndex + 4).trim();
-  const parsed = parseYaml(yamlString);
-  return { frontmatter: (parsed ?? {}) as SkillFrontmatter, body };
+  try {
+    const parsed = parseYaml(yamlString);
+    return { frontmatter: (parsed ?? {}) as SkillFrontmatter, body };
+  } catch (error) {
+    console.warn(`[SkillLoader] Failed to parse frontmatter: ${error instanceof Error ? error.message : String(error)}`);
+    return { frontmatter: {}, body };
+  }
 }
 
 function loadSkillFromFile(

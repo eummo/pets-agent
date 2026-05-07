@@ -66,7 +66,7 @@ class AgentManager extends EventEmitter {
     return {
       id: task.id,
       status: task.status,
-      progress: [...task.progress],
+      progress: task.progress.length > 0 ? [...task.progress] : undefined,
       error: task.error,
       exitCode: task.exitCode,
       startedAt: task.startedAt,
@@ -78,7 +78,11 @@ class AgentManager extends EventEmitter {
     const subs = this.subscriptions.get(taskId);
     if (subs) {
       for (const cb of subs) {
-        try { cb(update); } catch { /* ignore */ }
+        try {
+          cb(update);
+        } catch (err) {
+          console.error(`[AgentManager] Subscriber error for task ${taskId.slice(0, 8)}:`, err);
+        }
       }
     }
   }
@@ -212,6 +216,8 @@ class AgentManager extends EventEmitter {
       task.endedAt = new Date();
       this.running.delete(id);
       this.emitUpdate(task);
+      // Record failure in history
+      taskHistory.add(task);
     });
 
     child.on("close", (code) => {
@@ -252,7 +258,9 @@ class AgentManager extends EventEmitter {
         if (m.type === "ping") {
           child.send?.({ type: "pong", taskId: m.taskId });
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.warn(`[AgentManager] Failed to handle IPC message: ${err}`);
+      }
     });
 
     return task;
@@ -290,7 +298,9 @@ class AgentManager extends EventEmitter {
 
     try {
       rt.child.kill("SIGTERM");
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn(`[AgentManager] Failed to kill task ${taskId.slice(0, 8)}:`, err);
+    }
 
     this.running.delete(taskId);
     if (task) this.emitUpdate(task);
@@ -339,6 +349,7 @@ class AgentManager extends EventEmitter {
     for (const [taskId] of this.running) {
       this.kill(taskId);
     }
+    taskHistory.destroy();
     this.removeAllListeners();
   }
 }

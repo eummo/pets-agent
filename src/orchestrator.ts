@@ -117,11 +117,11 @@ export function subscribeToOrchestrator(agent: Agent): void {
   agent.subscribe((event: AgentEvent, _signal: any) => {
     switch (event.type) {
       case "tool_execution_start":
-        console.log(`>>> 调用工具: ${event.toolName}`);
+        process.stdout.write(`>>> 调用工具: ${event.toolName}\n`);
         break;
       case "tool_execution_end":
-        console.log(
-          `<<< 工具完成: ${event.toolName} ${event.isError ? "(错误)" : "(成功)"}`,
+        process.stdout.write(
+          `<<< 工具完成: ${event.toolName} ${event.isError ? "(错误)" : "(成功)"}\n`,
         );
         break;
       case "message_end": {
@@ -136,8 +136,12 @@ export function subscribeToOrchestrator(agent: Agent): void {
               return "";
             })
             .join("");
-          if (text) console.log(`\n[助手] ${text}`);
+          if (text) process.stdout.write(`\n[助手] ${text}\n`);
         }
+        break;
+      }
+      case "error": {
+        console.error(`\n[错误] ${event.message ?? "Unknown error"}\n`);
         break;
       }
     }

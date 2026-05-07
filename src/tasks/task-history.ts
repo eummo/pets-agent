@@ -32,10 +32,15 @@ export interface TaskHistoryQuery {
   limit?: number;
 }
 
+// Re-export Task types for convenience
+export type { Task, TaskStatus, AgentType } from "./task.js";
+
 export class TaskHistory {
   private entries: TaskHistoryEntry[] = [];
   private maxEntries = 500;
   private maxProgressLines = 100;
+  private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSave = false;
 
   constructor() {
     this.load();
@@ -45,9 +50,15 @@ export class TaskHistory {
     try {
       if (fs.existsSync(HISTORY_FILE)) {
         const data = fs.readFileSync(HISTORY_FILE, "utf8");
-        this.entries = JSON.parse(data);
+        try {
+          this.entries = JSON.parse(data);
+        } catch (parseError) {
+          console.warn(`[TaskHistory] Failed to parse history file: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+          this.entries = [];
+        }
       }
-    } catch {
+    } catch (err) {
+      console.warn(`[TaskHistory] Failed to load history: ${err instanceof Error ? err.message : String(err)}`);
       this.entries = [];
     }
   }
@@ -81,14 +92,23 @@ export class TaskHistory {
   }
 
   save(): void {
-    try {
-      if (!fs.existsSync(HISTORY_DIR)) {
-        fs.mkdirSync(HISTORY_DIR, { recursive: true });
-      }
-      fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.entries, null, 2));
-    } catch (err) {
-      console.error("Failed to save task history:", err);
+    // Debounce saves to avoid excessive disk writes
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
     }
+    this.saveDebounceTimer = setTimeout(() => {
+      this.pendingSave = true;
+      try {
+        if (!fs.existsSync(HISTORY_DIR)) {
+          fs.mkdirSync(HISTORY_DIR, { recursive: true });
+        }
+        fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.entries, null, 2));
+      } catch (err) {
+        console.error("[TaskHistory] Failed to save history:", err);
+      } finally {
+        this.pendingSave = false;
+      }
+    }, 1000);
   }
 
   add(task: Task): void {
@@ -149,8 +169,36 @@ export class TaskHistory {
         const content = fs.readFileSync(logFile, "utf8");
         return content.split("\n").filter(Boolean);
       }
-    } catch {}
+    } catch (err) {
+      console.warn(`[TaskHistory] Failed to read log ${taskId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
     return [];
+  }
+
+  /**
+   * Force an immediate save, flushing any pending debounced save.
+   * Call this before process exit to ensure all history is persisted.
+   */
+  flush(): void {
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+      this.saveDebounceTimer = null;
+    }
+    if (!fs.existsSync(HISTORY_DIR)) {
+      fs.mkdirSync(HISTORY_DIR, { recursive: true });
+    }
+    try {
+      fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.entries, null, 2));
+    } catch (err) {
+      console.error("[TaskHistory] Failed to flush history:", err);
+    }
+  }
+
+  /**
+   * Clean up resources. Call on application shutdown.
+   */
+  destroy(): void {
+    this.flush();
   }
 }
 
