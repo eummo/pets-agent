@@ -214,7 +214,12 @@ async function runREPL() {
               const date = new Date(entry.createdAt).toLocaleString("zh-CN");
               console.log(`名称: ${entry.name} | 类型: ${entry.agentType} | 状态: ${entry.status}`);
               console.log(`创建: ${date}`);
-              console.log(`提示: ${entry.prompt}`);
+              // 格式化 prompt：合并多行，限制长度
+              const promptFormatted = entry.prompt.replace(/\n+/g, " ").trim();
+              const promptDisplay = promptFormatted.length > 100
+                ? promptFormatted.slice(0, 100) + "..."
+                : promptFormatted;
+              console.log(`用户需求: ${promptDisplay}`);
               console.log();
             }
             if (logLines.length > 0) {

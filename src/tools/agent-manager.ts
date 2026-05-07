@@ -249,7 +249,12 @@ const listTaskHistoryTool: ToolDef = makeTool({
       if (entry) {
         lines.push(`名称: ${entry.name} | 类型: ${entry.agentType} | 状态: ${entry.status}`);
         lines.push(`创建: ${new Date(entry.createdAt).toLocaleString("zh-CN")}`);
-        lines.push(`提示: ${entry.prompt}`);
+        // 格式化 prompt
+        const promptFormatted = entry.prompt.replace(/\n+/g, " ").trim();
+        const promptDisplay = promptFormatted.length > 100
+          ? promptFormatted.slice(0, 100) + "..."
+          : promptFormatted;
+        lines.push(`用户需求: ${promptDisplay}`);
         lines.push("");
       }
       if (logLines.length > 0) {
