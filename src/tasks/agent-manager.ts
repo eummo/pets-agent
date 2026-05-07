@@ -88,17 +88,21 @@ class AgentManager extends EventEmitter {
 
   private buildCommand(agentType: AgentType): { cmd: string; args: string[]; passPromptViaStdin: boolean } {
     switch (agentType) {
-      case "claude-code":
+      case "claude-code": {
+        // In WSL, the "claude" bash wrapper calls PowerShell which corrupts args with
+        // newlines/spaces. Call the Windows exe directly via the full NT path.
         // -p = print mode (non-interactive, exits after completion)
-        // positional arg = prompt (not stdin, which doesn't work reliably on WSL)
+        // positional arg = prompt
         // --dangerously-skip-permissions = skip permission prompts
         // --no-session-persistence = don't save session to disk
-        // --bare = minimal mode (skip hooks, LSP, etc.)
+        // --bare = minimal mode
+        const claudeExe = "/mnt/c/Users/jadenli/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe";
         return {
-          cmd: "claude",
+          cmd: claudeExe,
           args: ["-p", "--dangerously-skip-permissions", "--no-session-persistence", "--bare"],
           passPromptViaStdin: false,
         };
+      }
       case "codex":
         return { cmd: "npx", args: ["-y", "openai/codex", "--acp", "--stdio"], passPromptViaStdin: true };
       case "kiro":
