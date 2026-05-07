@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import { randomBytes } from "crypto";
+import * as fs from "fs";
 import type { Task, TaskStatus, AgentType } from "./task.js";
 
 function generateId(): string {
@@ -144,12 +145,27 @@ class AgentManager extends EventEmitter {
       if (v !== undefined) filteredEnv[k] = v;
     }
 
+    // Ensure workdir exists before spawning
+    const workdir = opts?.workdir ?? process.cwd();
+    if (workdir && !fs.existsSync(workdir)) {
+      fs.mkdirSync(workdir, { recursive: true });
+    }
+
     const spawnArgs = passPromptViaStdin ? args : [...args, prompt];
-    const child = spawn(cmd, spawnArgs, {
-      stdio: ["pipe", "pipe", "pipe", "ipc"],
-      cwd: opts?.workdir ?? process.cwd(),
+    const spawnOpts: Parameters<typeof spawn>[2] = {
+      cwd: workdir,
       env: filteredEnv,
-    });
+    };
+
+    if (passPromptViaStdin) {
+      spawnOpts.stdio = ["pipe", "pipe", "pipe", "ipc"];
+    } else {
+      // Prompt is passed as positional arg — stdin not needed.
+      // Use "ignore" so the child doesn't wait for input.
+      spawnOpts.stdio = ["ignore", "pipe", "pipe", "ipc"];
+    }
+
+    const child = spawn(cmd, spawnArgs, spawnOpts);
 
     const rt: RunningTask = {
       task,
