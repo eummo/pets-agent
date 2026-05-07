@@ -86,16 +86,25 @@ class AgentManager extends EventEmitter {
     this.notifySubscribers(task.id, update);
   }
 
-  private buildCommand(agentType: AgentType): { cmd: string; args: string[] } {
+  private buildCommand(agentType: AgentType): { cmd: string; args: string[]; passPromptViaStdin: boolean } {
     switch (agentType) {
       case "claude-code":
-        return { cmd: "claude", args: ["--acp", "--stdio"] };
+        // -p = print mode (non-interactive, exits after completion)
+        // positional arg = prompt (not stdin, which doesn't work reliably on WSL)
+        // --dangerously-skip-permissions = skip permission prompts
+        // --no-session-persistence = don't save session to disk
+        // --bare = minimal mode (skip hooks, LSP, etc.)
+        return {
+          cmd: "claude",
+          args: ["-p", "--dangerously-skip-permissions", "--no-session-persistence", "--bare"],
+          passPromptViaStdin: false,
+        };
       case "codex":
-        return { cmd: "codex", args: ["--acp", "--stdio"] };
+        return { cmd: "npx", args: ["-y", "openai/codex", "--acp", "--stdio"], passPromptViaStdin: true };
       case "kiro":
-        return { cmd: "kiro", args: ["--acp", "--stdio"] };
+        return { cmd: "kiro", args: ["--acp", "--stdio"], passPromptViaStdin: true };
       default:
-        return { cmd: agentType, args: ["--acp", "--stdio"] };
+        return { cmd: agentType, args: ["--acp", "--stdio"], passPromptViaStdin: true };
     }
   }
 
@@ -122,12 +131,20 @@ class AgentManager extends EventEmitter {
 
     this.tasks.set(id, task);
 
-    const { cmd, args } = this.buildCommand(agentType);
+    const { cmd, args, passPromptViaStdin } = this.buildCommand(agentType);
 
-    const child = spawn(cmd, args, {
+    // Filter WSL-only environment variables so child processes don't inherit them
+    const filteredEnv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (k.startsWith("HERMES_") || k === "WSL_DISTRO_NAME" || k === "WSLENV") continue;
+      if (v !== undefined) filteredEnv[k] = v;
+    }
+
+    const spawnArgs = passPromptViaStdin ? args : [...args, prompt];
+    const child = spawn(cmd, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe", "ipc"],
       cwd: opts?.workdir ?? process.cwd(),
-      env: { ...process.env },
+      env: filteredEnv,
     });
 
     const rt: RunningTask = {
@@ -184,28 +201,24 @@ class AgentManager extends EventEmitter {
       }
     });
 
-    // ACP handshake: wait for start ACK then send prompt
-    const handshakeTimeout = setTimeout(() => {
-      if (task.status === "pending") {
-        task.status = "running";
-        task.startedAt = new Date();
-        this.sendPrompt(id, prompt);
-      }
-    }, 2000);
-
-    child.stdout?.once("data", (data: Buffer) => {
-      clearTimeout(handshakeTimeout);
-      const msg = this.parseAcpMessage(data.toString());
-      if (msg && msg.type === "start") {
-        task.status = "running";
-        task.startedAt = new Date();
-      } else {
-        task.status = "running";
-        task.startedAt = new Date();
-        this.sendPrompt(id, prompt);
-      }
+    if (passPromptViaStdin) {
+      // Simple mode: write prompt to stdin and wait for process to finish
+      task.status = "running";
+      task.startedAt = new Date();
       this.emitUpdate(task);
-    });
+
+      setTimeout(() => {
+        if (rt.child.stdin) {
+          rt.child.stdin.write(prompt + "\n");
+          rt.child.stdin.end();
+        }
+      }, 500);
+    } else {
+      // Positional arg mode (e.g. claude -p <prompt>): just start and stream output
+      task.status = "running";
+      task.startedAt = new Date();
+      this.emitUpdate(task);
+    }
 
     // IPC channel for control messages
     child.on("message", (msg: unknown) => {
@@ -216,16 +229,6 @@ class AgentManager extends EventEmitter {
         }
       } catch { /* ignore */ }
     });
-
-    // Kick off status check
-    setTimeout(() => {
-      if (task.status === "pending") {
-        task.status = "running";
-        task.startedAt = new Date();
-        this.emitUpdate(task);
-        this.sendPrompt(id, prompt);
-      }
-    }, 3000);
 
     return task;
   }
