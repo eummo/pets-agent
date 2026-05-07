@@ -230,7 +230,9 @@ async function runREPL() {
                 : "-";
               const files = e.fileCount !== undefined ? ` ${e.fileCount}文件` : "";
               const error = e.status === "failed" ? ` ⚠️` : "";
-              const promptSummary = e.prompt.length > 50 ? e.prompt.slice(0, 50) + "..." : e.prompt;
+              // 合并换行符，限制总长度
+              const promptSingleLine = e.prompt.replace(/\n+/g, " ").trim();
+              const promptSummary = promptSingleLine.length > 70 ? promptSingleLine.slice(0, 70) + "..." : promptSingleLine;
               console.log(`[${e.status}] ${date} | ${e.agentType} | ${duration} | ${e.name}${files}${error}`);
               console.log(`  → ${promptSummary}`);
             }
