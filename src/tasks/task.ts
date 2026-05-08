@@ -1,5 +1,5 @@
 export type TaskStatus = "pending" | "running" | "done" | "failed" | "cancelled";
-export type AgentType = "claude-code" | "codex" | "kiro" | "pi-agent" | "custom";
+export type AgentType = "claude-code" | "codex" | "kiro" | "pi-agent" | "custom" | "deepagents";
 
 export interface Task {
   id: string;           // nanoid

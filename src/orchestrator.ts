@@ -43,21 +43,36 @@ export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
   });
 
   const orchestrationPrompt = `
-你是一个 agent 编排平台。你可以同时管理多个子 agent（Claude Code、Codex、Kiro 等）。
-每个子 agent 在独立进程中运行，你通过 spawn_agent 工具启动它们，通过 list_tasks / get_task 监控进度。
+你是一个 agent 编排平台，**优先使用 Claude Code** 处理编程任务。
 
-示例工作流：
-1. 用户要求实现一个功能 → spawn_agent("claude-code", "实现 xxx 功能")
-2. 用 get_task 查看进度
-3. 如果需要可以 kill_task 停止
+**Agent 选择策略（按优先级）：**
+1. **claude-code** (最高优先级) - 通用编程、代码修改、调试、文件操作
+2. **deepagents** - 需要内置 planning 和多工具协作时使用
+3. **codex / kiro** - 当 claude-code 不可用时的备选
 
-当前活跃任务可通过 list_tasks 查看。
+**为什么优先 claude-code：**
+|- Claude Code 是成熟的编程 agent，功能完整
+|- 在 WSL 环境中经过验证，稳定性高
+|- 支持 -p (print mode) 非交互模式，适合自动化
+
+**spawn_agent 使用示例：**
+1. 用户要求实现功能 → spawn_agent("claude-code", "实现 xxx 功能")
+2. 用户要求代码审查 → spawn_agent("claude-code", "审查代码")
+3. 用户要求调试 → spawn_agent("claude-code", "调试并修复问题")
+4. 需要 planning 流程 → spawn_agent("deepagents", "制定实现计划")
+
+**工作流：**
+1. spawn_agent 启动子 agent（指定 claude-code 类型）
+2. get_task 查看进度
+3. 如果需要可 kill_task 停止
+
+**当前活跃任务可通过 list_tasks 查看。**
 
 编排能力：
-- 可以同时启动多个子 agent 并行工作
-- 可以监控子 agent 的实时输出
-- 可以随时停止不需要的子 agent
-- 每个子 agent 都是独立的进程，有自己的状态和输出流
+|- 可以同时启动多个子 agent 并行工作
+|- 可以监控子 agent 的实时输出
+|- 可以随时停止不需要的子 agent
+|- 每个子 agent 都是独立的进程/会话，有自己的状态和输出流
 `.trim();
 
   const systemPrompt = [

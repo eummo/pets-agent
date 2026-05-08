@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import * as fs from "fs";
 import type { Task, TaskStatus, AgentType } from "./task.js";
 import { taskHistory } from "./task-history.js";
+import { spawnDeepAgents, abortDeepAgents } from "./deepagents-runtime.js";
 
 function generateId(): string {
   return randomBytes(8).toString("hex");
@@ -142,6 +143,25 @@ class AgentManager extends EventEmitter {
 
     this.tasks.set(id, task);
 
+    // ── deepagents: runs in-process via LangGraph (no child process) ──────────
+    if (agentType === "deepagents") {
+      task.status = "pending";
+      this.emitUpdate(task);
+
+      // Fire-and-forget async — spawnDeepAgents streams into task.progress
+      // and calls taskHistory.add() when done.
+      spawnDeepAgents(task, prompt, opts?.workdir).catch((err) => {
+        task.error = err instanceof Error ? err.message : String(err);
+        task.status = "failed";
+        task.endedAt = new Date();
+        this.emitUpdate(task);
+        taskHistory.add(task);
+      });
+
+      return task;
+    }
+
+    // ── External agents: spawn as child process ────────────────────────────────
     const { cmd, args, passPromptViaStdin } = this.buildCommand(agentType);
 
     // Filter WSL-only environment variables so child processes don't inherit them
@@ -287,10 +307,21 @@ class AgentManager extends EventEmitter {
   }
 
   kill(taskId: string): void {
+    const task = this.tasks.get(taskId);
+
+    // deepagents tasks are in-process — use AbortController
+    if (task?.agentType === "deepagents") {
+      abortDeepAgents(taskId);
+      task.status = "cancelled";
+      task.endedAt = new Date();
+      this.emitUpdate(task);
+      this.emit("kill", { taskId });
+      return;
+    }
+
     const rt = this.running.get(taskId);
     if (!rt) return;
 
-    const task = this.tasks.get(taskId);
     if (task) {
       task.status = "cancelled";
       task.endedAt = new Date();
