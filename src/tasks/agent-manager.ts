@@ -22,11 +22,13 @@ export type TaskUpdate = Pick<Task, "id" | "status" | "progress" | "error" | "ex
 class AgentManager extends EventEmitter {
   private tasks = new Map<string, Task>();
   private running = new Map<string, RunningTask>();
+  private children = new Map<string, string[]>();
   private reapInterval: ReturnType<typeof setInterval> | null = null;
   private subscriptions = new Map<string, Set<(update: TaskUpdate) => void>>();
 
   constructor() {
     super();
+    this.children = new Map();
     this.startReaper();
   }
 
@@ -71,13 +73,14 @@ class AgentManager extends EventEmitter {
     this.emit("update", this.broadcastUpdate(task));
     this.emit("exit", { taskId, exitCode: child.exitCode });
     taskHistory.add(task);
+    this.checkChildrenDone(taskId);
   }
 
   private broadcastUpdate(task: Task): TaskUpdate {
     return {
       id: task.id,
       status: task.status,
-      progress: task.progress.length > 0 ? [...task.progress] : undefined,
+      progress: task.progress.length > 0 ? task.progress.slice() : [],
       error: task.error,
       exitCode: task.exitCode,
       startedAt: task.startedAt,
@@ -107,15 +110,18 @@ class AgentManager extends EventEmitter {
   private buildCommand(agentType: AgentType, workdir?: string): { cmd: string; args: string[]; passPromptViaStdin: boolean; name: string } {
     switch (agentType) {
       case "claude-code": {
-        // In WSL, the "claude" bash wrapper calls PowerShell which corrupts args.
-        // Call the Windows exe directly via the full NT path.
-        // -p = print mode (non-interactive, exits after completion)
-        // --dangerously-skip-permissions = skip permission prompts
-        // --no-session-persistence = don't save session to disk
-        // --bare = minimal mode
-        const claudeExe = "/mnt/c/Users/jadenli/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe";
+        // Try npm global bin first, then PATH
+        const npmGlobalBin = process.env.npm_config_global_prefix
+          ? path.join(process.env.npm_config_global_prefix, "bin", "claude")
+          : null;
+        const candidates = [
+          npmGlobalBin,
+          "claude",
+          "/usr/local/bin/claude",
+          "/usr/bin/claude",
+        ].filter(Boolean) as string[];
         return {
-          cmd: claudeExe,
+          cmd: candidates[0],
           args: ["-p", "--dangerously-skip-permissions", "--no-session-persistence", "--bare"],
           passPromptViaStdin: false,
           name: "claude-code",
@@ -126,7 +132,7 @@ class AgentManager extends EventEmitter {
         // workdir is passed via --input option or we use cwd
         return {
           cmd: "npx",
-          args: ["-y", "@mariozechner/pi-coding-agent", "-p", "--no-input"],
+          args: ["-y", "@earendil-works/pi-coding-agent", "-p", "--no-input"],
           passPromptViaStdin: false,
           name: "pi-agent",
         };
@@ -140,7 +146,7 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  spawn(agentType: AgentType, prompt: string, opts?: { name?: string; workdir?: string }): Task {
+  spawn(agentType: AgentType, prompt: string, opts?: { name?: string; workdir?: string; parentId?: string }): Task {
     const id = generateId();
     const task: Task = {
       id,
@@ -151,7 +157,17 @@ class AgentManager extends EventEmitter {
       createdAt: new Date(),
       progress: [],
       workdir: opts?.workdir,
+      parentId: opts?.parentId,
     };
+
+    // Establish parent-child relationship
+    if (opts?.parentId) {
+      const parent = this.tasks.get(opts.parentId);
+      if (parent) {
+        if (!parent.children) parent.children = [];
+        parent.children.push(id);
+      }
+    }
 
     this.tasks.set(id, task);
 
@@ -268,6 +284,51 @@ class AgentManager extends EventEmitter {
     });
 
     return task;
+  }
+
+  /**
+   * Spawn a child task under a parent task. Automatically establishes
+   * the parent-child relationship via parentId / children fields.
+   */
+  spawnChild(parentId: string, agentType: AgentType, prompt: string, opts?: { name?: string; workdir?: string }): Task {
+    const parent = this.tasks.get(parentId);
+    if (!parent) {
+      throw new Error(`Parent task not found: ${parentId}`);
+    }
+    const task = this.spawn(agentType, prompt, { ...opts, parentId });
+
+    // Track in children map
+    if (!this.children.has(parentId)) {
+      this.children.set(parentId, []);
+    }
+    this.children.get(parentId)!.push(task.id);
+
+    return task;
+  }
+
+  /**
+   * Check if all children of a task have completed (done/failed/cancelled).
+   * If so, emit "children_done" event with the parent task id and child results.
+   */
+  private checkChildrenDone(taskId: string): void {
+    const task = this.tasks.get(taskId);
+    if (!task?.parentId) return;
+
+    const parent = this.tasks.get(task.parentId);
+    if (!parent?.children || parent.children.length === 0) return;
+
+    const allDone = parent.children.every((childId) => {
+      const child = this.tasks.get(childId);
+      return child && (child.status === "done" || child.status === "failed" || child.status === "cancelled");
+    });
+
+    if (allDone) {
+      const childResults = parent.children.map((childId) => {
+        const child = this.tasks.get(childId)!;
+        return { id: child.id, name: child.name, status: child.status, error: child.error };
+      });
+      this.emit("task_complete", { parentId: parent.id, children: childResults });
+    }
   }
 
   kill(taskId: string): void {

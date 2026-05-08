@@ -1,4 +1,7 @@
 # LLM 提供商配置
+security:
+  redact_secrets: true
+
 llm:
   # 当前使用的提供商名称
   provider: "minimax-cn"

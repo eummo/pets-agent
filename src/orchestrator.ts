@@ -1,9 +1,9 @@
 import * as path from "path";
 import * as fs from "fs";
 import { homedir } from "os";
-import { Agent } from "@mariozechner/pi-agent-core";
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
-import { streamSimple, getModel } from "@mariozechner/pi-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { streamSimple, getModel } from "@earendil-works/pi-ai";
 import { getApiKey, loadConfig } from "./config.js";
 import { registry, registerAllTools } from "./tools/index.js";
 import { registerAgentManagerTools } from "./tools/agent-manager.js";
@@ -11,8 +11,7 @@ import {
   loadSkills,
   formatSkillsForPrompt,
 } from "./skills/loader.js";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
   registerAllTools();
@@ -21,7 +20,6 @@ export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
   const config = loadConfig();
   const apiKey = getApiKey();
 
-  // Resolve full model from registry (includes `api` field needed by streamSimple)
   const providerName = config.llm.provider as "minimax-cn";
   const modelId = config.llm.providers[config.llm.provider].model_id;
   const resolvedModel = getModel(providerName, modelId as any);
@@ -51,9 +49,9 @@ export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
 3. **codex / kiro** - 当 claude-code 不可用时的备选
 
 **为什么优先 claude-code：**
-|- Claude Code 是成熟的编程 agent，功能完整
-|- 在 WSL 环境中经过验证，稳定性高
-|- 支持 -p (print mode) 非交互模式，适合自动化
+- Claude Code 是成熟的编程 agent，功能完整
+- 在 WSL 环境中经过验证，稳定性高
+- 支持 -p (print mode) 非交互模式，适合自动化
 
 **spawn_agent 使用示例：**
 1. 用户要求实现功能 → spawn_agent("claude-code", "实现 xxx 功能")
@@ -61,35 +59,42 @@ export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
 3. 用户要求调试 → spawn_agent("claude-code", "调试并修复问题")
 4. 需要 pi-mono 框架能力 → spawn_agent("pi-agent", "使用 pi agent 完成...")
 
-**工作流：**
-1. spawn_agent 启动子 agent（指定 claude-code 类型）
-2. get_task 查看进度
-3. 如果需要可 kill_task 停止
-
 **当前活跃任务可通过 list_tasks 查看。**
 
-编排能力：
-|- 可以同时启动多个子 agent 并行工作
-|- 可以监控子 agent 的实时输出
-|- 可以随时停止不需要的子 agent
-|- 每个子 agent 都是独立的进程/会话，有自己的状态和输出流
+**编排能力：**
+- 可以同时启动多个子 agent 并行工作
+- 可以监控子 agent 的实时输出
+- 可以随时停止不需要的子 agent
+- 每个子 agent 都是独立的进程/会话，有自己的状态和输出流
+
+**任务分解 (decompose_task) — 复杂任务用：**
+当任务涉及多个独立步骤、需要不同专业领域、或规模较大时，使用 decompose_task 工具分解。
+
+典型场景：
+- "实现 XXX 系统" → 分解为前端、后端、测试等多个子任务并行
+- "调研并对比 A vs B" → 分解为两个独立调研任务并行，再汇总
+- "分析项目问题" → 分解为代码扫描、日志分析、复现验证等步骤
+
+分解模式：
+1. 调用 decompose_task，传入 subtasks 数组（每个含 title、agentType、prompt）
+2. 所有子任务自动并行启动
+3. 监控子任务状态：list_tasks / get_task
+4. 所有子任务完成后，父任务自动收到 task_complete 事件
+5. 可选：在父任务下继续 spawn 后续汇总任务
+
+简单任务（一步搞定）直接 spawn_agent，不需要分解。
 `.trim();
 
   const systemPrompt = [
-    `你是一个智能旅行助手，同时也是 agent 编排平台。`,
-    ``,
+    `你是一个智能开发助手，同时也是 agent 编排平台。`,
+
     `可用工具:`,
     ...toolDescs,
-    ``,
-    `工作流程 (旅行相关):`,
-    `1. 先用 get_weather 查询天气`,
-    `2. 再用 get_attraction 根据天气推荐景点`,
-    `3. 给出具体旅游建议`,
-    ``,
+
     extraSystemPrompt,
     agentsMd,
     skillsSection,
-    ``,
+
     `--- 编排能力 ---`,
     orchestrationPrompt,
   ]
@@ -128,22 +133,32 @@ function loadAgentsMd(): string {
   return "";
 }
 
-export function subscribeToOrchestrator(agent: Agent): void {
-  agent.subscribe((event: AgentEvent, _signal: any) => {
+export type LogLine = {
+  text: string;
+  style?: "info" | "user" | "agent" | "tool_start" | "tool_end" | "error" | "task_update" | "task_exit";
+};
+
+type SubscribeOptions = {
+  onLog: (line: LogLine) => void;
+};
+
+export function subscribeToOrchestrator(agent: Agent, options: SubscribeOptions): void {
+  agent.subscribe((event: any, _signal: any) => {
     switch (event.type) {
       case "tool_execution_start":
-        process.stdout.write(`>>> 调用工具: ${event.toolName}\n`);
+        options.onLog({ text: `>>> 调用工具: ${event.toolName}`, style: "tool_start" });
         break;
       case "tool_execution_end":
-        process.stdout.write(
-          `<<< 工具完成: ${event.toolName} ${event.isError ? "(错误)" : "(成功)"}\n`,
-        );
+        options.onLog({
+          text: `<<< 工具完成: ${event.toolName} ${event.isError ? "(错误)" : "(成功)"}`,
+          style: event.isError ? "error" : "tool_end",
+        });
         break;
       case "message_end": {
         const msg = event.message as any;
         if (msg?.role === "assistant") {
           const text = (msg.content as any[])
-            .filter((c) => c.type === "text" || c.type === "toolCall")
+            .filter((c: any) => c.type === "text" || c.type === "toolCall")
             .map((c: any) => {
               if (c.type === "text") return c.text;
               if (c.type === "toolCall")
@@ -151,12 +166,15 @@ export function subscribeToOrchestrator(agent: Agent): void {
               return "";
             })
             .join("");
-          if (text) process.stdout.write(`\n[助手] ${text}\n`);
+          if (text) options.onLog({ text, style: "agent" });
         }
         break;
       }
-      case "error": {
-        console.error(`\n[错误] ${event.message ?? "Unknown error"}\n`);
+      default: {
+        const e = event as any;
+        if (e.message && typeof e.message === "string") {
+          options.onLog({ text: e.message, style: "error" });
+        }
         break;
       }
     }

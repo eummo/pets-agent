@@ -294,10 +294,100 @@ const listTaskHistoryTool: ToolDef = makeTool({
   },
 });
 
+const decomposeTaskTool: ToolDef = makeTool({
+  name: "decompose_task",
+  label: "分解复杂任务",
+  description: "将一个复杂任务分解为多个可并行的子任务图，返回子任务列表。可指定 parentId 将子任务挂载到已有父任务下",
+  parameters: {
+    type: "object",
+    properties: {
+      taskDescription: {
+        type: "string",
+        description: "需要分解的复杂任务描述",
+      },
+      parentId: {
+        type: "string",
+        description: "父任务 ID（可选，用于将子任务挂载到已有任务下）",
+      },
+      subtasks: {
+        type: "array",
+        description: "子任务列表，每个包含 title、agentType、prompt",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "子任务标题" },
+            agentType: {
+              type: "string",
+              description: "Agent 类型: claude-code, pi-agent, codex, kiro, custom",
+              enum: ["claude-code", "pi-agent", "codex", "kiro", "custom"],
+            },
+            prompt: { type: "string", description: "给子 agent 的任务描述" },
+          },
+          required: ["title", "agentType", "prompt"],
+        },
+      },
+    },
+    required: ["taskDescription", "subtasks"],
+  },
+  prepareArguments(args: unknown) {
+    if (typeof args === "string") args = JSON.parse(args);
+    return args as {
+      taskDescription: string;
+      parentId?: string;
+      subtasks: Array<{ title: string; agentType: AgentType; prompt: string }>;
+    };
+  },
+  async execute(_toolCallId, params) {
+    const p = params as {
+      taskDescription: string;
+      parentId?: string;
+      subtasks: Array<{ title: string; agentType: AgentType; prompt: string }>;
+    };
+
+    if (!p.subtasks || p.subtasks.length === 0) {
+      return {
+        content: [{ type: "text", text: "错误: subtasks 不能为空，请提供至少一个子任务" }],
+        details: { error: "Empty subtasks" },
+      };
+    }
+
+    // If parentId specified, validate it exists
+    if (p.parentId && !agentManager.get(p.parentId)) {
+      return {
+        content: [{ type: "text", text: `错误: 父任务不存在: ${p.parentId}` }],
+        details: { error: "Parent task not found" },
+      };
+    }
+
+    const spawned = [];
+    const lines = [`任务分解: "${p.taskDescription.slice(0, 80)}${p.taskDescription.length > 80 ? "..." : ""}"`, ""];
+
+    for (const sub of p.subtasks) {
+      const opts: { name?: string; workdir?: string; parentId?: string } = { name: sub.title };
+      if (p.parentId) opts.parentId = p.parentId;
+
+      const task = p.parentId
+        ? agentManager.spawnChild(p.parentId, sub.agentType, sub.prompt, opts)
+        : agentManager.spawn(sub.agentType, sub.prompt, opts);
+
+      spawned.push({ id: task.id, name: task.name, agentType: sub.agentType, status: task.status });
+      lines.push(`  ✓ [${sub.agentType}] ${sub.title} → ${task.id}`);
+    }
+
+    lines.push("", `已启动 ${spawned.length} 个子任务，使用 list_tasks 查看进度`);
+
+    return {
+      content: [{ type: "text", text: lines.join("\n") }],
+      details: { taskDescription: p.taskDescription, parentId: p.parentId, subtasks: spawned },
+    };
+  },
+});
+
 export function registerAgentManagerTools(): void {
   registry.register(spawnAgentTool);
   registry.register(listTasksTool);
   registry.register(getTaskTool);
   registry.register(killTaskTool);
   registry.register(listTaskHistoryTool);
+  registry.register(decomposeTaskTool);
 }

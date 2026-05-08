@@ -14,4 +14,6 @@ export interface Task {
   progress: string[];
   error?: string;
   workdir?: string;
+  parentId?: string;
+  children?: string[];
 }

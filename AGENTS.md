@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Pets Agent 是一个基于 pi-mono 框架的智能旅行助手 Agent，支持工具调用、Skill 加载和 AGENTS.md 指令注入。
+Pets Agent 是一个基于 pi-mono 框架的智能开发助手 Agent，支持工具调用、Skill 加载和 AGENTS.md 指令注入。
 
 ## 目录结构
 
