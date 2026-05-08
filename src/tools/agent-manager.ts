@@ -20,8 +20,8 @@ const spawnAgentTool: ToolDef = makeTool({
     properties: {
       agentType: {
         type: "string",
-        description: "Agent 类型: claude-code, codex, kiro, deepagents, pi-agent, custom",
-        enum: ["claude-code", "codex", "kiro", "deepagents", "pi-agent", "custom"],
+        description: "Agent 类型: claude-code (优先), pi-agent, codex, kiro, custom",
+        enum: ["claude-code", "pi-agent", "codex", "kiro", "custom"],
       },
       prompt: {
         type: "string",

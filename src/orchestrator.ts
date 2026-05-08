@@ -47,7 +47,7 @@ export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
 
 **Agent 选择策略（按优先级）：**
 1. **claude-code** (最高优先级) - 通用编程、代码修改、调试、文件操作
-2. **deepagents** - 需要内置 planning 和多工具协作时使用
+2. **pi-agent** - 当需要 pi-mono 框架内置能力时使用
 3. **codex / kiro** - 当 claude-code 不可用时的备选
 
 **为什么优先 claude-code：**
@@ -59,7 +59,7 @@ export function createOrchestratorAgent(extraSystemPrompt = ""): Agent {
 1. 用户要求实现功能 → spawn_agent("claude-code", "实现 xxx 功能")
 2. 用户要求代码审查 → spawn_agent("claude-code", "审查代码")
 3. 用户要求调试 → spawn_agent("claude-code", "调试并修复问题")
-4. 需要 planning 流程 → spawn_agent("deepagents", "制定实现计划")
+4. 需要 pi-mono 框架能力 → spawn_agent("pi-agent", "使用 pi agent 完成...")
 
 **工作流：**
 1. spawn_agent 启动子 agent（指定 claude-code 类型）

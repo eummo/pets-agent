@@ -1,8 +1,8 @@
 export type TaskStatus = "pending" | "running" | "done" | "failed" | "cancelled";
-export type AgentType = "claude-code" | "codex" | "kiro" | "pi-agent" | "custom" | "deepagents";
+export type AgentType = "claude-code" | "codex" | "kiro" | "pi-agent" | "custom";
 
 export interface Task {
-  id: string;           // nanoid
+  id: string;
   name: string;
   agentType: AgentType;
   prompt: string;
@@ -11,7 +11,7 @@ export interface Task {
   startedAt?: Date;
   endedAt?: Date;
   exitCode?: number;
-  progress: string[];   // stdout lines collected so far
+  progress: string[];
   error?: string;
   workdir?: string;
 }

@@ -7,6 +7,7 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@langchain/openai": "^1.4.5",
     "@mariozechner/pi-agent-core": "file:../pi-mono/packages/agent",
     "@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
     "axios": "^1.6.7",

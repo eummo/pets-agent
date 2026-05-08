@@ -2,9 +2,9 @@ import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import { randomBytes } from "crypto";
 import * as fs from "fs";
+import * as path from "path";
 import type { Task, TaskStatus, AgentType } from "./task.js";
 import { taskHistory } from "./task-history.js";
-import { spawnDeepAgents, abortDeepAgents } from "./deepagents-runtime.js";
 
 function generateId(): string {
   return randomBytes(8).toString("hex");
@@ -37,7 +37,7 @@ class AgentManager extends EventEmitter {
           this.handleProcessExit(taskId);
         }
       }
-    }, 5000);
+    }, 2000);
   }
 
   private handleProcessExit(taskId: string): void {
@@ -55,6 +55,16 @@ class AgentManager extends EventEmitter {
       task.error = task.error.trim();
     } else if (hadError) {
       task.error = `Process exited with code ${child.exitCode}`;
+    }
+
+    // Flush remaining buffer
+    if (rt.stdoutBuffer.trim()) {
+      task.progress.push(rt.stdoutBuffer);
+      taskHistory.appendLog(task.id, [rt.stdoutBuffer]);
+    }
+    if (rt.stderrBuffer.trim()) {
+      task.progress.push(`[stderr] ${rt.stderrBuffer}`);
+      taskHistory.appendLog(task.id, [`[stderr] ${rt.stderrBuffer}`]);
     }
 
     this.running.delete(taskId);
@@ -94,13 +104,12 @@ class AgentManager extends EventEmitter {
     this.notifySubscribers(task.id, update);
   }
 
-  private buildCommand(agentType: AgentType): { cmd: string; args: string[]; passPromptViaStdin: boolean } {
+  private buildCommand(agentType: AgentType, workdir?: string): { cmd: string; args: string[]; passPromptViaStdin: boolean; name: string } {
     switch (agentType) {
       case "claude-code": {
-        // In WSL, the "claude" bash wrapper calls PowerShell which corrupts args with
-        // newlines/spaces. Call the Windows exe directly via the full NT path.
+        // In WSL, the "claude" bash wrapper calls PowerShell which corrupts args.
+        // Call the Windows exe directly via the full NT path.
         // -p = print mode (non-interactive, exits after completion)
-        // positional arg = prompt
         // --dangerously-skip-permissions = skip permission prompts
         // --no-session-persistence = don't save session to disk
         // --bare = minimal mode
@@ -109,22 +118,25 @@ class AgentManager extends EventEmitter {
           cmd: claudeExe,
           args: ["-p", "--dangerously-skip-permissions", "--no-session-persistence", "--bare"],
           passPromptViaStdin: false,
+          name: "claude-code",
+        };
+      }
+      case "pi-agent": {
+        // pi coding-agent via npx - runs in print mode with JSON output
+        // workdir is passed via --input option or we use cwd
+        return {
+          cmd: "npx",
+          args: ["-y", "@mariozechner/pi-coding-agent", "-p", "--no-input"],
+          passPromptViaStdin: false,
+          name: "pi-agent",
         };
       }
       case "codex":
-        return { cmd: "npx", args: ["-y", "openai/codex", "--acp", "--stdio"], passPromptViaStdin: true };
+        return { cmd: "npx", args: ["-y", "openai/codex", "--acp", "--stdio"], passPromptViaStdin: true, name: "codex" };
       case "kiro":
-        return { cmd: "kiro", args: ["--acp", "--stdio"], passPromptViaStdin: true };
+        return { cmd: "kiro", args: ["--acp", "--stdio"], passPromptViaStdin: true, name: "kiro" };
       default:
-        return { cmd: agentType, args: ["--acp", "--stdio"], passPromptViaStdin: true };
-    }
-  }
-
-  private parseAcpMessage(line: string): { type: string; taskId?: string; [key: string]: unknown } | null {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return null;
+        return { cmd: agentType, args: ["--acp", "--stdio"], passPromptViaStdin: true, name: agentType };
     }
   }
 
@@ -132,7 +144,7 @@ class AgentManager extends EventEmitter {
     const id = generateId();
     const task: Task = {
       id,
-      name: opts?.name ?? `${agentType}-${id}`,
+      name: opts?.name ?? `${agentType}-${id.slice(0, 6)}`,
       agentType,
       prompt,
       status: "pending",
@@ -143,35 +155,16 @@ class AgentManager extends EventEmitter {
 
     this.tasks.set(id, task);
 
-    // ── deepagents: runs in-process via LangGraph (no child process) ──────────
-    if (agentType === "deepagents") {
-      task.status = "pending";
-      this.emitUpdate(task);
+    const { cmd, args, passPromptViaStdin, name } = this.buildCommand(agentType, opts?.workdir);
 
-      // Fire-and-forget async — spawnDeepAgents streams into task.progress
-      // and calls taskHistory.add() when done.
-      spawnDeepAgents(task, prompt, opts?.workdir).catch((err) => {
-        task.error = err instanceof Error ? err.message : String(err);
-        task.status = "failed";
-        task.endedAt = new Date();
-        this.emitUpdate(task);
-        taskHistory.add(task);
-      });
-
-      return task;
-    }
-
-    // ── External agents: spawn as child process ────────────────────────────────
-    const { cmd, args, passPromptViaStdin } = this.buildCommand(agentType);
-
-    // Filter WSL-only environment variables so child processes don't inherit them
+    // Filter WSL-only environment variables
     const filteredEnv: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
       if (k.startsWith("HERMES_") || k === "WSL_DISTRO_NAME" || k === "WSLENV") continue;
       if (v !== undefined) filteredEnv[k] = v;
     }
 
-    // Ensure workdir exists before spawning
+    // Ensure workdir exists
     const workdir = opts?.workdir ?? process.cwd();
     if (workdir && !fs.existsSync(workdir)) {
       fs.mkdirSync(workdir, { recursive: true });
@@ -186,8 +179,7 @@ class AgentManager extends EventEmitter {
     if (passPromptViaStdin) {
       spawnOpts.stdio = ["pipe", "pipe", "pipe", "ipc"];
     } else {
-      // Prompt is passed as positional arg — stdin not needed.
-      // Use "ignore" so the child doesn't wait for input.
+      // Prompt is passed as positional arg — stdin not needed
       spawnOpts.stdio = ["ignore", "pipe", "pipe", "ipc"];
     }
 
@@ -202,6 +194,7 @@ class AgentManager extends EventEmitter {
 
     this.running.set(id, rt);
 
+    // Stream stdout line by line for real-time progress
     child.stdout?.on("data", (data: Buffer) => {
       const chunk = data.toString();
       const lines = (rt.stdoutBuffer + chunk).split("\n");
@@ -216,6 +209,7 @@ class AgentManager extends EventEmitter {
       }
     });
 
+    // Stream stderr with prefix
     child.stderr?.on("data", (data: Buffer) => {
       const chunk = data.toString();
       const lines = (rt.stderrBuffer + chunk).split("\n");
@@ -223,8 +217,8 @@ class AgentManager extends EventEmitter {
 
       for (const line of lines) {
         if (line.trim()) {
-          task.progress.push(`[stderr] ${line}`);
-          taskHistory.appendLog(task.id, [`[stderr] ${line}`]);
+          task.progress.push(`[${name} stderr] ${line}`);
+          taskHistory.appendLog(task.id, [`[${name} stderr] ${line}`]);
           this.emitUpdate(task);
         }
       }
@@ -236,40 +230,30 @@ class AgentManager extends EventEmitter {
       task.endedAt = new Date();
       this.running.delete(id);
       this.emitUpdate(task);
-      // Record failure in history
       taskHistory.add(task);
     });
 
     child.on("close", (code) => {
+      // Flush remaining buffers
       if (rt.stdoutBuffer.trim()) {
         task.progress.push(rt.stdoutBuffer);
         taskHistory.appendLog(task.id, [rt.stdoutBuffer]);
-        this.emitUpdate(task);
       }
+      if (rt.stderrBuffer.trim()) {
+        task.progress.push(`[${name} stderr] ${rt.stderrBuffer}`);
+        taskHistory.appendLog(task.id, [`[${name} stderr] ${rt.stderrBuffer}`]);
+      }
+      
       if (this.running.has(id)) {
         task.exitCode = code ?? undefined;
         this.handleProcessExit(id);
       }
+      this.emitUpdate(task);
     });
 
-    if (passPromptViaStdin) {
-      // Simple mode: write prompt to stdin and wait for process to finish
-      task.status = "running";
-      task.startedAt = new Date();
-      this.emitUpdate(task);
-
-      setTimeout(() => {
-        if (rt.child.stdin) {
-          rt.child.stdin.write(prompt + "\n");
-          rt.child.stdin.end();
-        }
-      }, 500);
-    } else {
-      // Positional arg mode (e.g. claude -p <prompt>): just start and stream output
-      task.status = "running";
-      task.startedAt = new Date();
-      this.emitUpdate(task);
-    }
+    task.status = "running";
+    task.startedAt = new Date();
+    this.emitUpdate(task);
 
     // IPC channel for control messages
     child.on("message", (msg: unknown) => {
@@ -286,41 +270,20 @@ class AgentManager extends EventEmitter {
     return task;
   }
 
-  private sendPrompt(taskId: string, prompt: string): void {
-    const rt = this.running.get(taskId);
-    if (!rt) return;
-
-    const msg = {
-      type: "user_message",
-      taskId,
-      content: prompt,
-    };
-
-    try {
-      rt.child.stdin?.write(JSON.stringify(msg) + "\n");
-    } catch (err) {
-      const task = this.tasks.get(taskId);
-      if (task) {
-        task.error = `Failed to send prompt: ${err}`;
-      }
-    }
-  }
-
   kill(taskId: string): void {
     const task = this.tasks.get(taskId);
-
-    // deepagents tasks are in-process — use AbortController
-    if (task?.agentType === "deepagents") {
-      abortDeepAgents(taskId);
-      task.status = "cancelled";
-      task.endedAt = new Date();
-      this.emitUpdate(task);
+    const rt = this.running.get(taskId);
+    
+    if (!rt) {
+      // Task already finished
+      if (task) {
+        task.status = "cancelled";
+        task.endedAt = new Date();
+        this.emitUpdate(task);
+      }
       this.emit("kill", { taskId });
       return;
     }
-
-    const rt = this.running.get(taskId);
-    if (!rt) return;
 
     if (task) {
       task.status = "cancelled";
@@ -328,7 +291,17 @@ class AgentManager extends EventEmitter {
     }
 
     try {
+      // Try SIGTERM first, then SIGKILL after 3 seconds
       rt.child.kill("SIGTERM");
+      setTimeout(() => {
+        if (this.running.has(taskId)) {
+          try {
+            rt.child.kill("SIGKILL");
+          } catch {
+            // Process already dead
+          }
+        }
+      }, 3000);
     } catch (err) {
       console.warn(`[AgentManager] Failed to kill task ${taskId.slice(0, 8)}:`, err);
     }
