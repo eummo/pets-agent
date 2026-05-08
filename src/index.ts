@@ -1,11 +1,13 @@
 /**
- * Pets Agent - entry point
+ * Pets-Agent — now a pi-coding-agent Extension.
  *
- * Thin bootstrap: creates the app and starts the TUI.
- * All TUI logic lives in src/tui/
+ * This file is kept for reference. The actual extension entry point is
+ * src/pets-agent-extension.ts, loaded via:
+ *
+ *   pi --extension ./src/pets-agent-extension.ts
+ *
+ * Or from the project root directory:
+ *   pi --extension pets-agent
+ *
+ * (when package.json has "pi.extensions" field pointing to the entry)
  */
-
-import { createPetsApp, startPetsApp } from "./tui/app.js";
-
-const app = createPetsApp();
-startPetsApp(app);
