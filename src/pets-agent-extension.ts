@@ -8,7 +8,7 @@
  * Usage: pi --extension pets-agent
  */
 
-import { defineTool, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { defineTool, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { agentManager } from "./tasks/agent-manager.js";
 import { taskHistory } from "./tasks/task-history.js";
@@ -437,5 +437,36 @@ Simple single-step tasks should use spawn_agent directly.
     return {
       systemPrompt: `${event.systemPrompt}\n\n${orchestratorSection}`,
     };
+  });
+
+  // -------------------------------------------------------------------------
+  // Custom header — replace built-in onboarding with pets-agent branding
+  // -------------------------------------------------------------------------
+  pi.on("session_start", async (_event, ctx) => {
+    if (ctx.hasUI) {
+      ctx.ui.setHeader((_tui, theme) => {
+        const accent = (text: string) => theme.fg("accent", text);
+        const muted = (text: string) => theme.fg("muted", text);
+        const dim = (text: string) => theme.fg("dim", text);
+        return {
+          render(_width: number): string[] {
+            const width = 43;
+            const content = "   Pets-Agent  ·  开发助手";
+            const contentCells = 27;
+            const pad = width - contentCells;
+            const left = " ".repeat(pad >> 1);
+            const right = " ".repeat(pad - (pad >> 1));
+            return [
+              "",
+              left + content + right,
+              "",
+              `${muted("/commands")} ${dim("· /help for available slash commands")}`,
+              "",
+            ];
+          },
+          invalidate() {},
+        };
+      });
+    }
   });
 }
