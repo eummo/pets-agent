@@ -63,18 +63,17 @@ export class PatternMemory extends MemoryStore {
   /**
    * Try to auto-learn patterns from task output.
    * Extracts: shell commands, file paths, error fixes, build success, watch patterns.
-   */
-  /**
-   * Try to auto-learn patterns from task output.
-   * Extracts: shell commands, file paths, error fixes, build success, watch patterns.
    * Uses a persistent learned Set (by content hash) to avoid re-learning across calls.
    */
   learnFromOutput(outputLines: string[]): void {
     const learnedFile = path.join(os.homedir(), ".pets-agent", "memory", "learned_patterns.json");
-    let learnedSet = new Set<string>();
+    const LEARNED_MAX = 2000; // cap entries to prevent unbounded growth
+
+    interface LearnedEntry { cmd: string; learnedAt: number; }
+    let learned: LearnedEntry[] = [];
     try {
       if (fs.existsSync(learnedFile)) {
-        learnedSet = new Set(JSON.parse(fs.readFileSync(learnedFile, "utf8")) as string[]);
+        learned = JSON.parse(fs.readFileSync(learnedFile, "utf8")) as LearnedEntry[];
       }
     } catch { /* ignore */ }
 
@@ -92,8 +91,13 @@ export class PatternMemory extends MemoryStore {
         const cmd = dollarMatch[1].trim();
         if (cmd.length > 5 && cmd.length < 200 && !seen.has(cmd)) {
           seen.add(cmd);
-          if (!learnedSet.has(cmd)) {
-            learnedSet.add(cmd);
+          if (!learned.some((e) => e.cmd === cmd)) {
+            // Evict oldest if at cap
+            if (learned.length >= LEARNED_MAX) {
+              learned.sort((a, b) => a.learnedAt - b.learnedAt);
+              learned = learned.slice(1);
+            }
+            learned.push({ cmd, learnedAt: Date.now() });
             this.add(cmd, { tags: ["command"], source: "task" });
           }
         }
@@ -122,8 +126,12 @@ export class PatternMemory extends MemoryStore {
           const isContinuation = /:\s*$|→\s*$/.test(prevLine);
           if (!isContinuation) {
             seen.add(cmdLine);
-            if (!learnedSet.has(cmdLine)) {
-              learnedSet.add(cmdLine);
+            if (!learned.some((e) => e.cmd === cmdLine)) {
+              if (learned.length >= LEARNED_MAX) {
+                learned.sort((a, b) => a.learnedAt - b.learnedAt);
+                learned = learned.slice(1);
+              }
+              learned.push({ cmd: cmdLine, learnedAt: Date.now() });
               this.add(cmdLine, { tags: ["command", "claude-code"], source: "task" });
             }
           }
@@ -167,7 +175,6 @@ export class PatternMemory extends MemoryStore {
       ];
       const isBuildSuccess = buildSuccessPatterns.some((p) => trimmed.match(p));
       if (isBuildSuccess && trimmed.length > 3) {
-        // Capture the preceding command/line as the workflow
         if (i > 0) {
           const prev = outputLines[i - 1].replace(/^\s*\$\s+/, "").trim();
           if (prev && prev.length < 200 && !seen.has(prev)) {
@@ -202,10 +209,10 @@ export class PatternMemory extends MemoryStore {
         /^(python|mphp)\s+.*\s+-m\s+(http\.server|flask|django)/i,
         /^(live-server|serve|http-server|mini-http)\s+/i,
         /^(concurrently|npm-run-all)\s+/i,
-        /listening\s+on\s+(https?:\/\/)?[\w\-\.:]+/i,
-        /server\s+running\s+at\s+(https?:\/\/)?[\w\-\.:]+/i,
+        /listening\s+on\s+(https?:\/\/)?[\w\-\.:]+\//i,
+        /server\s+running\s+at\s+(https?:\/\/)?[\w\-\.:]+\//i,
         /ready\s+in\s+\d+ms/i,
-        /(Local|Network):\s+(https?:\/\/)?[\w\-\.:]+/i,
+        /(Local|Network):\s+(https?:\/\/)?[\w\-\.:]+\//i,
         /^\s*( dév| dev | watch | serve )\s*:?\s*$/i,
       ];
       const watchMatch = watchPatterns.some((p) => trimmed.match(p));
@@ -221,12 +228,9 @@ export class PatternMemory extends MemoryStore {
       // 6. File:line and file:line:col references (e.g., src/index.ts:12:5)
       // ─────────────────────────────────────────────────────────────
       const fileLinePatterns = [
-        // Standard file:line:col
-        /^(\.\.?\/)?[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts|py|rb|go|rs|java|cpp|c|h|hpp|swift|kt|scala|php|rb|sh|bash|zsh|yaml|yml|json|toml|xml|html|css|scss|sass|less|md|sql):(\d+)(:\d+)?/,
-        // Many formatters use file:line:col
-        /^(\.\.?\/)?[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts):(\d+):(\d+)/,
-        // Error/warning prefixes: "src/foo.ts:10:5: error: ..."
-        /^(\.\.?\/)?[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts):(\d+):(\d+):/,
+        /^(\.\.?\/)[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts|py|rb|go|rs|java|cpp|c|h|hpp|swift|kt|scala|php|rb|sh|bash|zsh|yaml|yml|json|toml|xml|html|css|scss|sass|less|md|sql):(\d+)(:\d+)?/,
+        /^(\.\.?\/)[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts):(\d+):(\d+)/,
+        /^(\.\.?\/)[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts):(\d+):(\d+):/,
       ];
       const fileLineMatch = trimmed.match(fileLinePatterns[0]) || trimmed.match(fileLinePatterns[1]) || trimmed.match(fileLinePatterns[2]);
       if (fileLineMatch) {
@@ -250,12 +254,11 @@ export class PatternMemory extends MemoryStore {
       }
     }
 
-    // Persist learned set to avoid re-learning on next call
+    // Persist learned set with LRU eviction (oldest by learnedAt removed first)
     try {
-      const learnedFile = path.join(os.homedir(), ".pets-agent", "memory", "learned_patterns.json");
       const dir = path.dirname(learnedFile);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(learnedFile, JSON.stringify(Array.from(learnedSet)), "utf8");
+      fs.writeFileSync(learnedFile, JSON.stringify(learned), "utf8");
     } catch { /* ignore */ }
   }
 

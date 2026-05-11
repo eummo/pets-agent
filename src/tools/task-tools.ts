@@ -1,6 +1,6 @@
 /**
  * Task Tools — spawn_agent, list_tasks, get_task, kill_task,
- * list_task_history, decompose_task
+ * list_task_history, decompose_task, get_task_tree, wait_for_tasks
  */
 
 import { Type } from "typebox";
@@ -9,6 +9,47 @@ import { agentManager } from "../tasks/agent-manager.js";
 import { taskHistory } from "../tasks/task-history.js";
 import type { AgentType } from "../tasks/task.js";
 import type { Task } from "../tasks/task.js";
+
+// ─── Runtime validation helpers ─────────────────────────────────────────────────
+
+/** A validation error returned as a tool result */
+function validationError(message: string, details: Record<string, unknown> = {}): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } {
+  return { content: [{ type: "text", text: `Validation error: ${message}` }], details: { ...details, validationError: true } };
+}
+
+/**
+ * Check that a required string param is truthy.
+ * Returns an error result if invalid; otherwise returns null.
+ */
+function requireString(value: unknown, name: string): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } | null {
+  if (value == null || (typeof value === "string" && !value.trim())) {
+    return validationError(`${name} is required and must be a non-empty string`, { param: name });
+  }
+  return null;
+}
+
+/**
+ * Validate optional numeric constraints.
+ * Returns an error result if value is defined and fails the predicate; otherwise null.
+ */
+function validateOptionalNumber(value: unknown, name: string, predicate: (n: number) => boolean, message: string): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } | null {
+  if (value == null) return null;
+  if (typeof value !== "number" || !predicate(value)) {
+    return validationError(`${name} must be ${message}`, { param: name, value });
+  }
+  return null;
+}
+
+/**
+ * Validate that a value is one of the allowed enum string values.
+ */
+function validateEnum(value: unknown, name: string, allowed: string[]): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } | null {
+  if (value == null) return null;
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    return validationError(`${name} must be one of: ${allowed.join(", ")}`, { param: name, value });
+  }
+  return null;
+}
 
 // ─── Tool definition helpers ─────────────────────────────────────────────────
 
@@ -44,6 +85,7 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     status: Type.Optional(Type.String({ description: "Filter by status: done, failed, cancelled" })),
     since: Type.Optional(Type.String({ description: "Start time ISO format, e.g. 2026-05-01" })),
     limit: Type.Optional(Type.Number({ description: "Max results, default 20" })),
+    offset: Type.Optional(Type.Number({ description: "Number of results to skip for pagination, default 0" })),
   });
 
   const DecomposeTaskParams = Type.Object({
@@ -75,17 +117,31 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     ].join(" "),
     parameters: SpawnAgentParams,
 
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+      // ─── Runtime validation ───────────────────────────────────────────────
+      const err1 = requireString(params.agentType, "agentType");
+      if (err1) return err1;
+      const err2 = requireString(params.prompt, "prompt");
+      if (err2) return err2;
+      const err3 = validateEnum(params.agentType, "agentType", ["claude-code", "pi-agent", "codex", "kiro", "custom"]);
+      if (err3) return err3;
+      const err4 = validateOptionalNumber(params.timeoutSec, "timeoutSec", (n) => n > 0, "a positive integer (seconds)");
+      if (err4) return err4;
+      const err5 = validateOptionalNumber(params.maxRetries, "maxRetries", (n) => n >= 0, "a non-negative integer");
+      if (err5) return err5;
+      const err6 = validateOptionalNumber(params.priority, "priority", (n) => n >= 1 && n <= 10, "an integer between 1 and 10");
+      if (err6) return err6;
+      // ─── End validation ─────────────────────────────────────────────────
+
       const timeoutMs = params.timeoutSec != null ? params.timeoutSec * 1000 : undefined;
       const maxRetries = params.maxRetries ?? 0;
 
       // Wire AbortSignal to kill the task if the outer execution is cancelled
-      const ac = new AbortController();
-      const registration = signal
-        ? signal.addEventListener("abort", () => {
-            agentManager.killByToken(params.name ?? params.agentType);
-          })
-        : undefined;
+      let abortHandler: (() => void) | undefined;
+      if (signal) {
+        abortHandler = () => agentManager.killByToken(params.name ?? params.agentType);
+        signal.addEventListener("abort", abortHandler);
+      }
 
       const task = agentManager.spawnWithRetry(
         params.agentType as AgentType,
@@ -96,14 +152,39 @@ export function registerTaskTools(pi: ExtensionAPI): void {
           timeoutMs,
           maxRetries,
           priority: params.priority,
+          token: params.name ?? params.agentType,
         },
       );
+
+      // Stream progress updates via onUpdate if provided
+      let unsub: (() => void) | undefined;
+      if (onUpdate) {
+        unsub = agentManager.subscribe(task.id, (update) => {
+          onUpdate({ content: [{ type: "text", text: formatTaskUpdate(update) }], details: { taskId: task.id, status: update.status } });
+        });
+      }
+
+      // Clean up abort handler and subscription on return
+      const cleanup = () => {
+        if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
+        unsub?.();
+      };
 
       const initialLines = task.progress.slice(-5);
       const initialOutput =
         initialLines.length > 0
           ? `Task started: ${task.name} (${task.id})\nRecent output:\n${initialLines.join("\n")}`
           : `Task started: ${task.name} (${task.id})\nWaiting for output...`;
+
+      // Note: caller is responsible for calling cleanup() when the tool call completes.
+      // For sync return, we attach cleanup via AbortSignal if available.
+      if (signal) {
+        const origAbort = abortHandler;
+        signal.addEventListener("abort", () => {
+          origAbort?.();
+          unsub?.();
+        });
+      }
 
       return {
         content: [{ type: "text", text: initialOutput }],
@@ -179,6 +260,9 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     parameters: GetTaskParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err = requireString(params.taskId, "taskId");
+      if (err) return err;
+
       const task = agentManager.get(params.taskId);
 
       if (!task) {
@@ -225,6 +309,9 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     parameters: KillTaskParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err = requireString(params.taskId, "taskId");
+      if (err) return err;
+
       const task = agentManager.get(params.taskId);
 
       if (!task) {
@@ -285,6 +372,7 @@ export function registerTaskTools(pi: ExtensionAPI): void {
         status: params.status,
         since: params.since,
         limit: params.limit ?? 20,
+        offset: params.offset ?? 0,
       };
       const entries = taskHistory.query(query);
 
@@ -329,6 +417,8 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     parameters: DecomposeTaskParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.taskDescription, "taskDescription");
+      if (err1) return err1;
       if (!params.subtasks || params.subtasks.length === 0) {
         return {
           content: [
@@ -337,7 +427,12 @@ export function registerTaskTools(pi: ExtensionAPI): void {
           details: { error: "Empty subtasks" },
         };
       }
-
+      for (const [i, sub] of params.subtasks.entries()) {
+        const err = requireString(sub.agentType, `subtasks[${i}].agentType`);
+        if (err) return err;
+        const errP = requireString(sub.prompt, `subtasks[${i}].prompt`);
+        if (errP) return errP;
+      }
       if (params.parentId && !agentManager.get(params.parentId)) {
         return {
           content: [{ type: "text", text: `Error: parent task not found: ${params.parentId}` }],
@@ -447,4 +542,84 @@ export function registerTaskTools(pi: ExtensionAPI): void {
       return { content: [{ type: "text", text: lines.join("\n") }], details: {} };
     },
   }));
+
+  // ─── wait_for_tasks ────────────────────────────────────────────────────────
+  pi.registerTool(defineTool({
+    name: "wait_for_tasks",
+    label: "Wait For Tasks",
+    description: "Wait for one or more tasks to complete. Returns when all targets are done/failed/cancelled, or on timeout.",
+    parameters: Type.Object({
+      taskIds: Type.Array(Type.String(), { description: "Task IDs to wait for" }),
+      timeoutSec: Type.Optional(Type.Number({ description: "Max seconds to wait (default: 300)" })),
+      pollIntervalMs: Type.Optional(Type.Number({ description: "Poll interval in ms (default: 2000)" })),
+    }),
+
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      if (!Array.isArray(params.taskIds) || params.taskIds.length === 0) {
+        return validationError("taskIds must be a non-empty array of task ID strings", { param: "taskIds" });
+      }
+      const err1 = validateOptionalNumber(params.timeoutSec, "timeoutSec", (n) => n > 0, "a positive integer");
+      if (err1) return err1;
+      const err2 = validateOptionalNumber(params.pollIntervalMs, "pollIntervalMs", (n) => n >= 100, "a positive integer >= 100ms");
+      if (err2) return err2;
+
+      const timeoutMs = (params.timeoutSec ?? 300) * 1000;
+      const pollMs = params.pollIntervalMs ?? 2000;
+      const deadline = Date.now() + timeoutMs;
+
+      const checkDone = (): { done: boolean; results: Array<{ taskId: string; status: string; error?: string }> } => {
+        const results: Array<{ taskId: string; status: string; error?: string }> = [];
+        let allDone = true;
+        for (const id of params.taskIds) {
+          const task = agentManager.get(id);
+          if (!task) {
+            results.push({ taskId: id, status: "not_found" });
+            continue;
+          }
+          if (task.status === "done" || task.status === "failed" || task.status === "cancelled") {
+            results.push({ taskId: id, status: task.status, error: task.error });
+          } else {
+            allDone = false;
+            results.push({ taskId: id, status: task.status });
+          }
+        }
+        return { done: allDone, results };
+      };
+
+      // Poll until done or timeout
+      while (Date.now() < deadline) {
+        if (signal?.aborted) {
+          return { content: [{ type: "text", text: "Wait aborted by signal." }], details: {} };
+        }
+        const { done, results } = checkDone();
+        if (done) {
+          const lines = ["All tasks completed:", ""];
+          for (const r of results) {
+            const icon = r.status === "done" ? "✓" : r.status === "failed" ? "✗" : "○";
+            lines.push(`  ${icon} [${r.status}] ${r.taskId}${r.error ? ` — ${r.error}` : ""}`);
+          }
+          return { content: [{ type: "text", text: lines.join("\n") }], details: { results } };
+        }
+        // Wait before next poll
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+      }
+
+      const { results } = checkDone();
+      return {
+        content: [{ type: "text", text: `Timeout after ${params.timeoutSec ?? 300}s. Still pending: ${results.filter((r) => !["done", "failed", "cancelled", "not_found"].includes(r.status)).map((r) => r.taskId).join(", ")}` }],
+        details: { results, timedOut: true },
+      };
+    },
+  }));
+}
+
+function formatTaskUpdate(update: { id?: string; status: string; progress?: string[]; error?: string; exitCode?: number }): string {
+  const lines: string[] = [];
+  if (update.status) lines.push(`[${update.status}]`);
+  if (update.progress && update.progress.length > 0) {
+    lines.push(...update.progress.slice(-5));
+  }
+  if (update.error) lines.push(`Error: ${update.error}`);
+  if (update.exitCode !== undefined) lines.push(`Exit code: ${update.exitCode}`);
+  return lines.join("\n") || `Task update: ${update.status}`;
 }

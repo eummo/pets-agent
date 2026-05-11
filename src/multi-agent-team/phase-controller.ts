@@ -27,6 +27,10 @@ export interface GateCriteria {
   requiredArtifacts: Artifact["type"][];
   minDecisions?: number;
   noBlockers?: boolean;
+  /** Minimum approvals required to approve an artifact. Defaults to ceil(phaseRoles.length / 2). */
+  minApprovals?: number;
+  /** If true, any single role rejection vetoes the artifact. Default: false. */
+  anyRejectionVeto?: boolean;
 }
 
 export const PHASE_GATES: Record<ProjectPhase, GateCriteria> = {

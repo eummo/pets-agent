@@ -32,6 +32,28 @@ export interface MemoryStoreOptions {
   charLimit: number;
 }
 
+/**
+ * Unified error result type — replaces console.error + silent swallow patterns.
+ * All public-facing store methods return this instead of throwing.
+ */
+export interface StoreResult<T = void> {
+  ok: true;
+  value: T;
+  /** True if the operation touched disk (useful for callers batching writes) */
+  persisted?: boolean;
+}
+export interface StoreError {
+  ok: false;
+  error: string;
+  /**
+   * Severity: 'recoverable' = operation failed but store is still usable
+   *           'fatal'       = store data may be corrupted, reload advised
+   */
+  severity: "recoverable" | "fatal";
+}
+
+export type PersistResult = StoreResult<void> | StoreError;
+
 export abstract class MemoryStore {
   protected entries: MemoryEntry[] = [];
   protected snapshot: string = "";
@@ -109,7 +131,14 @@ export abstract class MemoryStore {
     this._loaded = true;
   }
 
-  protected async persistAsync(): Promise<void> {
+  /**
+   * Persist entries to disk (async). Returns a typed result instead of console.error.
+   *
+   * RECOVERABLE errors (disk full, permission): log is written, caller can retry.
+   * FATAL errors (write error that may corrupt file): returned as fatal so caller
+   * can trigger a reload of the store.
+   */
+  protected persistAsync(): Promise<PersistResult> {
     try {
       if (!fs.existsSync(MEMORY_DIR)) {
         fs.mkdirSync(MEMORY_DIR, { recursive: true });
@@ -120,16 +149,42 @@ export abstract class MemoryStore {
         .join(ENTRY_DELIMITER);
 
       const tmp = this.filepath() + `.tmp.${randomBytes(4).toString("hex")}`;
-      await fsp.writeFile(tmp, content, "utf-8");
-      await fsp.rename(tmp, this.filepath());
+      return fsp.writeFile(tmp, content, "utf-8")
+        .then(() => fsp.rename(tmp, this.filepath()))
+        .then(() => {
+          this.dirty = false;
+          return { ok: true as const, value: undefined as void, persisted: true };
+        })
+        .catch((err: NodeJS.ErrnoException) => {
+          const recoverable =
+            err.code === "EACCES" || err.code === "ENOSPC" || err.code === "EROFS";
+          const result: StoreError = {
+            ok: false,
+            error:
+              err.code === "ENOENT"
+                ? `Directory not found and could not be created: ${MEMORY_DIR}`
+                : `Write failed: ${err.message}`,
+            severity: recoverable ? "recoverable" : "fatal",
+          };
+          process.stderr.write(
+            `[MemoryStore] persistAsync failed (${result.severity}): ${result.error}\n`
+          );
+          this.dirty = false;
+          return result;
+        });
     } catch (err) {
-      console.error("[MemoryStore] persistAsync failed:", err);
+      const error = err instanceof Error ? err : String(err);
+      const result: StoreError = { ok: false, error: `Unexpected: ${error}`, severity: "fatal" };
+      process.stderr.write(`[MemoryStore] persistAsync unexpected error: ${error}\n`);
+      this.dirty = false;
+      return Promise.resolve(result);
     }
-
-    this.dirty = false;
   }
 
-  protected persist(): void {
+  /**
+   * Persist entries to disk (sync). Returns a typed result instead of console.error.
+   */
+  protected persist(): PersistResult {
     try {
       if (!fs.existsSync(MEMORY_DIR)) {
         fs.mkdirSync(MEMORY_DIR, { recursive: true });
@@ -142,11 +197,15 @@ export abstract class MemoryStore {
       const tmp = this.filepath() + `.tmp.${randomBytes(4).toString("hex")}`;
       fs.writeFileSync(tmp, content, "utf-8");
       fs.renameSync(tmp, this.filepath());
+      this.dirty = false;
+      return { ok: true, value: undefined as void, persisted: true };
     } catch (err) {
-      console.error("[MemoryStore] persist failed:", err);
+      const error = err instanceof Error ? err : String(err);
+      const result: StoreError = { ok: false, error: `Write failed: ${error}`, severity: "fatal" };
+      process.stderr.write(`[MemoryStore] persist failed: ${result.error}\n`);
+      this.dirty = false;
+      return result;
     }
-
-    this.dirty = false;
   }
 
   // -- Snapshot (frozen at load time, used for injection) -----------------
@@ -166,7 +225,19 @@ export abstract class MemoryStore {
 
   // -- CRUD ----------------------------------------------------------------
 
-  add(content: string, opts?: { tags?: string[]; source?: MemoryEntry["source"] }): { success: boolean; error?: string } {
+  /**
+   * Add a new memory entry. Persists synchronously; callers can check the
+   * `persisted` flag on the return value to know whether the write succeeded.
+   *
+   * Returns `{ success: true }` on OK.
+   * Returns `{ success: false, error: string }` on validation/dedup/limit errors.
+   * Persist I/O errors are logged to stderr but do not cause false returns —
+   * the entry is still held in memory for the session.
+   */
+  add(
+    content: string,
+    opts?: { tags?: string[]; source?: MemoryEntry["source"] }
+  ): { success: true; persisted: boolean } | { success: false; error: string } {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
 
@@ -179,7 +250,9 @@ export abstract class MemoryStore {
     if (total + content.length > this.charLimit) {
       return {
         success: false,
-        error: `Memory at ${total}/${this.charLimit} chars. Would exceed limit by ${(total + content.length) - this.charLimit} chars.`,
+        error: `Memory at ${total}/${this.charLimit} chars. Would exceed limit by ${
+          total + content.length - this.charLimit
+        } chars.`,
       };
     }
 
@@ -192,13 +265,18 @@ export abstract class MemoryStore {
     };
 
     this.entries.unshift(entry);
-    this.persist();
+    const persisted = this.persist();
     this.captureSnapshot();
 
-    return { success: true };
+    return { success: true, persisted: persisted.ok };
   }
 
-  remove(idOrSubstring: string): { success: boolean; error?: string } {
+  /**
+   * Remove an entry by id or content substring.
+   * Returns `{ success: true }` on OK.
+   * Returns `{ success: false, error: string }` if no match found.
+   */
+  remove(idOrSubstring: string): { success: true; persisted: boolean } | { success: false; error: string } {
     const idx = this.entries.findIndex(
       (e) => e.id === idOrSubstring || e.content.includes(idOrSubstring)
     );
@@ -208,10 +286,10 @@ export abstract class MemoryStore {
     }
 
     this.entries.splice(idx, 1);
-    this.persist();
+    const persisted = this.persist();
     this.captureSnapshot();
 
-    return { success: true };
+    return { success: true, persisted: persisted.ok };
   }
 
   query(searchText: string): MemoryEntry[] {

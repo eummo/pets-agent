@@ -4,13 +4,12 @@
  */
 
 import { Type } from "typebox";
-import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { DefaultResourceLoader, getAgentDir } from "@earendil-works/pi-coding-agent";
 import * as fs from "fs";
+import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { patternMemory } from "../memory/pattern-memory.js";
 import { preferenceMemory } from "../memory/preference-memory.js";
 import { projectMemory } from "../memory/project-memory.js";
-import { memoryInjector } from "../memory/injector.js";
+import { memoryInjector, getSharedResourceLoader } from "../memory/injector.js";
 
 export function registerMemoryTools(pi: ExtensionAPI): void {
   const RememberPatternParams = Type.Object({
@@ -65,9 +64,16 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
           details: { saved: true },
         };
       }
+      // Narrow the discriminated union
+      if (!result.success && "error" in result) {
+        return {
+          content: [{ type: "text", text: `Failed to save pattern: ${result.error}` }],
+          details: { saved: false, error: result.error },
+        };
+      }
       return {
-        content: [{ type: "text", text: `Failed to save pattern: ${result.error}` }],
-        details: { saved: false, error: result.error },
+        content: [{ type: "text", text: "Failed to save pattern" }],
+        details: { saved: false },
       };
     },
   }));
@@ -225,7 +231,10 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
       if (result.success) {
         return { content: [{ type: "text", text: `Removed from ${params.type}: '${params.idOrText}'` }], details: { removed: true } };
       }
-      return { content: [{ type: "text", text: result.error ?? "Not found" }], details: { removed: false } };
+      if (!result.success && "error" in result) {
+        return { content: [{ type: "text", text: result.error ?? "Not found" }], details: { removed: false } };
+      }
+      return { content: [{ type: "text", text: "Not found" }], details: { removed: false } };
     },
   }));
 
@@ -239,7 +248,7 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate) {
-      const loader = new DefaultResourceLoader({ cwd: process.cwd(), agentDir: getAgentDir() });
+      const loader = getSharedResourceLoader();
       const { skills, diagnostics } = loader.getSkills();
 
       let filtered = skills;
@@ -295,7 +304,7 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate) {
-      const loader = new DefaultResourceLoader({ cwd: process.cwd(), agentDir: getAgentDir() });
+      const loader = getSharedResourceLoader();
       const { skills } = loader.getSkills();
       const skill = skills.find((s) => s.name === params.name);
 

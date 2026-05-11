@@ -17,7 +17,7 @@ describe("AgentManager", () => {
   // -------------------------------------------------------------------------
   describe("wslPath", () => {
     // @ts-expect-error — accessing private static method for testing
-    const wslPath = (path: string) => AgentManager.wslPath(path);
+    const wslPath = (path: string) => AgentManager.wslToWindowsPath(path);
 
     it("converts /mnt/c/... to C:\\...", () => {
       expect(wslPath("/mnt/c/Users/jadenli/code")).toBe("C:\\Users\\jadenli\\code");

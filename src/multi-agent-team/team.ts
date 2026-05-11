@@ -15,7 +15,7 @@ import { designer } from "./role-agents/design-agent.js";
 import { developer } from "./role-agents/developer-agent.js";
 import { qaTester } from "./role-agents/qa-agent.js";
 import { meetingManager } from "./meeting.js";
-import { phaseController } from "./phase-controller.js";
+import { phaseController, PHASE_GATES } from "./phase-controller.js";
 import { Role, type RoleContext } from "./role.js";
 import { randomBytes } from "crypto";
 import type { Artifact as ArtifactType2 } from "./types.js";
@@ -133,15 +133,26 @@ export function reviewArtifact(
 
   artifact.reviewers.push({ role: reviewedBy, verdict, comment });
 
-  if (verdict === "approve") {
-    // Check if all required reviewers have approved
-    const phaseRoles = PHASE_ROLES[artifact.phase];
-    const approvals = artifact.reviewers.filter((r) => r.verdict === "approve").length;
-    if (approvals >= Math.ceil(phaseRoles.length / 2)) {
-      artifact.status = "approved";
+  if (verdict === "reject") {
+    // Check if any-rejection-veto gate applies
+    const gate = PHASE_GATES[artifact.phase];
+    if (gate.anyRejectionVeto) {
+      artifact.status = "rejected";
+    } else {
+      // Softer rejection — still pending, just recorded
+      artifact.status = artifact.status === "in_review" ? "in_review" : "draft";
     }
   } else {
-    artifact.status = "rejected";
+    // Approve: check configurable minApprovals threshold
+    const gate = PHASE_GATES[artifact.phase];
+    const phaseRoles = PHASE_ROLES[artifact.phase];
+    const approvals = artifact.reviewers.filter((r) => r.verdict === "approve").length;
+    const minApprovals = gate.minApprovals ?? Math.ceil(phaseRoles.length / 2);
+    if (approvals >= minApprovals) {
+      artifact.status = "approved";
+    } else {
+      artifact.status = "in_review";
+    }
   }
 
   projectStore.updateArtifact(projectId, artifact);

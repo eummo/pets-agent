@@ -606,6 +606,65 @@ class AgentManager extends EventEmitter {
     return this.list().filter((t) => t.status === "running" || t.status === "pending");
   }
 
+  /**
+   * Debug/status snapshot — returns a structured snapshot of all task state
+   * for /status HTTP endpoint integration or REPL inspection.
+   */
+  getStatus(): {
+    running: Array<{
+      id: string;
+      name: string;
+      agentType: string;
+      status: string;
+      age: number;
+      progressLines: number;
+      hasProgress: boolean;
+      zombie: boolean;
+    }>;
+    subscriptions: number;
+    zombieRisk: string[];
+    totals: { running: number; done: number; failed: number; cancelled: number };
+  } {
+    const now = Date.now();
+    const running: Array<{
+      id: string; name: string; agentType: string; status: string;
+      age: number; progressLines: number; hasProgress: boolean; zombie: boolean;
+    }> = [];
+    const entries = Array.from(this.running.entries());
+    for (const [taskId, rt] of entries) {
+      const age = rt.task.startedAt ? now - rt.task.startedAt.getTime() : 0;
+      const noProgress = rt.task.progress.length === 0;
+      const zombie = age > 30 * 60 * 1000 && noProgress;
+      running.push({
+        id: taskId,
+        name: rt.task.name,
+        agentType: rt.task.agentType,
+        status: rt.task.status,
+        age,
+        progressLines: rt.task.progress.length,
+        hasProgress: !noProgress,
+        zombie,
+      });
+    }
+    const zombieRisk = running.filter((r) => r.zombie).map((r) => r.id);
+
+    let subs = 0;
+    const subEntries = Array.from(this.subscriptions.entries());
+    for (const s of subEntries) subs += s[1].size;
+
+    return {
+      running,
+      subscriptions: subs,
+      zombieRisk,
+      totals: {
+        running: this.running.size,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+      },
+    };
+  }
+
   destroy(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);

@@ -23,6 +23,58 @@ import { businessAnalyst } from "../multi-agent-team/role-agents/business-agent.
 import { designer } from "../multi-agent-team/role-agents/design-agent.js";
 import type { TeamRole, ProjectPhase, ArtifactType } from "../multi-agent-team/types.js";
 
+// ─── Runtime validation helpers ─────────────────────────────────────────────────
+
+/** A validation error returned as a tool result */
+function validationError(
+  message: string,
+  details: Record<string, unknown> = {}
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } {
+  return {
+    content: [{ type: "text", text: `Validation error: ${message}` }],
+    details: { ...details, validationError: true },
+  };
+}
+
+function requireString(
+  value: unknown,
+  name: string
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } | null {
+  if (value == null || (typeof value === "string" && !value.trim())) {
+    return validationError(`${name} is required and must be a non-empty string`, {
+      param: name,
+    });
+  }
+  return null;
+}
+
+function validateEnum(
+  value: unknown,
+  name: string,
+  allowed: string[]
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } | null {
+  if (value == null) return null;
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    return validationError(`${name} must be one of: ${allowed.join(", ")}`, {
+      param: name,
+      value,
+    });
+  }
+  return null;
+}
+
+function validatePositiveNumber(
+  value: unknown,
+  name: string,
+  message: string
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } | null {
+  if (value == null) return null;
+  if (typeof value !== "number" || value < 0) {
+    return validationError(`${name} must be ${message}`, { param: name, value });
+  }
+  return null;
+}
+
 export function registerTeamTools(pi: ExtensionAPI): void {
   const CreateProjectParams = Type.Object({
     name: Type.String({ description: "Project name" }),
@@ -73,6 +125,10 @@ export function registerTeamTools(pi: ExtensionAPI): void {
       description: "Phase",
       enum: ["idea", "feasibility", "requirements", "design", "implementation", "testing", "evaluation"],
     }),
+    createdBy: Type.Optional(Type.String({
+      description: "Role creating this artifact (default: pm). Should match the actual role performing the work.",
+      enum: ["pm", "product", "designer", "developer", "qa", "business"],
+    })),
     summary: Type.Optional(Type.String({ description: "Short summary (optional)" })),
   });
 
@@ -111,6 +167,11 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: CreateProjectParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.name, "name");
+      if (err1) return err1;
+      const err2 = requireString(params.description, "description");
+      if (err2) return err2;
+
       const project = projectStore.create({
         name: params.name,
         description: params.description,
@@ -172,6 +233,14 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: PlanPhaseParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.projectId, "projectId");
+      if (err1) return err1;
+      const err2 = validateEnum(params.phase, "phase", [
+        "idea", "feasibility", "requirements", "design",
+        "implementation", "testing", "evaluation",
+      ]);
+      if (err2) return err2;
+
       const result = projectManager.planPhase(params.projectId, params.phase as ProjectPhase);
       if (!result.ok) {
         return { content: [{ type: "text", text: `Project not found: ${params.projectId}` }], details: {} };
@@ -188,6 +257,18 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: RunRoleParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.projectId, "projectId");
+      if (err1) return err1;
+      const err2 = validateEnum(params.role, "role", [
+        "pm", "product", "designer", "developer", "qa", "business",
+      ]);
+      if (err2) return err2;
+      const err3 = validateEnum(params.phase, "phase", [
+        "idea", "feasibility", "requirements", "design",
+        "implementation", "testing", "evaluation",
+      ]);
+      if (err3) return err3;
+
       const workdir = params.workdir ?? process.cwd();
       let input: unknown = {};
       if (params.input) {
@@ -226,6 +307,18 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: CreateArtifactParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.projectId, "projectId");
+      if (err1) return err1;
+      const err2 = requireString(params.title, "title");
+      if (err2) return err2;
+      const err3 = requireString(params.content, "content");
+      if (err3) return err3;
+      const err4 = validateEnum(params.phase, "phase", [
+        "idea", "feasibility", "requirements", "design",
+        "implementation", "testing", "evaluation",
+      ]);
+      if (err4) return err4;
+
       try {
         const artifact = createArtifact({
           projectId: params.projectId,
@@ -233,7 +326,7 @@ export function registerTeamTools(pi: ExtensionAPI): void {
           title: params.title,
           content: params.content,
           phase: params.phase as ProjectPhase,
-          createdBy: "pm",
+          createdBy: (params.createdBy ?? "pm") as TeamRole,
           summary: params.summary,
         });
         return {
@@ -279,6 +372,9 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: AdvancePhaseParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.projectId, "projectId");
+      if (err1) return err1;
+
       const project = projectStore.get(params.projectId);
       if (!project) {
         return { content: [{ type: "text", text: "Project not found." }], details: {} };
@@ -311,6 +407,26 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: MakeDecisionParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.projectId, "projectId");
+      if (err1) return err1;
+      const err2 = requireString(params.topic, "topic");
+      if (err2) return err2;
+      if (!Array.isArray(params.options) || params.options.length < 2) {
+        return validationError("options must be an array with at least 2 items", {
+          param: "options",
+        });
+      }
+      if (typeof params.selected !== "number" || params.selected < 0 || params.selected >= params.options.length) {
+        return validationError(`selected must be a number between 0 and ${params.options.length - 1}`, {
+          param: "selected",
+          value: params.selected,
+        });
+      }
+      const err3 = validateEnum(params.madeBy, "madeBy", [
+        "pm", "product", "designer", "developer", "qa", "business",
+      ]);
+      if (err3) return err3;
+
       const project = projectStore.get(params.projectId);
       if (!project) {
         return { content: [{ type: "text", text: "Project not found." }], details: {} };
@@ -342,6 +458,16 @@ export function registerTeamTools(pi: ExtensionAPI): void {
     parameters: TeamMeetingParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err1 = requireString(params.projectId, "projectId");
+      if (err1) return err1;
+      const err2 = requireString(params.topic, "topic");
+      if (err2) return err2;
+      if (!Array.isArray(params.participants) || params.participants.length === 0) {
+        return validationError("participants must be a non-empty array of role strings", {
+          param: "participants",
+        });
+      }
+
       const meeting = meetingManager.createMeeting({
         projectId: params.projectId,
         topic: params.topic,

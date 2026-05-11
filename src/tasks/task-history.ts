@@ -1,3 +1,12 @@
+/**
+ * TaskHistory — disk-backed task execution log with optional in-memory write log.
+ *
+ * All I/O errors are classified as RECOVERABLE (disk full/permission) or FATAL
+ * (corruption/structural). RECOVERABLE errors are logged to stderr and the
+ * operation continues gracefully. FATAL errors are also logged and should
+ * prompt a reload of the store.
+ */
+
 import * as fs from "fs";
 import * as path from "path";
 import { homedir } from "os";
@@ -32,10 +41,28 @@ export interface TaskHistoryQuery {
   since?: string;
   until?: string;
   limit?: number;
+  /** Number of entries to skip (for pagination). Default: 0. */
+  offset?: number;
 }
 
 // Re-export Task types for convenience
 export type { Task, TaskStatus, AgentType } from "./task.js";
+
+/** Classify an I/O error by severity */
+function classifyError(err: unknown): { severity: "recoverable" | "fatal"; message: string } {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "EACCES" || code === "ENOSPC" || code === "EROFS") {
+    return { severity: "recoverable", message: msg };
+  }
+  return { severity: "fatal", message: msg };
+}
+
+/** Write a line to stderr, used for structural/log errors */
+function warn(msg: string, err: unknown): void {
+  const detail = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[TaskHistory] ${msg}: ${detail}\n`);
+}
 
 export class TaskHistory {
   private entries: TaskHistoryEntry[] = [];
@@ -55,12 +82,12 @@ export class TaskHistory {
         try {
           this.entries = JSON.parse(data);
         } catch (parseError) {
-          console.warn(`[TaskHistory] Failed to parse history file: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+          warn("Failed to parse history file", parseError);
           this.entries = [];
         }
       }
     } catch (err) {
-      console.warn(`[TaskHistory] Failed to load history: ${err instanceof Error ? err.message : String(err)}`);
+      warn("Failed to load history", err);
       this.entries = [];
     }
   }
@@ -69,6 +96,10 @@ export class TaskHistory {
     return path.join(LOGS_DIR, `${taskId}.log`);
   }
 
+  /**
+   * Write log lines to a task's log file (full overwrite).
+   * RECOVERABLE: logs error to stderr on failure, returns early.
+   */
   writeLog(taskId: string, lines: string[]): void {
     try {
       if (!fs.existsSync(LOGS_DIR)) {
@@ -77,10 +108,14 @@ export class TaskHistory {
       const content = lines.join("\n") + "\n";
       fs.writeFileSync(this.getLogFile(taskId), content);
     } catch (err) {
-      console.error("Failed to write task log:", err);
+      warn("Failed to write task log", err);
     }
   }
 
+  /**
+   * Append log lines to a task's log file.
+   * RECOVERABLE: silent on failure (logs grow large; append failures are non-critical).
+   */
   appendLog(taskId: string, lines: string[]): void {
     try {
       if (!fs.existsSync(LOGS_DIR)) {
@@ -88,13 +123,16 @@ export class TaskHistory {
       }
       const content = lines.join("\n") + "\n";
       fs.appendFileSync(this.getLogFile(taskId), content);
-    } catch (err) {
-      // ignore
+    } catch {
+      // silent — append failures on logs are non-critical
     }
   }
 
+  /**
+   * Persist the in-memory entries array to HISTORY_FILE.
+   * RECOVERABLE: debounced; errors are logged and the in-memory state is retained.
+   */
   save(): void {
-    // Debounce saves to avoid excessive disk writes
     if (this.saveDebounceTimer) {
       clearTimeout(this.saveDebounceTimer);
     }
@@ -106,7 +144,7 @@ export class TaskHistory {
         }
         fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.entries, null, 2));
       } catch (err) {
-        console.error("[TaskHistory] Failed to save history:", err);
+        warn("Failed to save history", err);
       } finally {
         this.pendingSave = false;
       }
@@ -130,10 +168,10 @@ export class TaskHistory {
       progress: task.progress.slice(-this.maxProgressLines),
       logFile,
     };
-    // 估算创建的文件数（统计 progress 中包含 "Created N file" 的行）
+    // Estimate file count from progress lines like "Created N file"
     const fileMatch = task.progress.join("\n").match(/Created (\d+) file/);
     if (fileMatch) {
-      entry.fileCount = parseInt(fileMatch[1]);
+      entry.fileCount = parseInt(fileMatch[1]!, 10);
     }
 
     this.writeLog(task.id, task.progress);
@@ -158,13 +196,17 @@ export class TaskHistory {
       const until = new Date(q.until).getTime();
       results = results.filter((e) => new Date(e.createdAt).getTime() <= until);
     }
-    return results.slice(0, q.limit ?? 50);
+    return results.slice(q.offset ?? 0, (q.offset ?? 0) + (q.limit ?? 50));
   }
 
   getAll(): TaskHistoryEntry[] {
     return this.entries;
   }
 
+  /**
+   * Read a task's log file from disk.
+   * Returns empty array on any error (RECOVERABLE).
+   */
   readLog(taskId: string): string[] {
     try {
       const logFile = this.getLogFile(taskId);
@@ -173,7 +215,7 @@ export class TaskHistory {
         return content.split("\n").filter(Boolean);
       }
     } catch (err) {
-      console.warn(`[TaskHistory] Failed to read log ${taskId}: ${err instanceof Error ? err.message : String(err)}`);
+      warn(`Failed to read log ${taskId}`, err);
     }
     return [];
   }
@@ -181,6 +223,7 @@ export class TaskHistory {
   /**
    * Prune oldest log files if LOGS_DIR exceeds MAX_LOG_FILES.
    * Called automatically after each new log write.
+   * FATAL errors are silently ignored (pruning is best-effort).
    */
   private pruneLogFiles(): void {
     try {
@@ -189,24 +232,31 @@ export class TaskHistory {
       if (files.length <= MAX_LOG_FILES) return;
 
       // Sort by mtime ascending (oldest first)
-      const withMtime = files.map((f) => {
-        const fp = path.join(LOGS_DIR, f);
-        const stat = fs.statSync(fp);
-        return { file: f, mtime: stat.mtimeMs };
-      }).sort((a, b) => a.mtime - b.mtime);
+      const withMtime = files
+        .map((f) => {
+          const fp = path.join(LOGS_DIR, f);
+          const stat = fs.statSync(fp);
+          return { file: f, mtime: stat.mtimeMs };
+        })
+        .sort((a, b) => a.mtime - b.mtime);
 
       const toDelete = files.length - MAX_LOG_FILES;
       for (let i = 0; i < toDelete; i++) {
         try {
-          fs.unlinkSync(path.join(LOGS_DIR, withMtime[i].file));
-        } catch { /* ignore */ }
+          fs.unlinkSync(path.join(LOGS_DIR, withMtime[i]!.file));
+        } catch {
+          /* ignore individual delete failures */
+        }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore pruning failures */
+    }
   }
 
   /**
    * Force an immediate save, flushing any pending debounced save.
    * Call this before process exit to ensure all history is persisted.
+   * FATAL errors are logged to stderr and the in-memory state is retained.
    */
   flush(): void {
     if (this.saveDebounceTimer) {
@@ -219,7 +269,7 @@ export class TaskHistory {
     try {
       fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.entries, null, 2));
     } catch (err) {
-      console.error("[TaskHistory] Failed to flush history:", err);
+      warn("Failed to flush history", err);
     }
   }
 

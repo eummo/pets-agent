@@ -4,7 +4,18 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { patternMemory } from "../memory/pattern-memory.js";
+
+const LEARNED_FILE = path.join(os.homedir(), ".pets-agent", "memory", "learned_patterns.json");
+
+function clearLearnedPatterns(): void {
+  try {
+    if (fs.existsSync(LEARNED_FILE)) fs.unlinkSync(LEARNED_FILE);
+  } catch { /* ignore */ }
+}
 
 describe("PatternMemory", () => {
   beforeEach(() => {
@@ -13,6 +24,9 @@ describe("PatternMemory", () => {
     for (const e of entries) {
       patternMemory.remove(e.id);
     }
+    // Also clear the persistent learned-pattern dedup file so learnFromOutput
+    // tests start with a clean slate
+    clearLearnedPatterns();
   });
 
   describe("add()", () => {
