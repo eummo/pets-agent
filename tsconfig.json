@@ -12,8 +12,7 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "downlevelIteration": true
+    "sourceMap": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/tests", "src/tasks/agent-manager.test.ts", "src/memory/injector.test.ts", "src/tools/task-tools.test.ts", "src/tools/team-tools.test.ts"]
