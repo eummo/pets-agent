@@ -16,4 +16,10 @@ export interface Task {
   workdir?: string;
   parentId?: string;
   children?: string[];
+  /** Populated when this task was superseded by a retry attempt */
+  supersededBy?: string;
+  /** Current attempt number (1-based, for spawnWithRetry tasks) */
+  attempt?: number;
+  /** Task priority 1-10, higher runs first (default: 5) */
+  priority?: number;
 }

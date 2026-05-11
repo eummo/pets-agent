@@ -12,6 +12,10 @@ export interface RoleContext {
   phase: string;
   input: unknown;
   workdir: string;
+  /** If set, the LLM call should honour this signal for cancellation */
+  signal?: AbortSignal;
+  /** Timeout in ms for LLM call (used by BaseRoleLLM subclasses). Default: no timeout */
+  timeoutMs?: number;
 }
 
 export abstract class Role {

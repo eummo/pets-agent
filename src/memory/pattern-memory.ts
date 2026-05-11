@@ -5,6 +5,9 @@
  * Useful for: build commands, shell idioms, tool combos that worked before.
  */
 
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { MemoryStore, type MemoryEntry } from "./store.js";
 
 export interface PatternEntry extends MemoryEntry {
@@ -59,35 +62,201 @@ export class PatternMemory extends MemoryStore {
 
   /**
    * Try to auto-learn patterns from task output.
-   * Extracts: shell commands, file paths, error fixes.
+   * Extracts: shell commands, file paths, error fixes, build success, watch patterns.
+   */
+  /**
+   * Try to auto-learn patterns from task output.
+   * Extracts: shell commands, file paths, error fixes, build success, watch patterns.
+   * Uses a persistent learned Set (by content hash) to avoid re-learning across calls.
    */
   learnFromOutput(outputLines: string[]): void {
-    for (const line of outputLines) {
-      // Shell command pattern (lines starting with $ or that look like commands)
-      if (line.match(/^\s*\$\s+(.+)/)) {
-        const cmd = line.replace(/^\s*\$\s+/, "").trim();
-        if (cmd.length > 5 && cmd.length < 200) {
-          this.add(cmd, { tags: ["command"], source: "task" });
-        }
+    const learnedFile = path.join(os.homedir(), ".pets-agent", "memory", "learned_patterns.json");
+    let learnedSet = new Set<string>();
+    try {
+      if (fs.existsSync(learnedFile)) {
+        learnedSet = new Set(JSON.parse(fs.readFileSync(learnedFile, "utf8")) as string[]);
       }
+    } catch { /* ignore */ }
 
-      // Error fix patterns: "Error X → fixed with Y"
-      const fixMatch = line.match(/(?:error|failed|exception)[:\s].*(?:fix|resolved|solved)[:\s]+(.+)/i);
-      if (fixMatch) {
-        this.add(fixMatch[1].trim(), { tags: ["error-fix"], source: "task" });
-      }
+    const seen = new Set<string>();
 
-      // Build/test success lines
-      if (line.match(/^(✓|✔|done|success|passed|build successful)/i) && line.length > 3) {
-        const prevIdx = outputLines.indexOf(line) - 1;
-        if (prevIdx >= 0) {
-          const prev = outputLines[prevIdx].replace(/^\s*\$\s+/, "").trim();
-          if (prev && prev.length < 200) {
-            this.add(prev, { tags: ["workflow"], source: "task" });
+    for (let i = 0; i < outputLines.length; i++) {
+      const line = outputLines[i];
+      const trimmed = line.trim();
+
+      // ─────────────────────────────────────────────────────────────
+      // 1. Shell command pattern — $ prefix (classic)
+      // ─────────────────────────────────────────────────────────────
+      const dollarMatch = trimmed.match(/^\$\s+(.+)/);
+      if (dollarMatch) {
+        const cmd = dollarMatch[1].trim();
+        if (cmd.length > 5 && cmd.length < 200 && !seen.has(cmd)) {
+          seen.add(cmd);
+          if (!learnedSet.has(cmd)) {
+            learnedSet.add(cmd);
+            this.add(cmd, { tags: ["command"], source: "task" });
           }
         }
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // 2. CLI tool patterns — check against ALL patterns
+      // ─────────────────────────────────────────────────────────────
+      const cliCommandPatterns = [
+        /^(npm|npx|yarn|pnpm|git|docker|docker-compose|kubectl|make|cargo|go|py|python|pip|pip3|rbenv|composer|apt|apt-get|yum|dnf|brew|choco)\s+/,
+        /^(cd|ls|ll|la|mkdir|rm|rmrf|cp|mv|chmod|chown|cat|echo|export|source|alias|unalias|which|where|type|command)\s+/,
+        /^(curl|wget|rsync|scp|sftp|ssh|ftp|telnet|netstat|ping|traceroute|dig|nslookup)\s+/,
+        /^(vim|vi|nano|emacs|less|more|head|tail|grep|rg|fdfind|find|xargs|sort|uniq|wc|awk|sed|cut|tr|base64|openssl)\s+/,
+        /^(tsc|ts-node|bundle|browserify|webpack|vite|esbuild|rollup|parcel|grunt|gulp)\s+/,
+        /^(jest|vitest|mocha|jasmine|cypress|playwright|puppeteer|selenium)\s+/,
+        /^(clang|gcc|g\+\+|swift|rustc|dart|flutter|java|javac|scala|groovy)\s+/,
+        /^(terraform|terragrunt|pulumi|ansible|chef|puppet|vagrant|helm)\s+/,
+        /^(node|ruby|perl|php|lua|haskell|elixir|erlang|bash|sh|zsh|fish)\s+/,
+      ];
+      const isCliCommand = cliCommandPatterns.some((p) => p.test(trimmed));
+      if (isCliCommand) {
+        const cmdLine = trimmed.split(/\s{2,}/)[0];
+        if (cmdLine.length > 5 && cmdLine.length < 200 && !seen.has(cmdLine)) {
+          const prevLine = i > 0 ? outputLines[i - 1].trim() : "";
+          const isContinuation = /:\s*$|→\s*$/.test(prevLine);
+          if (!isContinuation) {
+            seen.add(cmdLine);
+            if (!learnedSet.has(cmdLine)) {
+              learnedSet.add(cmdLine);
+              this.add(cmdLine, { tags: ["command", "claude-code"], source: "task" });
+            }
+          }
+        }
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // 3. Error-fix pairs — "Error X → fixed with Y" / "failed...resolved..."
+      // ─────────────────────────────────────────────────────────────
+      const fixMatch = trimmed.match(/(?:error|failed|exception|panicked)[:\s].*(?:fix|resolved|solved|handled)[:\s]+(.+)/i);
+      if (fixMatch) {
+        const fix = fixMatch[1].trim();
+        if (fix.length > 3 && fix.length < 200 && !seen.has(fix)) {
+          seen.add(fix);
+          this.add(fix, { tags: ["error-fix"], source: "task" });
+        }
+        continue;
+      }
+
+      // Error → solution inline pattern: "Error: X at Y → Z"
+      const errorArrowMatch = trimmed.match(/(?:error|failed|exception)[:\s].*?→\s*(.+)/i);
+      if (errorArrowMatch) {
+        const fix = errorArrowMatch[1].trim();
+        if (fix.length > 3 && fix.length < 200 && !seen.has(fix)) {
+          seen.add(fix);
+          this.add(fix, { tags: ["error-fix"], source: "task" });
+        }
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // 4. Build success patterns
+      // ─────────────────────────────────────────────────────────────
+      const buildSuccessPatterns = [
+        /^(✓|✔|✅|done|success|passed|build successful|compiled successfully|build complete|build succeeded)/i,
+        /^(✓|✔|✅)\s*\S+\s+in\s+\d+ms/i,
+        /^(✓|✔|✅)\s+\S+\s+(\S+\s+)?done/i,
+        /^(DONE|ALL TESTS PASSED|BUILD SUCCESSFUL|COMPILED SUCCESSFULLY)/i,
+        /^(✓|✔|✅)\s*\d+\s+(tests?|files?|modules?)\s+(passed|built|compiled)/i,
+      ];
+      const isBuildSuccess = buildSuccessPatterns.some((p) => trimmed.match(p));
+      if (isBuildSuccess && trimmed.length > 3) {
+        // Capture the preceding command/line as the workflow
+        if (i > 0) {
+          const prev = outputLines[i - 1].replace(/^\s*\$\s+/, "").trim();
+          if (prev && prev.length < 200 && !seen.has(prev)) {
+            seen.add(prev);
+            this.add(prev, { tags: ["workflow", "build-success"], source: "task" });
+          }
+        }
+        continue;
+      }
+
+      // "Build at X" or "built in Y ms" patterns
+      const builtInMatch = trimmed.match(/built\s+in\s+(\d+ms|s\d+(\.\d+)?s)/i);
+      if (builtInMatch) {
+        if (i > 0) {
+          const prev = outputLines[i - 1].replace(/^\s*\$\s+/, "").trim();
+          if (prev && prev.length < 200 && !seen.has(prev)) {
+            seen.add(prev);
+            this.add(prev, { tags: ["workflow", "build-success"], source: "task" });
+          }
+        }
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // 5. Watch / serve patterns
+      // ─────────────────────────────────────────────────────────────
+      const watchPatterns = [
+        /^(npm|npx|yarn|pnpm)\s+(run\s+)?(dev|serve|watch|start|live|hot)\b/i,
+        /^(vite|webpack|rollup|parcel|esbuild)\s+(--\S+\s+)*(dev|serve|watch|build)/i,
+        /^(nodemon|node-dev|ts-node-dev)\s+/i,
+        /^(watchexec|watchman|fswatch)\s+/i,
+        /^(python|mphp)\s+.*\s+-m\s+(http\.server|flask|django)/i,
+        /^(live-server|serve|http-server|mini-http)\s+/i,
+        /^(concurrently|npm-run-all)\s+/i,
+        /listening\s+on\s+(https?:\/\/)?[\w\-\.:]+/i,
+        /server\s+running\s+at\s+(https?:\/\/)?[\w\-\.:]+/i,
+        /ready\s+in\s+\d+ms/i,
+        /(Local|Network):\s+(https?:\/\/)?[\w\-\.:]+/i,
+        /^\s*( dév| dev | watch | serve )\s*:?\s*$/i,
+      ];
+      const watchMatch = watchPatterns.some((p) => trimmed.match(p));
+      if (watchMatch) {
+        if (trimmed.length < 200 && !seen.has(trimmed)) {
+          seen.add(trimmed);
+          this.add(trimmed, { tags: ["watch", "serve"], source: "task" });
+        }
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // 6. File:line and file:line:col references (e.g., src/index.ts:12:5)
+      // ─────────────────────────────────────────────────────────────
+      const fileLinePatterns = [
+        // Standard file:line:col
+        /^(\.\.?\/)?[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts|py|rb|go|rs|java|cpp|c|h|hpp|swift|kt|scala|php|rb|sh|bash|zsh|yaml|yml|json|toml|xml|html|css|scss|sass|less|md|sql):(\d+)(:\d+)?/,
+        // Many formatters use file:line:col
+        /^(\.\.?\/)?[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts):(\d+):(\d+)/,
+        // Error/warning prefixes: "src/foo.ts:10:5: error: ..."
+        /^(\.\.?\/)?[\w\-\/.\\]+\.(ts|tsx|js|jsx|mjs|cjs|cts|mts):(\d+):(\d+):/,
+      ];
+      const fileLineMatch = trimmed.match(fileLinePatterns[0]) || trimmed.match(fileLinePatterns[1]) || trimmed.match(fileLinePatterns[2]);
+      if (fileLineMatch) {
+        const ref = fileLineMatch[0];
+        if (ref.length < 300 && !seen.has(ref)) {
+          seen.add(ref);
+          this.add(ref, { tags: ["file-reference"], source: "task" });
+        }
+        continue;
+      }
+
+      // Linter/formatter shorthand: "file.ts:10:5" (no leading path, just filename)
+      const shortFileLineMatch = trimmed.match(/^[\w\-\.]+\.(ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java):(\d+)(:\d+)?/);
+      if (shortFileLineMatch) {
+        const ref = shortFileLineMatch[0];
+        if (!seen.has(ref)) {
+          seen.add(ref);
+          this.add(ref, { tags: ["file-reference"], source: "task" });
+        }
+        continue;
       }
     }
+
+    // Persist learned set to avoid re-learning on next call
+    try {
+      const learnedFile = path.join(os.homedir(), ".pets-agent", "memory", "learned_patterns.json");
+      const dir = path.dirname(learnedFile);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(learnedFile, JSON.stringify(Array.from(learnedSet)), "utf8");
+    } catch { /* ignore */ }
   }
 
   search(query: string): PatternEntry[] {

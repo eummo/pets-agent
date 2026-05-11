@@ -6,6 +6,8 @@ import type { Task } from "./task.js";
 const HISTORY_DIR = path.join(homedir(), ".pets-agent");
 const HISTORY_FILE = path.join(HISTORY_DIR, "task-history.json");
 const LOGS_DIR = path.join(HISTORY_DIR, "logs");
+/** Max log files before oldest are pruned */
+const MAX_LOG_FILES = 500;
 
 export interface TaskHistoryEntry {
   id: string;
@@ -140,6 +142,7 @@ export class TaskHistory {
     if (this.entries.length > this.maxEntries) {
       this.entries = this.entries.slice(0, this.maxEntries);
     }
+    this.pruneLogFiles();
     this.save();
   }
 
@@ -173,6 +176,32 @@ export class TaskHistory {
       console.warn(`[TaskHistory] Failed to read log ${taskId}: ${err instanceof Error ? err.message : String(err)}`);
     }
     return [];
+  }
+
+  /**
+   * Prune oldest log files if LOGS_DIR exceeds MAX_LOG_FILES.
+   * Called automatically after each new log write.
+   */
+  private pruneLogFiles(): void {
+    try {
+      if (!fs.existsSync(LOGS_DIR)) return;
+      const files = fs.readdirSync(LOGS_DIR).filter((f) => f.endsWith(".log"));
+      if (files.length <= MAX_LOG_FILES) return;
+
+      // Sort by mtime ascending (oldest first)
+      const withMtime = files.map((f) => {
+        const fp = path.join(LOGS_DIR, f);
+        const stat = fs.statSync(fp);
+        return { file: f, mtime: stat.mtimeMs };
+      }).sort((a, b) => a.mtime - b.mtime);
+
+      const toDelete = files.length - MAX_LOG_FILES;
+      for (let i = 0; i < toDelete; i++) {
+        try {
+          fs.unlinkSync(path.join(LOGS_DIR, withMtime[i].file));
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
   }
 
   /**

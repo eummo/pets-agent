@@ -37,13 +37,16 @@ export async function runRole(
   role: TeamRole,
   phase: ProjectPhase,
   input: unknown,
-  workdir: string
+  workdir: string,
+  opts?: { signal?: AbortSignal; timeoutMs?: number }
 ): Promise<{ ok: boolean; result?: Awaited<ReturnType<Role["run"]>> }> {
   const ctx: RoleContext = {
     projectId,
     phase,
     input,
     workdir,
+    signal: opts?.signal,
+    timeoutMs: opts?.timeoutMs,
   };
 
   const roleInstance = ROLE_CLASSES[role];
@@ -55,8 +58,10 @@ export async function runRole(
     const result = await roleInstance.run(ctx);
     return { ok: true, result };
   } catch (err) {
-    console.error(`[Team] Role ${role} failed:`, err);
-    return { ok: false };
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Team] Role ${role} failed:`, message);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { ok: false, result: { error: message } } as any;
   }
 }
 
@@ -67,10 +72,11 @@ export async function runPhaseRoles(
   projectId: string,
   phase: ProjectPhase,
   input: unknown,
-  workdir: string
+  workdir: string,
+  opts?: { signal?: AbortSignal; timeoutMs?: number }
 ): Promise<Array<{ role: TeamRole; ok: boolean; result?: Awaited<ReturnType<Role["run"]>> }>> {
   const roles = PHASE_ROLES[phase];
-  const runs = roles.map((role) => runRole(projectId, role, phase, input, workdir));
+  const runs = roles.map((role) => runRole(projectId, role, phase, input, workdir, opts));
   const results = await Promise.all(runs);
   return roles.map((role, i) => ({ role, ...results[i] }));
 }
@@ -174,37 +180,96 @@ function getNextActions(project: Project): string[] {
   const actions: string[] = [];
   const phase = project.phase;
 
+  // Pre-filter once, use throughout
+  const draftArtifacts = project.artifacts.filter((a) => a.status === "draft");
+  const inReviewArtifacts = project.artifacts.filter((a) => a.status === "in_review");
+  const draftTypes = new Set(draftArtifacts.map((a) => a.type));
+  const inReviewTypes = new Set(inReviewArtifacts.map((a) => a.type));
+  const allArtifactTypes = new Set(project.artifacts.map((a) => a.type));
+  const memberRoles = new Set(project.members.map((m) => m.role));
+
+  if (project.currentBlocker) {
+    actions.push(`⚠️ 当前阻塞: ${project.currentBlocker}`);
+  }
+
   if (phase === "idea") {
-    actions.push("Business analyst: 评估想法可行性和商业价值");
-    actions.push("PM: 主持想法评审会议");
+    if (!allArtifactTypes.has("idea_form")) actions.push("Business analyst: 评估想法可行性和商业价值");
+    if (memberRoles.has("pm")) actions.push("PM: 主持想法评审会议");
+    else actions.push("请分配 PM 角色");
   }
+
   if (phase === "feasibility") {
-    actions.push("Business analyst: 编写可行性报告");
-    actions.push("Developer: 技术可行性评审");
-    actions.push("PM: 组织评审，决定是否进入需求阶段");
+    if (draftTypes.has("feasibility_report")) {
+      actions.push("Business analyst: 完成可行性报告并提交评审");
+    }
+    if (!memberRoles.has("developer")) {
+      actions.push("请分配 Developer 角色参与技术可行性评审");
+    } else {
+      actions.push("Developer: 技术可行性评审");
+    }
+    if (inReviewArtifacts.length > 0) {
+      actions.push("PM: 评审可行性报告，决定是否进入需求阶段");
+    }
   }
+
   if (phase === "requirements") {
-    actions.push("Product manager: 编写PRD");
-    actions.push("Designer: 参与评审用户体验");
-    actions.push("PM: 冻结需求范围");
+    if (draftTypes.has("prd")) {
+      actions.push("Product manager: 编写PRD");
+    }
+    if (!memberRoles.has("designer")) {
+      actions.push("请分配 Designer 角色参与需求评审");
+    } else {
+      actions.push("Designer: 参与用户体验需求评审");
+    }
+    if (inReviewTypes.has("prd")) {
+      actions.push("PM: 冻结需求范围，准备进入设计阶段");
+    }
   }
+
   if (phase === "design") {
-    actions.push("Designer: 完成UX设计");
-    actions.push("Developer: 完成技术架构设计");
-    actions.push("PM: 设计评审通过后进入开发");
+    if (draftTypes.has("design_spec")) {
+      actions.push("Designer: 完成UX设计规格");
+    }
+    if (!draftTypes.has("tech_spec")) {
+      actions.push("Developer: 完成技术架构设计");
+    }
+    if (inReviewTypes.has("design_spec") || inReviewTypes.has("tech_spec")) {
+      actions.push("全角色: 设计评审通过后进入开发阶段");
+    }
   }
+
   if (phase === "implementation") {
-    actions.push("Developer: 按模块实现代码");
-    actions.push("QA: 同步编写测试用例");
+    const codingArtifacts = draftArtifacts.filter((a) => a.type === "code");
+    if (codingArtifacts.length > 0) {
+      actions.push(`Developer: 实现 ${codingArtifacts.length} 个模块代码`);
+    }
+    if (!allArtifactTypes.has("test_plan")) {
+      actions.push("QA: 同步编写测试用例");
+    }
   }
+
   if (phase === "testing") {
-    actions.push("QA: 执行测试，报告缺陷");
-    actions.push("Developer: 修复P0/P1缺陷");
-    actions.push("PM: 评估测试报告，决定是否上线");
+    if (draftTypes.has("test_plan")) {
+      actions.push("QA: 执行测试，报告缺陷");
+    }
+    if (allArtifactTypes.has("defect_list")) {
+      actions.push("Developer: 修复 P0/P1 缺陷");
+    }
+    if (inReviewTypes.has("test_report")) {
+      actions.push("PM: 评估测试报告，决定是否上线");
+    }
   }
+
   if (phase === "evaluation") {
-    actions.push("PM: 主持回顾会议");
-    actions.push("全角色: 输出评估意见");
+    actions.push("PM: 主持项目回顾会议");
+    actions.push("全角色: 输出评估意见和改进建议");
+  }
+
+  if (project.decisions.length > 0) {
+    for (const d of project.decisions) {
+      const decided = d.selected !== undefined ? ` → ${d.options[d.selected]}` : " (待决策)";
+      actions.push(`决策 [${d.topic}]: ${d.options.join(" vs ")}${decided}`);
+    }
   }
 
   return actions;

@@ -20,8 +20,10 @@
     "@earendil-works/pi-coding-agent": "^0.74.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.5",
+    "@vitest/ui": "^4.1.5",
     "tsx": "^4.7.0",
     "typebox": "^1.1.24",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.5"
   }
 }

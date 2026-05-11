@@ -10,12 +10,15 @@
 import { patternMemory } from "./pattern-memory.js";
 import { preferenceMemory } from "./preference-memory.js";
 import { projectMemory } from "./project-memory.js";
+import { DefaultResourceLoader, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface InjectorOptions {
   workdir?: string;
   includePatterns?: boolean;
   includePreferences?: boolean;
   includeProject?: boolean;
+  /** Include available skills (false by default to keep prompt lean) */
+  includeSkills?: boolean;
 }
 
 export class MemoryInjector {
@@ -28,6 +31,7 @@ export class MemoryInjector {
       includePatterns = true,
       includePreferences = true,
       includeProject = true,
+      includeSkills = false,
     } = opts;
 
     const parts: string[] = [];
@@ -60,6 +64,11 @@ export class MemoryInjector {
       }
     }
 
+    if (includeSkills) {
+      const skillBlock = this.#buildSkillBlock();
+      if (skillBlock) parts.push(skillBlock);
+    }
+
     if (parts.length === 0) return "";
 
     return (
@@ -70,6 +79,57 @@ export class MemoryInjector {
       parts.join("\n\n") +
       "\n"
     );
+  }
+
+  #skillLoader: DefaultResourceLoader | null = null;
+
+  #getLoader(): DefaultResourceLoader {
+    if (!this.#skillLoader) {
+      this.#skillLoader = new DefaultResourceLoader({
+        cwd: process.cwd(),
+        agentDir: getAgentDir(),
+      });
+    }
+    return this.#skillLoader;
+  }
+
+  /**
+   * Build a skill summary block from pi-mono's skill loader.
+   * Shows skill names + one-line descriptions for quick discovery.
+   */
+  #buildSkillBlock(_workdir?: string): string {
+    try {
+      const loader = this.#getLoader();
+      const { skills, diagnostics } = loader.getSkills();
+
+      if (skills.length === 0) return "";
+
+      const lines = [
+        `═══════════════════════════════════════════════`,
+        `SKILLS (${skills.length} available)`,
+        `═══════════════════════════════════════════════`,
+        ``,
+        `Available skills — use view_skill(name) for full content:`,
+        ``,
+      ];
+
+      for (const s of skills) {
+        lines.push(`[${s.name}]  ${s.description}`);
+      }
+
+      if (diagnostics.length > 0) {
+        lines.push(``);
+        lines.push(`⚠ Skill warnings:`);
+        for (const d of diagnostics) {
+          lines.push(`  ${d.message}${d.path ? ` (${d.path})` : ""}`);
+        }
+      }
+
+      return lines.join("\n");
+    } catch {
+      // Non-fatal: if skill loading fails, skip the block silently
+      return "";
+    }
   }
 
   /**

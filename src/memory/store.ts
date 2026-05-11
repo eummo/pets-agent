@@ -11,6 +11,7 @@
  */
 
 import * as fs from "fs";
+import * as fsp from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import { randomBytes } from "crypto";
@@ -37,11 +38,12 @@ export abstract class MemoryStore {
   protected charLimit: number;
   protected filename: string;
   protected dirty: boolean = false;
+  private _loaded: boolean = false;
 
   constructor(opts: MemoryStoreOptions) {
     this.filename = opts.filename;
-    this.charLimit = opts.charLimit;
-    this.load();
+    const envLimit = parseInt(process.env.MEMORY_CHAR_LIMIT ?? "", 10);
+    this.charLimit = !isNaN(envLimit) && envLimit > 0 ? envLimit : opts.charLimit;
   }
 
   // -- Disk I/O ------------------------------------------------------------
@@ -50,7 +52,37 @@ export abstract class MemoryStore {
     return path.join(MEMORY_DIR, this.filename);
   }
 
+  async loadAsync(): Promise<void> {
+    if (this._loaded) return;
+    try {
+      if (!fs.existsSync(MEMORY_DIR)) {
+        fs.mkdirSync(MEMORY_DIR, { recursive: true });
+        this.entries = [];
+      }
+
+      const file = this.filepath();
+      if (!fs.existsSync(file)) {
+        this.entries = [];
+      } else {
+        const raw = await fsp.readFile(file, "utf-8");
+        if (raw.trim()) {
+          const items = raw.split(ENTRY_DELIMITER).filter(Boolean);
+          this.entries = items.map((item) => this.parseEntry(item)).filter(Boolean) as MemoryEntry[];
+        } else {
+          this.entries = [];
+        }
+      }
+    } catch {
+      this.entries = [];
+    }
+
+    this.captureSnapshot();
+    this._loaded = true;
+  }
+
   load(): void {
+    // Synchronous fallback for contexts that must block
+    if (this._loaded) return;
     try {
       if (!fs.existsSync(MEMORY_DIR)) {
         fs.mkdirSync(MEMORY_DIR, { recursive: true });
@@ -74,6 +106,27 @@ export abstract class MemoryStore {
     }
 
     this.captureSnapshot();
+    this._loaded = true;
+  }
+
+  protected async persistAsync(): Promise<void> {
+    try {
+      if (!fs.existsSync(MEMORY_DIR)) {
+        fs.mkdirSync(MEMORY_DIR, { recursive: true });
+      }
+
+      const content = this.entries
+        .map((e) => this.serializeEntry(e))
+        .join(ENTRY_DELIMITER);
+
+      const tmp = this.filepath() + `.tmp.${randomBytes(4).toString("hex")}`;
+      await fsp.writeFile(tmp, content, "utf-8");
+      await fsp.rename(tmp, this.filepath());
+    } catch (err) {
+      console.error("[MemoryStore] persistAsync failed:", err);
+    }
+
+    this.dirty = false;
   }
 
   protected persist(): void {

@@ -24,6 +24,8 @@ export interface ProjectEntry extends MemoryEntry {
 export class ProjectMemory {
   private stores = new Map<string, ProjectMemoryStore>();
   private cacheDir: string;
+  /** workdir → { stack: string[], mtime: number } */
+  private techStackCache = new Map<string, { stack: string[]; mtime: number }>();
 
   constructor() {
     this.cacheDir = path.join(os.homedir(), ".pets-agent", "memory", "projects");
@@ -42,9 +44,42 @@ export class ProjectMemory {
   }
 
   /**
-   * Try to detect tech stack from project files.
+   * Detect tech stack from project files, with in-memory cache keyed on workdir.
+   * Cache is invalidated if any indicator file has a newer mtime than the cached mtime.
    */
   detectTechStack(workdir: string): string[] {
+    // Indicator files we track for cache invalidation
+    const indicatorFiles = [
+      "package.json", "Cargo.toml", "go.mod", "requirements.txt", "pyproject.toml",
+      "Pipfile", "tsconfig.json", "vite.config.ts", "vite.config.js", "next.config.js",
+      "next.config.ts", "astro.config.mjs", "bun.lockb", "pnpm-lock.yaml", "yarn.lock",
+      "package-lock.json", "android/app/build.gradle", "ios/Podfile", "pubspec.yaml",
+      "pubspec.lock", "CMakeLists.txt", "Makefile", "setup.py", "manage.py",
+      "Gemfile", "Rakefile", "composer.json", "Stack.yaml", "go.sum", ".nvmrc",
+      ".python-version", "Dockerfile", "docker-compose.yml", "kubernetes.yaml",
+      "kustomization.yaml", "terraform.tf", ".tfvars", "renovate.json",
+      "biome.json", "eslint.config.js", ".eslintrc.js", "prettier.config.js",
+      ".prettierrc", "stylelint.config.js", "vitest.config.ts", "vitest.config.js",
+      "jest.config.js", "playwright.config.ts", "webpack.config.js",
+      "rollup.config.js", "turbo.json", "nx.json", ".github/workflows",
+    ];
+
+    // Get max mtime of all indicator files
+    let maxMtime = 0;
+    for (const file of indicatorFiles) {
+      try {
+        const fp = path.join(workdir, file);
+        const stat = fs.statSync(fp);
+        if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
+      } catch { /* ignore */ }
+    }
+
+    const cached = this.techStackCache.get(workdir);
+    if (cached && cached.mtime >= maxMtime) {
+      return cached.stack;
+    }
+
+    // Perform full detection
     const indicators: string[] = [];
     const files: Record<string, string[]> = {
       "package.json": ["node", "npm"],
@@ -52,12 +87,54 @@ export class ProjectMemory {
       "go.mod": ["go"],
       "requirements.txt": ["python", "pip"],
       "pyproject.toml": ["python", "pdm", "poetry"],
+      "Pipfile": ["python", "pipenv"],
       "tsconfig.json": ["typescript", "tsc"],
       "vite.config.ts": ["vite", "frontend"],
+      "vite.config.js": ["vite", "frontend"],
       "next.config.js": ["nextjs", "react"],
+      "next.config.ts": ["nextjs", "react"],
       "astro.config.mjs": ["astro"],
       "bun.lockb": ["bun"],
       "pnpm-lock.yaml": ["pnpm"],
+      "yarn.lock": ["yarn", "node"],
+      "package-lock.json": ["npm", "node"],
+      "android/app/build.gradle": ["android", "java", "gradle"],
+      "ios/Podfile": ["ios", "cocoapods", "swift"],
+      "pubspec.yaml": ["flutter", "dart"],
+      "pubspec.lock": ["flutter", "dart"],
+      "CMakeLists.txt": ["cmake", "c++"],
+      "Makefile": ["make", "c"],
+      "setup.py": ["python", "setuptools"],
+      "manage.py": ["django", "python"],
+      "Gemfile": ["ruby", "rails"],
+      "Rakefile": ["ruby"],
+      "composer.json": ["php", "composer"],
+      "Stack.yaml": ["haskell", "stack"],
+      "go.sum": ["go"],
+      ".nvmrc": ["node", "nvm"],
+      ".python-version": ["python"],
+      "Dockerfile": ["docker"],
+      "docker-compose.yml": ["docker", "docker-compose"],
+      "kubernetes.yaml": ["kubernetes", "k8s"],
+      "kustomization.yaml": ["kubernetes", "kustomize"],
+      "terraform.tf": ["terraform"],
+      ".tfvars": ["terraform"],
+      "renovate.json": ["renovate"],
+      "biome.json": ["biome", "linter"],
+      "eslint.config.js": ["eslint"],
+      ".eslintrc.js": ["eslint"],
+      "prettier.config.js": ["prettier"],
+      ".prettierrc": ["prettier"],
+      "stylelint.config.js": ["stylelint"],
+      "vitest.config.ts": ["vitest"],
+      "vitest.config.js": ["vitest"],
+      "jest.config.js": ["jest"],
+      "playwright.config.ts": ["playwright"],
+      "webpack.config.js": ["webpack"],
+      "rollup.config.js": ["rollup"],
+      "turbo.json": ["turborepo"],
+      "nx.json": ["nx"],
+      ".github/workflows": ["github-actions", "ci"],
     };
 
     for (const [file, tags] of Object.entries(files)) {
@@ -66,7 +143,9 @@ export class ProjectMemory {
       }
     }
 
-    return Array.from(new Set<string>(indicators));
+    const stack = Array.from(new Set<string>(indicators));
+    this.techStackCache.set(workdir, { stack, mtime: maxMtime });
+    return stack;
   }
 
   /**
