@@ -63,7 +63,16 @@ export class PatternMemory extends MemoryStore {
   /**
    * Try to auto-learn patterns from task output.
    * Extracts: shell commands, file paths, error fixes, build success, watch patterns.
-   * Uses a persistent learned Set (by content hash) to avoid re-learning across calls.
+   *
+   * Deduplication strategy (two-layer):
+   * - Layer 1 — MemoryStore.add() dedup: same content can't be added twice in-session
+   * - Layer 2 — learned_patterns.json: cross-session dedup for raw commands only
+   *   (prevents re-learning commands across restarts; other pattern types always
+   *    go through MemoryStore dedup so no cross-session dedup needed for them)
+   *
+   * Only raw shell commands ($ prefix) use Layer 2 dedup to avoid polluting
+   * learned_patterns.json with error-fix/worklow content that may legitimately
+   * overlap across sessions.
    */
   learnFromOutput(outputLines: string[]): void {
     const learnedFile = path.join(os.homedir(), ".pets-agent", "memory", "learned_patterns.json");
@@ -262,8 +271,64 @@ export class PatternMemory extends MemoryStore {
     } catch { /* ignore */ }
   }
 
+  /**
+   * Search with basic relevance scoring and ranking.
+   * Scores by: exact match > start-of-line match > tag match > recency.
+   * Returns top 20 results sorted by score descending.
+   */
   search(query: string): PatternEntry[] {
-    return this.query(query) as PatternEntry[];
+    if (!query.trim()) return this.all() as PatternEntry[];
+
+    const q = query.toLowerCase();
+    const results = this.entries
+      .map((e): PatternEntry & { _score: number } => {
+        const entry = e as PatternEntry;
+        const content = entry.content.toLowerCase();
+        const tags = entry.tags.map((t) => t.toLowerCase());
+
+        let score = 0;
+
+        // Exact match (case-insensitive)
+        if (content === q) score += 100;
+        // Starts with query
+        else if (content.startsWith(q)) score += 60;
+        // Contains query as word boundary
+        else if (content.includes(` ${q}`) || content.includes(`${q} `)) score += 40;
+        // Contains query anywhere
+        else if (content.includes(q)) score += 20;
+
+        // Tag match bonus
+        if (tags.some((t) => t === q)) score += 30;
+        else if (tags.some((t) => t.includes(q))) score += 10;
+
+        // Shorter content = more specific = slight bonus (normalized)
+        score += Math.max(0, 10 - Math.floor(entry.content.length / 100));
+
+        // Recency bonus (entries created in last 7 days get a bump)
+        const ageMs = Date.now() - new Date(entry.createdAt).getTime();
+        if (ageMs < 7 * 24 * 60 * 60 * 1000) score += 5;
+
+        return { ...entry, _score: score };
+      })
+      .filter((e) => e._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 20);
+
+    // Strip internal score field
+    return results.map(({ _score: _, ...rest }) => rest);
+  }
+
+  /**
+   * Legacy query — simple substring filter (kept for backward compatibility).
+   */
+  query(searchText: string): MemoryEntry[] {
+    if (!searchText.trim()) return this.entries.slice(0, 50);
+    const q = searchText.toLowerCase();
+    return this.entries.filter(
+      (e) =>
+        e.content.toLowerCase().includes(q) ||
+        e.tags.some((t) => t.toLowerCase().includes(q))
+    );
   }
 }
 

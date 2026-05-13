@@ -11,9 +11,11 @@
   "scripts": {
     "start": "pi --extension ./src/pets-agent-extension.ts",
     "dev": "pi --extension ./src/pets-agent-extension.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "qa": "tsx src/qa-agent/cli.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.139",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

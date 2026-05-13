@@ -1,10 +1,13 @@
 /**
  * Memory Tools — remember_pattern, remember_prefs, remember_project,
- * get_memory, refresh_memory, forget_memory, list_skills, view_skill
+ * get_memory, refresh_memory, forget_memory, list_skills, view_skill,
+ * skill_manage
  */
 
 import { Type } from "typebox";
 import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { patternMemory } from "../memory/pattern-memory.js";
 import { preferenceMemory } from "../memory/preference-memory.js";
@@ -343,6 +346,106 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
         ],
         details: { skill },
       };
+    },
+  }));
+
+  // ─── skill_manage ────────────────────────────────────────────────────────────
+  const SkillManageParams = Type.Object({
+    action: Type.String({ description: "Action: create | patch | delete", enum: ["create", "patch", "delete"] }),
+    name: Type.String({ description: "Skill name (e.g. 'my-skill')" }),
+    category: Type.Optional(Type.String({ description: "Category folder under ~/.hermes/skills/ (default: 'productivity')" })),
+    content: Type.Optional(Type.String({ description: "Full SKILL.md content (create action)" })),
+    old_string: Type.Optional(Type.String({ description: "String to find and replace (patch action)" })),
+    new_string: Type.Optional(Type.String({ description: "Replacement string (patch action)" })),
+    absorbed_into: Type.Optional(Type.String({ description: "Forward deleted skill to another skill name (delete action)" })),
+  });
+
+  pi.registerTool(defineTool({
+    name: "skill_manage",
+    label: "Manage Skill",
+    description: [
+      "Create, update, or delete a skill in ~/.hermes/skills/<category>/.",
+      "create: writes a new SKILL.md at ~/.hermes/skills/<category>/<name>/SKILL.md.",
+      "patch: replaces old_string with new_string in the skill's SKILL.md.",
+      "delete: removes the skill directory (or forwards to another skill with absorbed_into).",
+    ].join(" "),
+    parameters: SkillManageParams,
+
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const osHome = os.homedir();
+      const category = params.category ?? "productivity";
+      const skillDir = path.join(osHome, ".hermes", "skills", category, params.name);
+      const skillFile = path.join(skillDir, "SKILL.md");
+
+      if (params.action === "create") {
+        if (!params.content) {
+          return { content: [{ type: "text", text: "Error: content is required for create action." }], details: { error: "missing_content" } };
+        }
+        if (fs.existsSync(skillFile)) {
+          return { content: [{ type: "text", text: `Skill already exists: ${params.name} in ${category}. Use patch to update.` }], details: { error: "already_exists" } };
+        }
+        try {
+          fs.mkdirSync(skillDir, { recursive: true });
+          fs.writeFileSync(skillFile, params.content, "utf8");
+          return {
+            content: [{ type: "text", text: `Skill created: ${params.name}\nPath: ${skillFile}` }],
+            details: { created: true, path: skillFile },
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return { content: [{ type: "text", text: `Failed to create skill: ${msg}` }], details: { error: msg } };
+        }
+      }
+
+      if (params.action === "patch") {
+        if (!params.old_string) {
+          return { content: [{ type: "text", text: "Error: old_string is required for patch action." }], details: { error: "missing_old_string" } };
+        }
+        if (!fs.existsSync(skillFile)) {
+          return { content: [{ type: "text", text: `Skill not found: ${params.name} in ${category}` }], details: { error: "not_found" } };
+        }
+        try {
+          let existing = fs.readFileSync(skillFile, "utf8");
+          if (!existing.includes(params.old_string)) {
+            return { content: [{ type: "text", text: `old_string not found in skill content.` }], details: { error: "string_not_found" } };
+          }
+          existing = existing.replace(params.old_string, params.new_string ?? "");
+          fs.writeFileSync(skillFile, existing, "utf8");
+          return {
+            content: [{ type: "text", text: `Skill patched: ${params.name}\n${params.old_string} → ${params.new_string ?? "(deleted)"}` }],
+            details: { patched: true },
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return { content: [{ type: "text", text: `Failed to patch skill: ${msg}` }], details: { error: msg } };
+        }
+      }
+
+      if (params.action === "delete") {
+        if (!fs.existsSync(skillDir)) {
+          return { content: [{ type: "text", text: `Skill not found: ${params.name} in ${category}` }], details: { error: "not_found" } };
+        }
+        try {
+          if (params.absorbed_into) {
+            // Forward: remove only this skill dir, no forwarding
+            fs.rmSync(skillDir, { recursive: true });
+            return {
+              content: [{ type: "text", text: `Skill deleted (absorbed_into is noted — update cron jobs referencing '${params.name}' manually): ${params.name}` }],
+              details: { deleted: true, absorbed_into: params.absorbed_into },
+            };
+          }
+          fs.rmSync(skillDir, { recursive: true });
+          return {
+            content: [{ type: "text", text: `Skill deleted: ${params.name}` }],
+            details: { deleted: true },
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return { content: [{ type: "text", text: `Failed to delete skill: ${msg}` }], details: { error: msg } };
+        }
+      }
+
+      return { content: [{ type: "text", text: "Unknown action." }], details: {} };
     },
   }));
 }

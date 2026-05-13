@@ -532,24 +532,37 @@ class AgentManager extends EventEmitter {
 
     if (rt.token) this.tokenToTask.delete(rt.token);
 
+    // Stage 1 — SIGTERM (graceful)
+    // Stage 2 — SIGKILL after 3s (force kill stubborn/WSL-detached processes)
+    let killed = false;
     try {
       rt.child.kill("SIGTERM");
-      setTimeout(() => {
-        if (this.running.has(taskId)) {
-          try {
-            rt.child.kill("SIGKILL");
-          } catch {
-            // Already dead
-          }
-        }
-      }, 3000);
     } catch (err) {
-      console.warn(`[AgentManager] Failed to kill task ${taskId.slice(0, 8)}:`, err);
+      console.warn(`[AgentManager] SIGTERM failed for ${taskId.slice(0, 8)}:`, err);
+      killed = true;
     }
 
-    this.running.delete(taskId);
-    if (task) this.emitUpdate(task);
-    this.emit("kill", { taskId });
+    if (!killed) {
+      const killTimer = setTimeout(() => {
+        try {
+          rt.child.kill("SIGKILL");
+        } catch {
+          // Already dead after SIGTERM
+        }
+      }, 3000);
+
+      // Clean up AFTER the SIGKILL window has had a chance to fire.
+      // This prevents zombie entries from lingering in this.running when
+      // SIGTERM succeeds quickly or the process exits on its own.
+      rt.child.once("close", () => {
+        clearTimeout(killTimer);
+        if (this.running.has(taskId)) {
+          this.running.delete(taskId);
+          if (task) this.emitUpdate(task);
+          this.emit("kill", { taskId });
+        }
+      });
+    }
   }
 
   /** Kill a task by its token (e.g. from AbortSignal) */
@@ -663,6 +676,13 @@ class AgentManager extends EventEmitter {
         cancelled: 0,
       },
     };
+  }
+
+  /** Remove a task and its entry from the registry (does NOT kill running process — use kill() first) */
+  deleteTask(taskId: string): void {
+    this.tasks.delete(taskId);
+    this.running.delete(taskId);
+    this.subscriptions.delete(taskId);
   }
 
   destroy(): void {

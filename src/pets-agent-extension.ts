@@ -6,16 +6,30 @@
  * the existing AgentManager process-spawning engine.
  *
  * Usage: pi --extension pets-agent
+ *
+ * Orchestrator section is loaded from config/orchestrator.md (falls back to embedded default).
  */
 
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerTaskTools } from "./tools/task-tools.js";
 import { registerMemoryTools } from "./tools/memory-tools.js";
 import { registerTeamTools } from "./tools/team-tools.js";
+import { registerAiTools } from "./tools/ai-tools.js";
 import { memoryInjector } from "./memory/injector.js";
 
-/** Cached orchestrator section — built once, reused every session */
-const ORCHESTRATOR_SECTION = `
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** Cached orchestrator section — loaded from config/orchestrator.md, falls back to embedded default */
+const ORCHESTRATOR_SECTION = (() => {
+  const configPath = join(__dirname, "..", "config", "orchestrator.md");
+  try {
+    return readFileSync(configPath, "utf8");
+  } catch {
+    // Fallback embedded default
+    return `
 ## Orchestration Capabilities
 
 You are a development assistant with agent orchestration capabilities.
@@ -29,6 +43,7 @@ You are a development assistant with agent orchestration capabilities.
 - wait_for_tasks(taskIds, timeoutSec?, pollIntervalMs?) — await one or more tasks to complete
 - list_task_history(limit?, taskId?, agentType?, status?) — query past task executions
 - decompose_task(taskDescription, subtasks[], parentId?) — split complex tasks into parallel subtasks
+- task_manage(taskId, action, name?, priority?) — update task fields or delete finished tasks
 
 **Memory Tools:**
 - remember_pattern(pattern, tags?) — save a successful command/workflow
@@ -41,19 +56,20 @@ You are a development assistant with agent orchestration capabilities.
 **Skill Tools:**
 - list_skills(query?) — list all available skills
 - view_skill(name) — view full content of a specific skill
+- skill_manage(action, name, category?, content?, old_string?, new_string?) — create/patch/delete skills
 
 **Project Team Tools:**
 - create_project(name, description, target?, successCriteria?)
 - list_projects(status?)
 - get_project(projectId)
-- plan_phase(projectId, phase) — phase ∈ {idea,feasibility,requirements,design,implementation,testing,evaluation}
-- run_role(projectId, role, phase, input?, workdir?) — role ∈ {pm,product,designer,developer,qa,business}
-- create_artifact(projectId, type, title, content, phase, createdBy?, summary?) — type ∈ {idea_form,feasibility_report,prd,user_story_map,design_spec,tech_spec,code,test_plan,test_report,defect_list,assessment,meeting_notes,decision_record,retrospective}
+- plan_phase(projectId, phase)
+- run_role(projectId, role, phase, input?, workdir?)
+- create_artifact(projectId, type, title, content, phase, createdBy?, summary?)
 - review_artifact(projectId, artifactId, verdict, comment?)
-- advance_phase(projectId) — advance if all gate criteria are met
-- make_decision(projectId, topic, options[], rationale, selected, madeBy) — selected is 0-based index
+- advance_phase(projectId)
+- make_decision(projectId, topic, options[], rationale, selected, madeBy)
 - team_meeting(projectId, topic, participants[], notes?)
-- generate_doc(type, projectName, input?) — type ∈ {prd,tech_spec,test_plan,feasibility_report,design_spec}
+- generate_doc(type, projectName, input?)
 
 **Agent Selection:**
 1. claude-code — general coding, file operations, debugging
@@ -62,14 +78,18 @@ You are a development assistant with agent orchestration capabilities.
 
 **Task Decomposition:**
 When a task spans multiple domains, requires independent steps, or is large in scope,
-use decompose_task to split it into parallel subtasks, then monitor with list_tasks.
+use decompose_task to split it into parallel subtasks with optional dependsOn ordering,
+then monitor with list_tasks.
 Simple single-step tasks should use spawn_agent directly.
 `.trim();
+  }
+})();
 
 export default function petsAgentExtension(pi: ExtensionAPI): void {
   registerTaskTools(pi);
   registerMemoryTools(pi);
   registerTeamTools(pi);
+  registerAiTools()(pi);
 
   // System prompt injection
   pi.on("before_agent_start", (event) => {

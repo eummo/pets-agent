@@ -21,6 +21,10 @@ export interface LLMConfig {
 const DEFAULT_BASE_URL = "https://api.minimax.chat/v1";
 const DEFAULT_MODEL = "MiniMax-Text-01";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export abstract class BaseRoleLLM extends Role {
   protected abstract role(): TeamRole;
   protected abstract buildUserPrompt(ctx: RoleContext): string;
@@ -45,7 +49,7 @@ export abstract class BaseRoleLLM extends Role {
 
   /**
    * Call the LLM with the given user prompt.
-   * Uses MiniMax chat completion API.
+   * Uses MiniMax chat completion API with exponential-backoff retry on transient errors.
    */
   protected async callLLM(userPrompt: string, ctx: RoleContext): Promise<string> {
     const apiKey = this.getAPIKey();
@@ -54,58 +58,78 @@ export abstract class BaseRoleLLM extends Role {
     const systemPrompt = this.buildSystemPrompt(ctx);
 
     // Honour external signal + optional per-call timeout
-    const controller = new AbortController();
     const timeoutMs = ctx.timeoutMs;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    if (timeoutMs && timeoutMs > 0) {
-      timer = setTimeout(() => controller.abort(), timeoutMs);
-    }
-    const signal = ctx.signal
-      ? (() => {
-          // Chain: if either external signal or controller fires, abort
-          const ext = ctx.signal;
-          const merged = new AbortController();
-          ext.addEventListener("abort", () => merged.abort());
-          controller.signal.addEventListener("abort", () => merged.abort());
-          return merged.signal;
-        })()
-      : controller.signal;
 
-    try {
-      const res = await fetch(`${baseURL}/text/chatcompletion_v2`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.4,
-          max_tokens: 4096,
-        }),
-        signal,
-      });
+    const MAX_RETRIES = 2;
+    const BASE_DELAY_MS = 500;
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`LLM API error ${res.status}: ${errText}`);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (timeoutMs && timeoutMs > 0) {
+        timer = setTimeout(() => controller.abort(), timeoutMs);
       }
+      const signal = ctx.signal
+        ? (() => {
+            const ext = ctx.signal;
+            const merged = new AbortController();
+            ext.addEventListener("abort", () => merged.abort());
+            controller.signal.addEventListener("abort", () => merged.abort());
+            return merged.signal;
+          })()
+        : controller.signal;
 
-      const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-      const content = json.choices?.[0]?.message?.content ?? "";
-      return content;
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        return "[cancelled]";
+      try {
+        const res = await fetch(`${baseURL}/text/chatcompletion_v2`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            temperature: 0.4,
+            max_tokens: 4096,
+          }),
+          signal,
+        });
+
+        if (!res.ok) {
+          // Transient: 5xx, 429, 408, network errors
+          const transient = res.status >= 500 || res.status === 429 || res.status === 408;
+          if (transient && attempt < MAX_RETRIES) {
+            const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+            await sleep(delay);
+            continue;
+          }
+          const errText = await res.text();
+          throw new Error(`LLM API error ${res.status}: ${errText}`);
+        }
+
+        const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+        const content = json.choices?.[0]?.message?.content ?? "";
+        return content;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return "[cancelled]";
+        }
+        // Network errors are transient
+        if (err instanceof TypeError && attempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+          await sleep(delay);
+          continue;
+        }
+        throw err;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
       }
-      throw err;
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
     }
+    // Should not reach here, but satisfy TypeScript
+    throw new Error("LLM call exhausted retries");
   }
 
   protected getAPIKey(): string {

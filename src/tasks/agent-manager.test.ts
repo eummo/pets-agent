@@ -35,6 +35,21 @@ describe("AgentManager", () => {
       expect(wslPath("/home/user/code")).toBe("/home/user/code");
       expect(wslPath("/tmp/file")).toBe("/tmp/file");
     });
+
+    it("handles cross-drive paths (/mnt/c/ and /mnt/d/ both convert correctly)", () => {
+      // Same-drive: both are /mnt/c/
+      expect(wslPath("/mnt/c/projects/api")).toBe("C:\\projects\\api");
+      // Different drive: /mnt/d/
+      expect(wslPath("/mnt/d/data/db")).toBe("D:\\data\\db");
+      // Mixed in same test run — proves no shared state contamination
+      expect(wslPath("/mnt/c/users")).toBe("C:\\users");
+    });
+
+    it("handles deep WSL paths with multiple segments", () => {
+      expect(wslPath("/mnt/c/Users/jadenli/code/pets-agent/src/tasks")).toBe(
+        "C:\\Users\\jadenli\\code\\pets-agent\\src\\tasks"
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

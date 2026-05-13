@@ -1,6 +1,7 @@
 /**
  * Task Tools — spawn_agent, list_tasks, get_task, kill_task,
- * list_task_history, decompose_task, get_task_tree, wait_for_tasks
+ * list_task_history, decompose_task, get_task_tree, wait_for_tasks,
+ * task_manage
  */
 
 import { Type } from "typebox";
@@ -92,12 +93,15 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     taskDescription: Type.String({ description: "Complex task to decompose" }),
     subtasks: Type.Array(
       Type.Object({
-        title: Type.String({ description: "Subtask title" }),
+        title: Type.String({ description: "Subtask title (unique identifier used in dependsOn)" }),
         agentType: Type.String({
           description: "Agent type",
           enum: ["claude-code", "pi-agent", "codex", "kiro", "custom"],
         }),
         prompt: Type.String({ description: "Task description for the sub-agent" }),
+        dependsOn: Type.Optional(
+          Type.Array(Type.String(), { description: "Titles of subtasks this one waits for (by title, not ID)" }),
+        ),
       }),
       { description: "Subtasks array" },
     ),
@@ -164,6 +168,48 @@ export function registerTaskTools(pi: ExtensionAPI): void {
         });
       }
 
+      // ─── Wait for completion if maxRetries > 0 ───────────────────────────
+      if (maxRetries > 0) {
+        const totalTimeout = timeoutMs != null
+          ? timeoutMs * (maxRetries + 1)
+          : 300_000; // default 5min cap when no timeout set
+
+        const deadline = Date.now() + totalTimeout;
+        const pollMs = 2000;
+
+        while (Date.now() < deadline) {
+          if (signal?.aborted) {
+            unsub?.();
+            return { content: [{ type: "text", text: "spawn_agent aborted." }], details: { taskId: task.id, aborted: true } };
+          }
+          const t = agentManager.get(task.id);
+          if (!t) break;
+          if (t.status === "done") {
+            unsub?.();
+            return {
+              content: [{ type: "text", text: `Task done: ${task.name} (${task.id})\nExit code: ${t.exitCode ?? 0}` }],
+              details: { taskId: task.id, status: "done", exitCode: t.exitCode },
+            };
+          }
+          if (t.status === "failed") {
+            unsub?.();
+            return {
+              content: [{ type: "text", text: `Task failed: ${task.name} (${task.id})\nError: ${t.error ?? "unknown"}` }],
+              details: { taskId: task.id, status: "failed", error: t.error },
+            };
+          }
+          await new Promise((r) => setTimeout(r, pollMs));
+        }
+
+        // Timeout reached
+        agentManager.kill(task.id);
+        unsub?.();
+        return {
+          content: [{ type: "text", text: `spawn_agent timed out after ${totalTimeout}ms (${maxRetries} retries). Task killed.` }],
+          details: { taskId: task.id, status: "timeout", timedOut: true },
+        };
+      }
+
       // Clean up abort handler and subscription on return
       const cleanup = () => {
         if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
@@ -176,8 +222,6 @@ export function registerTaskTools(pi: ExtensionAPI): void {
           ? `Task started: ${task.name} (${task.id})\nRecent output:\n${initialLines.join("\n")}`
           : `Task started: ${task.name} (${task.id})\nWaiting for output...`;
 
-      // Note: caller is responsible for calling cleanup() when the tool call completes.
-      // For sync return, we attach cleanup via AbortSignal if available.
       if (signal) {
         const origAbort = abortHandler;
         signal.addEventListener("abort", () => {
@@ -409,10 +453,9 @@ export function registerTaskTools(pi: ExtensionAPI): void {
     name: "decompose_task",
     label: "Decompose Task",
     description: [
-      "Decompose a complex task into multiple parallel subtasks.",
-      "Use when: multi-step workflows, cross-domain research, large implementations.",
-      "All subtasks start in parallel automatically.",
-      "Monitor with list_tasks / get_task.",
+      "Decompose a complex task into multiple subtasks with optional dependencies.",
+      "Subtasks with no dependsOn run in parallel. Subtasks with dependsOn wait for",
+      "their dependencies to finish before starting. Use list_tasks to monitor progress.",
     ].join(" "),
     parameters: DecomposeTaskParams,
 
@@ -432,6 +475,18 @@ export function registerTaskTools(pi: ExtensionAPI): void {
         if (err) return err;
         const errP = requireString(sub.prompt, `subtasks[${i}].prompt`);
         if (errP) return errP;
+        // Validate dependsOn titles reference real subtasks
+        if (sub.dependsOn) {
+          const titleSet = new Set(params.subtasks.map((s) => s.title));
+          for (const dep of sub.dependsOn) {
+            if (!titleSet.has(dep)) {
+              return {
+                content: [{ type: "text", text: `Error: subtask "${sub.title}" depends on unknown title "${dep}"` }],
+                details: { error: "Invalid dependsOn", subtask: sub.title, unknownDep: dep },
+              };
+            }
+          }
+        }
       }
       if (params.parentId && !agentManager.get(params.parentId)) {
         return {
@@ -440,28 +495,90 @@ export function registerTaskTools(pi: ExtensionAPI): void {
         };
       }
 
-      const spawned = [];
+      // ─── Topological sort (Kahn's algorithm) ─────────────────────────────
+      const titleToIndex = new Map(params.subtasks.map((s, i) => [s.title, i]));
+      const inDegree = new Array(params.subtasks.length).fill(0);
+      const adjList: number[][] = params.subtasks.map(() => []);
+
+      for (const sub of params.subtasks) {
+        if (sub.dependsOn) {
+          for (const dep of sub.dependsOn) {
+            const from = titleToIndex.get(dep)!;
+            const to = titleToIndex.get(sub.title)!;
+            adjList[from].push(to);
+            inDegree[to]++;
+          }
+        }
+      }
+
+      const sorted: number[] = [];
+      const queue: number[] = inDegree
+        .map((d, i) => ({ d, i }))
+        .filter((x) => x.d === 0)
+        .map((x) => x.i);
+
+      while (queue.length > 0) {
+        const curr = queue.shift()!;
+        sorted.push(curr);
+        for (const nb of adjList[curr]) {
+          inDegree[nb]--;
+          if (inDegree[nb] === 0) queue.push(nb);
+        }
+      }
+
+      if (sorted.length !== params.subtasks.length) {
+        const cycleIndices = inDegree.map((d, i) => d > 0 ? params.subtasks[i]!.title : null).filter(Boolean);
+        return {
+          content: [{ type: "text", text: `Error: circular dependency detected among: ${cycleIndices.join(", ")}` }],
+          details: { error: "Circular dependency", cycleMembers: cycleIndices },
+        };
+      }
+
+      // ─── Spawn in dependency order ─────────────────────────────────────
+      // title -> taskId mapping for dependency wait
+      const titleToTaskId = new Map<string, string>();
+      const spawned: Array<{ id: string; name: string; agentType: string; dependsOn: string[] }> = [];
       const lines: string[] = [
-        `Task decomposition: "${params.taskDescription.slice(0, 80)}${
-          params.taskDescription.length > 80 ? "..." : ""
-        }"`,
+        `Task decomposition: "${params.taskDescription.slice(0, 80)}${params.taskDescription.length > 80 ? "..." : ""}"`,
+        `Topological order: ${sorted.map((i) => params.subtasks[i]!.title).join(" → ")}`,
         "",
       ];
 
-      for (const sub of params.subtasks) {
+      for (const idx of sorted) {
+        const sub = params.subtasks[idx]!;
         const opts: { name?: string; workdir?: string; parentId?: string } = { name: sub.title };
         if (params.parentId) opts.parentId = params.parentId;
+
+        // Wait for dependencies if any
+        if (sub.dependsOn && sub.dependsOn.length > 0) {
+          const depIds = sub.dependsOn.map((d) => titleToTaskId.get(d)).filter(Boolean) as string[];
+          if (depIds.length > 0) {
+            for (const depId of depIds) {
+              const depTask = agentManager.get(depId);
+              if (depTask && depTask.status !== "done" && depTask.status !== "failed" && depTask.status !== "cancelled") {
+                // Poll until done
+                const deadline = Date.now() + 120_000;
+                while (Date.now() < deadline) {
+                  const t = agentManager.get(depId);
+                  if (!t || t.status === "done" || t.status === "failed" || t.status === "cancelled") break;
+                  await new Promise((r) => setTimeout(r, 500));
+                }
+              }
+            }
+          }
+        }
 
         const task =
           params.parentId
             ? agentManager.spawnChild(params.parentId, sub.agentType as AgentType, sub.prompt, opts)
             : agentManager.spawn(sub.agentType as AgentType, sub.prompt, opts);
 
-        spawned.push({ id: task.id, name: task.name, agentType: sub.agentType, status: task.status });
-        lines.push(`  ✓ [${sub.agentType}] ${sub.title} → ${task.id}`);
+        titleToTaskId.set(sub.title, task.id);
+        spawned.push({ id: task.id, name: task.name, agentType: sub.agentType, dependsOn: sub.dependsOn ?? [] });
+        lines.push(`  + [${sub.agentType}] ${sub.title} → ${task.id}${sub.dependsOn?.length ? ` (waits: ${sub.dependsOn.join(", ")})` : ""}`);
       }
 
-      lines.push("", `Started ${spawned.length} subtasks. Use list_tasks to monitor progress.`);
+      lines.push("", `Started ${spawned.length} subtasks in topological order. Use list_tasks to monitor.`);
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
@@ -608,6 +725,81 @@ export function registerTaskTools(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text", text: `Timeout after ${params.timeoutSec ?? 300}s. Still pending: ${results.filter((r) => !["done", "failed", "cancelled", "not_found"].includes(r.status)).map((r) => r.taskId).join(", ")}` }],
         details: { results, timedOut: true },
+      };
+    },
+  }));
+
+  // ─── task_manage ─────────────────────────────────────────────────────────────
+  pi.registerTool(defineTool({
+    name: "task_manage",
+    label: "Manage Task",
+    description: [
+      "Update task fields (name, priority) or delete a task and its children.",
+      "Only pending/running tasks can be updated; only done/failed/cancelled tasks can be deleted.",
+    ].join(" "),
+    parameters: Type.Object({
+      taskId: Type.String({ description: "Task ID to manage" }),
+      action: Type.String({ description: "Action: update | delete", enum: ["update", "delete"] }),
+      name: Type.Optional(Type.String({ description: "New task name (update action only)" })),
+      priority: Type.Optional(Type.Number({ description: "New priority 1-10 (update action only)" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const err = requireString(params.taskId, "taskId");
+      if (err) return err;
+      if (!["update", "delete"].includes(params.action)) {
+        return validationError("action must be 'update' or 'delete'", { param: "action" });
+      }
+
+      const task = agentManager.get(params.taskId);
+      if (!task) {
+        return {
+          content: [{ type: "text", text: `Task not found: ${params.taskId}` }],
+          details: { error: "not_found" },
+        };
+      }
+
+      if (params.action === "update") {
+        if (task.status !== "pending" && task.status !== "running") {
+          return {
+            content: [{ type: "text", text: `Cannot update task in '${task.status}' state. Only pending/running tasks can be updated.` }],
+            details: { error: "invalid_state", currentStatus: task.status },
+          };
+        }
+        if (params.name != null) task.name = params.name;
+        if (params.priority != null) {
+          if (params.priority < 1 || params.priority > 10) {
+            return validationError("priority must be between 1 and 10", { param: "priority" });
+          }
+          task.priority = params.priority;
+        }
+        return {
+          content: [{ type: "text", text: `Task updated: ${task.id}\n  name=${task.name}\n  priority=${task.priority ?? "(default)"}` }],
+          details: { task },
+        };
+      }
+
+      // delete
+      if (task.status === "pending" || task.status === "running") {
+        return {
+          content: [{ type: "text", text: `Cannot delete task in '${task.status}' state. Kill it first with kill_task.` }],
+          details: { error: "invalid_state", currentStatus: task.status },
+        };
+      }
+
+      // Recursively delete children
+      const deleteTask = (id: string): void => {
+        const t = agentManager.get(id);
+        if (t?.children) {
+          for (const childId of t.children) deleteTask(childId);
+        }
+        agentManager.deleteTask(id);
+      };
+      deleteTask(params.taskId);
+
+      return {
+        content: [{ type: "text", text: `Deleted task and its children: ${params.taskId}` }],
+        details: { deleted: true },
       };
     },
   }));
