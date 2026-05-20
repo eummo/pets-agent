@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "types": ["vitest/globals"]
+  },
+  "include": ["src/tasks/agent-manager.test.ts", "src/memory/injector.test.ts"]
+}

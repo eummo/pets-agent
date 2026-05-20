@@ -1,0 +1,356 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 900">
+  <defs>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f97316"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+    </marker>
+    <marker id="arrowGray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowYellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#eab308"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#64748b" flood-opacity="0.2"/>
+    </filter>
+    <filter id="shadowSoft" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000000" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .t-title { font-size: 26px; font-weight: 700; fill: #1e293b; }
+    .t-layer { font-size: 11px; font-weight: 600; fill: #94a3b8; letter-spacing: 1px; text-transform: uppercase; }
+    .t-node { font-size: 13px; font-weight: 600; fill: #1e293b; }
+    .t-sub { font-size: 11px; font-weight: 400; fill: #64748b; }
+    .t-small { font-size: 10px; fill: #94a3b8; }
+    .t-legend { font-size: 11px; fill: #475569; }
+    .t-role { font-size: 12px; font-weight: 600; fill: #1e293b; }
+    .t-role-sub { font-size: 10px; fill: #64748b; }
+    .t-phase { font-size: 10px; fill: #64748b; }
+    .t-center { font-size: 14px; font-weight: 700; fill: #1e293b; }
+  </style>
+
+  <!-- Background -->
+  <rect width="1100" height="900" fill="#f8fafc"/>
+
+  <!-- Title -->
+  <text x="550" y="38" text-anchor="middle" class="t-title">pets-agent 架构图</text>
+  <text x="550" y="58" text-anchor="middle" font-size="12" fill="#94a3b8">统一调度者 · 角色 · Session · 底层 Agent</text>
+
+  <!-- ==================== LAYER 1: 统一调度者 ==================== -->
+  <rect x="20" y="75" width="1060" height="90" rx="10" fill="#1e1b4b" stroke="#4338ca" stroke-width="2" filter="url(#shadow)"/>
+
+  <text x="35" y="91" class="t-layer" fill="#818cf8">LAYER 1 — 统一调度者 (ORCHESTRATOR)</text>
+
+  <!-- Orchestrator center block -->
+  <rect x="350" y="100" width="400" height="55" rx="10" fill="#312e81" stroke="#6366f1" stroke-width="2" filter="url(#shadow)"/>
+  <text x="550" y="124" text-anchor="middle" fill="#e0e7ff" class="t-center">pets-agent-extension.ts</text>
+  <text x="550" y="142" text-anchor="middle" fill="#a5b4fc" class="t-sub">Extension API · System Prompt · Tool Registration</text>
+
+  <!-- Left: pi-mono -->
+  <rect x="40" y="100" width="200" height="55" rx="8" fill="#3730a3" filter="url(#shadowSoft)"/>
+  <text x="140" y="124" text-anchor="middle" fill="#c7d2fe" class="t-node">pi-mono CLI</text>
+  <text x="140" y="142" text-anchor="middle" fill="#a5b4fc" class="t-sub">Agent · Skill Loader · Model</text>
+
+  <!-- Right: LLM -->
+  <rect x="860" y="100" width="200" height="55" rx="8" fill="#3730a3" filter="url(#shadowSoft)"/>
+  <text x="960" y="124" text-anchor="middle" fill="#c7d2fe" class="t-node">MiniMax LLM</text>
+  <text x="960" y="142" text-anchor="middle" fill="#a5b4fc" class="t-sub">chatcompletion_v2 · getModel()</text>
+
+  <!-- ==================== LAYER 2: Session ==================== -->
+  <rect x="20" y="180" width="1060" height="115" rx="10" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+
+  <text x="35" y="196" class="t-layer">LAYER 2 — SESSION (项目 · 阶段 · 产物)</text>
+
+  <!-- 7-phase flow (top row) -->
+  <rect x="40" y="206" width="130" height="26" rx="13" fill="#4f46e5"/>
+  <text x="105" y="223" text-anchor="middle" fill="#ffffff" class="t-phase">idea</text>
+  <line x1="170" y1="219" x2="190" y2="219" stroke="#d1d5db" stroke-width="1.5"/>
+  <rect x="190" y="206" width="130" height="26" rx="13" fill="#4338ca"/>
+  <text x="255" y="223" text-anchor="middle" fill="#ffffff" class="t-phase">feasibility</text>
+  <line x1="320" y1="219" x2="340" y2="219" stroke="#d1d5db" stroke-width="1.5"/>
+  <rect x="340" y="206" width="130" height="26" rx="13" fill="#3730a3"/>
+  <text x="405" y="223" text-anchor="middle" fill="#ffffff" class="t-phase">requirements</text>
+  <line x1="470" y1="219" x2="490" y2="219" stroke="#d1d5db" stroke-width="1.5"/>
+  <rect x="490" y="206" width="130" height="26" rx="13" fill="#312e81"/>
+  <text x="555" y="223" text-anchor="middle" fill="#ffffff" class="t-phase">design</text>
+  <line x1="620" y1="219" x2="640" y2="219" stroke="#d1d5db" stroke-width="1.5"/>
+  <rect x="640" y="206" width="130" height="26" rx="13" fill="#1e1b4b"/>
+  <text x="705" y="223" text-anchor="middle" fill="#a5b4fc" class="t-phase">implementation</text>
+  <line x1="770" y1="219" x2="790" y2="219" stroke="#d1d5db" stroke-width="1.5"/>
+  <rect x="790" y="206" width="130" height="26" rx="13" fill="#1e1b4b"/>
+  <text x="855" y="223" text-anchor="middle" fill="#a5b4fc" class="t-phase">testing</text>
+  <line x1="920" y1="219" x2="940" y2="219" stroke="#d1d5db" stroke-width="1.5"/>
+  <rect x="940" y="206" width="130" height="26" rx="13" fill="#1e1b4b"/>
+  <text x="1005" y="223" text-anchor="middle" fill="#a5b4fc" class="t-phase">evaluation</text>
+
+  <!-- Session components (bottom row) -->
+  <rect x="40" y="242" width="160" height="42" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="120" y="260" text-anchor="middle" class="t-node">Project</text>
+  <text x="120" y="276" text-anchor="middle" class="t-sub">name · phase · status · members</text>
+
+  <rect x="220" y="242" width="160" height="42" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="300" y="260" text-anchor="middle" class="t-node">Artifact</text>
+  <text x="300" y="276" text-anchor="middle" class="t-sub">draft · in_review · approved</text>
+
+  <rect x="400" y="242" width="160" height="42" rx="8" fill="#fef9c3" stroke="#fde047" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="480" y="260" text-anchor="middle" class="t-node">Decision</text>
+  <text x="480" y="276" text-anchor="middle" class="t-sub">topic · options · selected</text>
+
+  <rect x="580" y="242" width="160" height="42" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="660" y="260" text-anchor="middle" class="t-node">Meeting</text>
+  <text x="660" y="276" text-anchor="middle" class="t-sub">topic · participants · outcomes</text>
+
+  <rect x="760" y="242" width="160" height="42" rx="8" fill="#faf5ff" stroke="#e9d5ff" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="840" y="260" text-anchor="middle" class="t-node">PhaseController</text>
+  <text x="840" y="276" text-anchor="middle" class="t-sub">Gate · minApprovals · veto</text>
+
+  <rect x="940" y="242" width="130" height="42" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="1005" y="260" text-anchor="middle" class="t-node">ProjectStore</text>
+  <text x="1005" y="276" text-anchor="middle" class="t-sub">projects.json</text>
+
+  <!-- ==================== LAYER 3: 角色 ==================== -->
+  <rect x="20" y="310" width="1060" height="140" rx="10" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+
+  <text x="35" y="326" class="t-layer" fill="#16a34a">LAYER 3 — 角色 (ROLES · BaseRoleLLM)</text>
+
+  <!-- Role: PM -->
+  <rect x="40" y="336" width="155" height="100" rx="10" fill="#ffffff" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="40" y="336" width="155" height="26" rx="10" fill="#16a34a"/>
+  <rect x="40" y="350" width="155" height="12" fill="#16a34a"/>
+  <text x="117" y="354" text-anchor="middle" fill="#ffffff" class="t-role">PM</text>
+  <text x="117" y="354" text-anchor="middle" fill="#ffffff" class="t-role">PM</text>
+  <text x="117" y="372" text-anchor="middle" class="t-role-sub">统筹 · 决策 · 阶段推进</text>
+  <line x1="60" y1="380" x2="175" y2="380" stroke="#d1d5db" stroke-width="1"/>
+  <text x="117" y="394" text-anchor="middle" class="t-sub">plan_phase · advance_phase</text>
+  <text x="117" y="408" text-anchor="middle" class="t-sub">create_artifact · review</text>
+  <text x="117" y="422" text-anchor="middle" class="t-small">MiniMax API · signal · timeout</text>
+
+  <!-- Role: Product -->
+  <rect x="205" y="336" width="155" height="100" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="205" y="336" width="155" height="26" rx="10" fill="#2563eb"/>
+  <rect x="205" y="350" width="155" height="12" fill="#2563eb"/>
+  <text x="282" y="354" text-anchor="middle" fill="#ffffff" class="t-role">Product</text>
+  <text x="282" y="372" text-anchor="middle" class="t-role-sub">需求 · PRD · 用户故事</text>
+  <line x1="225" y1="380" x2="340" y2="380" stroke="#d1d5db" stroke-width="1"/>
+  <text x="282" y="394" text-anchor="middle" class="t-sub">prd · user_story_map</text>
+  <text x="282" y="408" text-anchor="middle" class="t-sub">验收标准 · requirements</text>
+  <text x="282" y="422" text-anchor="middle" class="t-small">MiniMax API · signal · timeout</text>
+
+  <!-- Role: Designer -->
+  <rect x="370" y="336" width="155" height="100" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="370" y="336" width="155" height="26" rx="10" fill="#7c3aed"/>
+  <rect x="370" y="350" width="155" height="12" fill="#7c3aed"/>
+  <text x="447" y="354" text-anchor="middle" fill="#ffffff" class="t-role">Designer</text>
+  <text x="447" y="372" text-anchor="middle" class="t-role-sub">UX · 交互 · 视觉规范</text>
+  <line x1="390" y1="380" x2="505" y2="380" stroke="#d1d5db" stroke-width="1"/>
+  <text x="447" y="394" text-anchor="middle" class="t-sub">design_spec · 信息架构</text>
+  <text x="447" y="408" text-anchor="middle" class="t-sub">design · review</text>
+  <text x="447" y="422" text-anchor="middle" class="t-small">MiniMax API · signal · timeout</text>
+
+  <!-- Role: Developer -->
+  <rect x="535" y="336" width="155" height="100" rx="10" fill="#ffffff" stroke="#dc2626" stroke-width="2.5" filter="url(#shadow)"/>
+  <rect x="535" y="336" width="155" height="26" rx="10" fill="#dc2626"/>
+  <rect x="535" y="350" width="155" height="12" fill="#dc2626"/>
+  <text x="612" y="354" text-anchor="middle" fill="#ffffff" class="t-role">Developer</text>
+  <text x="612" y="372" text-anchor="middle" class="t-role-sub">架构 · 编码 · API · 集成</text>
+  <line x1="555" y1="380" x2="670" y2="380" stroke="#d1d5db" stroke-width="1"/>
+  <text x="612" y="394" text-anchor="middle" class="t-sub">tech_spec · code</text>
+  <text x="612" y="408" text-anchor="middle" class="t-sub">implementation · review</text>
+  <text x="612" y="422" text-anchor="middle" class="t-small">MiniMax API · signal · timeout</text>
+
+  <!-- Role: QA -->
+  <rect x="700" y="336" width="155" height="100" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="700" y="336" width="155" height="26" rx="10" fill="#0891b2"/>
+  <rect x="700" y="350" width="155" height="12" fill="#0891b2"/>
+  <text x="777" y="354" text-anchor="middle" fill="#ffffff" class="t-role">QA</text>
+  <text x="777" y="372" text-anchor="middle" class="t-role-sub">测试策略 · 用例 · 缺陷</text>
+  <line x1="720" y1="380" x2="835" y2="380" stroke="#d1d5db" stroke-width="1"/>
+  <text x="777" y="394" text-anchor="middle" class="t-sub">test_plan · test_report</text>
+  <text x="777" y="408" text-anchor="middle" class="t-sub">defect_list · testing</text>
+  <text x="777" y="422" text-anchor="middle" class="t-small">MiniMax API · signal · timeout</text>
+
+  <!-- Role: Business -->
+  <rect x="865" y="336" width="155" height="100" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="865" y="336" width="155" height="26" rx="10" fill="#d97706"/>
+  <rect x="865" y="350" width="155" height="12" fill="#d97706"/>
+  <text x="942" y="354" text-anchor="middle" fill="#ffffff" class="t-role">Business</text>
+  <text x="942" y="372" text-anchor="middle" class="t-role-sub">市场 · 竞品 · ROI · 可行性</text>
+  <line x1="885" y1="380" x2="1000" y2="380" stroke="#d1d5db" stroke-width="1"/>
+  <text x="942" y="394" text-anchor="middle" class="t-sub">feasibility_report</text>
+  <text x="942" y="408" text-anchor="middle" class="t-sub">idea · feasibility</text>
+  <text x="942" y="422" text-anchor="middle" class="t-small">MiniMax API · signal · timeout</text>
+
+  <!-- ==================== LAYER 4: 工具 ==================== -->
+  <rect x="20" y="465" width="1060" height="90" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <text x="35" y="481" class="t-layer">LAYER 4 — 工具 (TOOLS)</text>
+
+  <!-- Task Tools -->
+  <rect x="40" y="493" width="230" height="52" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="155" y="510" text-anchor="middle" class="t-node">Task Tools</text>
+  <text x="155" y="526" text-anchor="middle" class="t-sub">spawn_agent · decompose_task</text>
+  <text x="155" y="540" text-anchor="middle" class="t-sub">list_tasks · wait_for_tasks</text>
+
+  <!-- Memory Tools -->
+  <rect x="290" y="493" width="230" height="52" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="405" y="510" text-anchor="middle" class="t-node">Memory Tools</text>
+  <text x="405" y="526" text-anchor="middle" class="t-sub">get_memory · remember_project</text>
+  <text x="405" y="540" text-anchor="middle" class="t-sub">forget_memory · refresh_memory</text>
+
+  <!-- Team Tools -->
+  <rect x="540" y="493" width="230" height="52" rx="8" fill="#fef9c3" stroke="#fde047" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="655" y="510" text-anchor="middle" class="t-node">Team Tools</text>
+  <text x="655" y="526" text-anchor="middle" class="t-sub">create_artifact · review_artifact</text>
+  <text x="655" y="540" text-anchor="middle" class="t-sub">make_decision · team_meeting</text>
+
+  <!-- Skill Tools -->
+  <rect x="790" y="493" width="230" height="52" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="905" y="510" text-anchor="middle" class="t-node">Skill Tools</text>
+  <text x="905" y="526" text-anchor="middle" class="t-sub">list_skills · view_skill</text>
+  <text x="905" y="540" text-anchor="middle" class="t-sub">DefaultResourceLoader</text>
+
+  <!-- ==================== LAYER 5: 底层 Agent ==================== -->
+  <rect x="20" y="570" width="1060" height="160" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+
+  <text x="35" y="586" class="t-layer" fill="#ef4444">LAYER 5 — 底层 AGENT + 系统</text>
+
+  <!-- Sub Agents (left group) -->
+  <rect x="40" y="596" width="300" height="122" rx="8" fill="#1e40af" filter="url(#shadow)"/>
+  <text x="190" y="614" text-anchor="middle" fill="#ffffff" class="t-node">Sub-Agents (进程级)</text>
+  <line x1="50" y1="620" x2="330" y2="620" stroke="#4338ca" stroke-width="1"/>
+
+  <rect x="55" y="628" width="80" height="80" rx="6" fill="#312e81"/>
+  <text x="95" y="652" text-anchor="middle" fill="#e0e7ff" class="t-node" font-size="11">Claude</text>
+  <text x="95" y="666" text-anchor="middle" fill="#a5b4fc" class="t-sub">Code</text>
+  <text x="95" y="680" text-anchor="middle" fill="#818cf8" class="t-small">coding · debug</text>
+  <text x="95" y="694" text-anchor="middle" fill="#6366f1" class="t-small">Windows .exe</text>
+
+  <rect x="150" y="628" width="80" height="80" rx="6" fill="#312e81"/>
+  <text x="190" y="652" text-anchor="middle" fill="#e0e7ff" class="t-node" font-size="11">pi</text>
+  <text x="190" y="666" text-anchor="middle" fill="#a5b4fc" class="t-sub">agent</text>
+  <text x="190" y="680" text-anchor="middle" fill="#818cf8" class="t-small">pi-mono native</text>
+  <text x="190" y="694" text-anchor="middle" fill="#6366f1" class="t-small">@earendil-works</text>
+
+  <rect x="245" y="628" width="80" height="80" rx="6" fill="#312e81"/>
+  <text x="285" y="652" text-anchor="middle" fill="#e0e7ff" class="t-node" font-size="11">Codex</text>
+  <text x="285" y="666" text-anchor="middle" fill="#a5b4fc" class="t-sub">CLI</text>
+  <text x="285" y="680" text-anchor="middle" fill="#818cf8" class="t-small">openai</text>
+  <text x="285" y="694" text-anchor="middle" fill="#6366f1" class="t-small">npm global</text>
+
+  <!-- AgentManager (center) -->
+  <rect x="360" y="596" width="180" height="122" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="450" y="614" text-anchor="middle" class="t-node">AgentManager</text>
+  <line x1="370" y1="620" x2="530" y2="620" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="450" y="636" text-anchor="middle" class="t-sub">spawnWithRetry</text>
+  <text x="450" y="650" text-anchor="middle" class="t-sub">kill · Heartbeat</text>
+  <text x="450" y="664" text-anchor="middle" class="t-sub">Zombie detection</text>
+  <text x="450" y="678" text-anchor="middle" class="t-sub">wslToWindowsPath</text>
+  <text x="450" y="692" text-anchor="middle" class="t-small">SIGTERM → 3s → SIGKILL</text>
+  <text x="450" y="706" text-anchor="middle" class="t-small">AbortController token map</text>
+
+  <!-- Task System -->
+  <rect x="560" y="596" width="180" height="122" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="650" y="614" text-anchor="middle" class="t-node">Task System</text>
+  <line x1="570" y1="620" x2="730" y2="620" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="650" y="636" text-anchor="middle" class="t-sub">Task DAG</text>
+  <text x="650" y="650" text-anchor="middle" class="t-sub">priority · parentId</text>
+  <text x="650" y="664" text-anchor="middle" class="t-sub">children[] · attempt</text>
+  <text x="650" y="678" text-anchor="middle" class="t-sub">supersededBy</text>
+  <text x="650" y="692" text-anchor="middle" class="t-small">task-history.ts</text>
+  <text x="650" y="706" text-anchor="middle" class="t-small">MAX_LOG_FILES=500</text>
+
+  <!-- Memory System (right) -->
+  <rect x="760" y="596" width="310" height="122" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5" filter="url(#shadowSoft)"/>
+  <text x="915" y="614" text-anchor="middle" class="t-node">Memory System</text>
+  <line x1="770" y1="620" x2="1060" y2="620" stroke="#e5e7eb" stroke-width="1"/>
+
+  <rect x="770" y="628" width="130" height="36" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+  <text x="835" y="643" text-anchor="middle" class="t-sub">pattern-memory</text>
+  <text x="835" y="657" text-anchor="middle" class="t-small">LRU cap=2000 · SHA256</text>
+
+  <rect x="910" y="628" width="130" height="36" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="975" y="643" text-anchor="middle" class="t-sub">project-memory</text>
+  <text x="975" y="657" text-anchor="middle" class="t-small">mtime cache · techStack</text>
+
+  <rect x="770" y="672" width="130" height="36" rx="6" fill="#fef9c3" stroke="#fde047" stroke-width="1"/>
+  <text x="835" y="687" text-anchor="middle" class="t-sub">preference-memory</text>
+  <text x="835" y="701" text-anchor="middle" class="t-small">user preferences</text>
+
+  <rect x="910" y="672" width="130" height="36" rx="6" fill="#fff7ed" stroke="#fdba74" stroke-width="1"/>
+  <text x="975" y="687" text-anchor="middle" class="t-sub">Decisions · Meeting</text>
+  <text x="975" y="701" text-anchor="middle" class="t-small">list_decisions</text>
+
+  <!-- ==================== CONNECTIONS ==================== -->
+
+  <!-- L1 → L2 (orchestrator to session) -->
+  <line x1="550" y1="165" x2="120" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowPurple)"/>
+  <line x1="550" y1="165" x2="480" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowPurple)"/>
+  <line x1="550" y1="165" x2="840" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowPurple)"/>
+
+  <!-- L1 → L4 (extension registers tools) -->
+  <line x1="550" y1="165" x2="155" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="550" y1="165" x2="405" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="550" y1="165" x2="655" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="550" y1="165" x2="905" y2="180" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <!-- L2 → L3 (roles participate in phases) -->
+  <line x1="105" y1="284" x2="117" y2="310" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <line x1="255" y1="284" x2="282" y2="310" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowOrange)"/>
+  <line x1="405" y1="284" x2="447" y2="310" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <line x1="555" y1="284" x2="612" y2="310" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+  <line x1="855" y1="284" x2="777" y2="310" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <line x1="1005" y1="284" x2="942" y2="310" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowOrange)"/>
+
+  <!-- L3 → L4 (roles use tools) -->
+  <line x1="117" y1="436" x2="155" y2="465" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <line x1="612" y1="436" x2="405" y2="465" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+  <line x1="777" y1="436" x2="655" y2="465" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <line x1="942" y1="436" x2="905" y2="465" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowOrange)"/>
+
+  <!-- L4 → L5 (tools spawn sub-agents) -->
+  <line x1="155" y1="545" x2="95" y2="570" stroke="#2563eb" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="450" y1="555" x2="450" y2="570" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+  <line x1="655" y1="545" x2="650" y2="570" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+  <line x1="405" y1="545" x2="915" y2="570" stroke="#10b981" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+
+  <!-- L5 Sub-agents callback to L1 -->
+  <line x1="95" y1="718" x2="190" y2="718" stroke="#4338ca" stroke-width="1" stroke-dasharray="3 2"/>
+  <line x1="95" y1="718" x2="550" y2="718" stroke="#6b7280" stroke-width="1" stroke-dasharray="3 2"/>
+  <line x1="95" y1="718" x2="550" y2="718" stroke="#6b7280" stroke-width="1" stroke-dasharray="3 2"/>
+  <line x1="95" y1="718" x2="960" y2="165" stroke="#2563eb" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrowBlue)"/>
+  <line x1="285" y1="718" x2="960" y2="165" stroke="#2563eb" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrowBlue)"/>
+
+  <!-- ==================== LEGEND ==================== -->
+  <rect x="20" y="748" width="400" height="16" rx="4" fill="#f1f5f9"/>
+  <line x1="30" y1="756" x2="55" y2="756" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="3 2"/>
+  <text x="62" y="760" class="t-legend">Extension 注入</text>
+  <line x1="140" y1="756" x2="165" y2="756" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="172" y="760" class="t-legend">角色职责</text>
+  <line x1="230" y1="756" x2="255" y2="756" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <text x="262" y="760" class="t-legend">Sub-Agent 调用</text>
+  <line x1="330" y1="756" x2="355" y2="756" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="3 2"/>
+  <text x="362" y="760" class="t-legend">数据流</text>
+
+  <text x="980" y="760" class="t-legend" text-anchor="end" fill="#94a3b8" font-size="10">pets-agent · pi-mono · TypeScript</text>
+
+  <!-- Layer labels (right side) -->
+  <text x="1085" y="120" text-anchor="end" font-size="10" fill="#818cf8" font-weight="600">L1</text>
+  <text x="1085" y="238" text-anchor="end" font-size="10" fill="#6b7280" font-weight="600">L2</text>
+  <text x="1085" y="386" text-anchor="end" font-size="10" fill="#6b7280" font-weight="600">L3</text>
+  <text x="1085" y="519" text-anchor="end" font-size="10" fill="#6b7280" font-weight="600">L4</text>
+  <text x="1085" y="651" text-anchor="end" font-size="10" fill="#6b7280" font-weight="600">L5</text>
+</svg>
