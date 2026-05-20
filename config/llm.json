@@ -1,0 +1,5 @@
+{
+  "baseUrl": "https://api.minimaxi.com/anthropic",
+  "apiKeyEnv": "LOCAL_LLM_API_KEY",
+  "modelId": "MiniMax-M2.7"
+}
