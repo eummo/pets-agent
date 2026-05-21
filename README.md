@@ -1,150 +1,104 @@
 # Pets Agent
 
-企业微信连接的 Claude 知识库代理服务。
-
-本项目包含开发工作流和本地测试环境（harness），用于安全地构建代理应用。
+基于 Claude Agent SDK 的角色化知识库助手服务。
 
 ## 项目概述
 
-Pets Agent 是一个基于知识库的自然语言问答服务，它：
-- 连接企业微信作为消息通道
-- 使用 Claude 大语言模型提供智能问答
-- 支持多知识库/多工作空间管理
-- 提供本地开发测试环境
+Pets Agent 提供两种角色化助手：
+
+- **文档助手（reviewer）**：基于知识库的问答助手，支持多轮对话，回答用户关于工作区内容的问题
+- **开发助手（developer）**：代码修改助手，使用 Claude Agent SDK 读取、编辑、创建代码并运行验证
+
+两种角色均通过 SSE 实时流式输出思维过程、文本和工具调用。
 
 ## 技术栈
 
-- **运行时**: Node.js + TypeScript
+- **运行时**: Node.js 22+ / TypeScript
 - **框架**: Fastify
-- **AI SDK**: Claude Code SDK
-- **消息通道**: 企业微信（可扩展的 MessageChannel 接口）
-- **LLM 配置**: 支持本地兼容 API（如 MiniMax）
+- **AI SDK**: Claude Agent SDK（`@anthropic-ai/claude-agent-sdk`）
+- **消息通道**: 企业微信（可扩展）+ 浏览器开发页面
+- **LLM 配置**: 支持 Anthropic 兼容 API（如 MiniMax）
 
 ## 快速开始
 
-### 安装依赖
-
 ```bash
-npm install
-```
+# 安装依赖
+npm install --legacy-peer-deps
 
-### 初始化本地测试环境
-
-```bash
+# 初始化本地测试环境
 npm run harness -- --reset
-```
 
-### 启动开发服务
-
-```bash
+# 启动开发服务
 npm run dev
 ```
 
-### 运行检查
-
-```bash
-npm run check
-```
+浏览器访问 http://127.0.0.1:3000/ ，选择角色后开始对话。
 
 ## 可用命令
 
 | 命令 | 说明 |
 |------|------|
-| `npm run dev` | 启动 Fastify 开发服务 |
-| `npm run harness -- --reset` | 创建本地知识库沙箱 |
-| `npm run smoke` | 运行浏览器/运行时回归测试 |
-| `npm run typecheck` | 运行 TypeScript 类型检查 |
-| `npm run lint` | 运行 ESLint 代码检查 |
+| `npm run dev` | 启动开发服务 |
+| `npm run harness -- --reset` | 创建/重置本地知识库沙箱 |
+| `npm run smoke` | 运行时回归测试（需要服务运行中） |
+| `npm run check` | 类型检查 + lint + 单元测试 + 构建 |
 | `npm test` | 运行 Vitest 单元测试 |
 | `npm run build` | 编译生产版本 |
-| `npm run check` | 运行类型检查、lint、测试和构建 |
 
-## 开发环境
-
-### 测试页面
-
-开发服务启动后，访问：
+## 架构
 
 ```
-http://127.0.0.1:3000/
+src/
+├── index.ts              入口：组装依赖、启动服务
+├── core/                 核心层（纯业务逻辑，无外部依赖）
+│   ├── ports.ts            接口定义
+│   └── orchestrator.ts     编排器：路由消息到对应角色 runtime
+├── agent/                Agent 适配层
+│   └── claudeSdkAgentRuntime.ts  基于 SDK 的双角色 runtime
+├── server/               传输层（HTTP/SSE）
+│   ├── createServer.ts     Fastify 路由
+│   ├── dev-chat/           前端资源（html/css/js）
+│   └── progressBroker.ts   SSE 进度推送
+├── security/             安全层（角色鉴权）
+├── wechat/               企业微信适配
+├── config/               配置加载
+├── repos/                工作区解析
+├── logging/              日志
+└── harness/              开发沙箱工具
 ```
 
-### Harness 目录结构
-
-```
-.harness/
-  knowledge-base/
-    CLAUDE.md          # 知识库说明
-    docs/              # 文档目录
-    requirements/      # 需求目录
-    code/              # 代码仓库
-      catalog-api/     # 目录 API 服务
-      order-service/   # 订单服务
-  repos.json
-```
-
-### 日志文件
-
-- `.harness/logs/conversation.jsonl` - 用户输入和最终输出
-- `.harness/logs/llm-raw.jsonl` - LLM 请求/响应/错误事件
-
-**注意**: 请勿在日志中记录 API 密钥、密钥、授权头、访问令牌或刷新令牌。
-
-## 架构设计
-
-项目采用端口/适配器（Ports/Adapters）架构，确保provider特定代码与核心逻辑解耦：
-
-- 消息通道实现统一的 `MessageChannel` 接口
-- Claude Code SDK 实现第一个 `AgentRuntime`
-- 未来 SDK 可添加新的 `AgentRuntime` 适配器而不改变编排逻辑
-- GitHub PR 发布逻辑封装在 `ChangePublisher` 后面
-
-详细设计请参考：
-- [docs/architecture.md](docs/architecture.md) - 架构文档
-- [docs/development-workflow.md](docs/development-workflow.md) - 开发工作流
-- [docs/multi-agent-team-design.md](docs/multi-agent-team-design.md) - 多代理设计
+依赖方向：外层依赖内层，内层不依赖外层。`core/ports.ts` 是系统契约层。
 
 ## LLM 配置
 
-本地兼容模型端点在 `config/llm.json` 中配置：
+兼容模型端点在 `config/llm.json` 中配置：
 
 ```json
 {
   "baseUrl": "https://api.minimaxi.com/anthropic",
-  "modelId": "MiniMax-M2",
+  "modelId": "MiniMax-M2.7",
   "apiKeyEnv": "LOCAL_LLM_API_KEY"
 }
 ```
 
-实际 API 密钥仅存储在环境变量中。
+API 密钥通过环境变量提供，不写入配置文件。
 
-### 多轮对话
+## 多轮对话
 
-默认情况下，消息运行时在 `.harness/state/history.json` 中按渠道、用户和工作空间维护本地多轮历史记录。发送 `/new` 可归档当前历史并开始新的对话。
+- SDK 通过 `sessionId` 管理会话上下文，自动支持多轮对话
+- 发送 `/new` 可归档当前对话并开始新会话
+- 对话历史记录在 `.harness/state/history.json` 中
 
-如需使用 SDK 托管的多轮会话，请在 `config/llm.json` 中设置 `runtime` 为 `managed-sessions`，并提供：
-- `agentIdEnv`: 包含 Managed Agents `agent_...` ID 的环境变量
-- `environmentIdEnv`: 包含 Managed Agents `env_...` ID 的环境变量
+## 日志
 
-## 开发工作流
+- `.harness/logs/conversation.jsonl` — 用户输入和最终输出
+- `.harness/logs/llm-raw.jsonl` — LLM 请求/响应/错误事件
 
-1. 阅读 `docs/development-workflow.md` 了解实现变更流程
-2. 阅读 `docs/architecture.md` 了解端口/适配器边界
-3. 保持 provider 特定代码在适配器后面，编排层不直接依赖企业微信、Claude Code、MiniMax、GitHub 等
+请勿在日志中记录 API 密钥、授权头或令牌。
 
-### 验证步骤
-
-完成变更后，运行以下命令验证：
+## 验证
 
 ```bash
-npm run check
-npm run smoke
+npm run check    # 类型检查、lint、单元测试、构建
+npm run smoke    # 运行时回归测试（需先 npm run dev）
 ```
-
-## 项目文件
-
-- `AGENTS.md` - Agent 项目指南
-- `CLAUDE.md` - 项目级指令（用于 Codex 和编码代理）
-- `docs/` - 架构和开发文档
-- `config/` - 配置文件
-- `src/` - 源代码
