@@ -8,7 +8,7 @@ import type { JsonlLogger } from "../logging/jsonlLogger.js";
 export type RoleConfig = {
   readonly name: string;
   readonly allowedTools: readonly string[];
-  readonly permissionMode: "dontAsk" | "acceptEdits";
+  readonly permissionMode: "dontAsk" | "acceptEdits" | "bypassPermissions";
   readonly systemPrompt: string;
   readonly maxTurns?: number;
   readonly model?: string;
@@ -34,7 +34,7 @@ export const REVIEWER_CONFIG: RoleConfig = {
 export const DEVELOPER_CONFIG: RoleConfig = {
   name: "developer",
   allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
-  permissionMode: "acceptEdits",
+  permissionMode: "bypassPermissions",
   systemPrompt: [
     "You are a coding assistant (开发助手) that edits the selected workspace.",
     "Read and understand the codebase, then make the requested changes.",
@@ -83,6 +83,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
       cwd: request.workspacePath,
       allowedTools: [...this.roleConfig.allowedTools],
       permissionMode: this.roleConfig.permissionMode,
+      allowDangerouslySkipPermissions: this.roleConfig.permissionMode === "bypassPermissions",
       systemPrompt: this.roleConfig.systemPrompt,
       includePartialMessages: true,
     };

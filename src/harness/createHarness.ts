@@ -54,6 +54,16 @@ export async function createHarnessEnvironment(
   await mkdir(path.join(knowledgeBasePath, ".claude", "skills"), { recursive: true });
   await mkdir(path.join(knowledgeBasePath, ".claude", "commands"), { recursive: true });
 
+  // SDK permissions: allow developer role to use Write/Bash/Edit
+  await writeFile(
+    path.join(knowledgeBasePath, ".claude", "settings.json"),
+    `${JSON.stringify({
+      permissions: {
+        allow: ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)", "Glob(*)", "Grep(*)"]
+      }
+    }, null, 2)}\n`
+  );
+
   await writeFile(
     path.join(knowledgeBasePath, "CLAUDE.md"),
     [
