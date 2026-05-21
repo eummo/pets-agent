@@ -11,7 +11,7 @@
     "dev": "tsx src/index.ts",
     "harness": "tsx src/harness/cli.ts",
     "smoke": "tsx src/smoke/regressionSmoke.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');const p=require('path');const s=p.join('src','server','dev-chat');const d=p.join('dist','server','dev-chat');fs.mkdirSync(d,{recursive:true});for(const f of fs.readdirSync(s)){fs.copyFileSync(p.join(s,f),p.join(d,f))}\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

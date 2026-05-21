@@ -2,6 +2,9 @@
 
 Use this workflow for every feature or behavior change.
 
+Before writing TypeScript, also follow `docs/typescript-development-guidelines.md` for readability,
+type modeling, naming, errors, and test expectations.
+
 ## 1. Start From A Fresh Harness
 
 ```bash

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pets Agent</title>
+    <link rel="stylesheet" href="/dev/chat/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Pets Agent</h1>
+      <div class="subtitle">基于 Claude Agent SDK 的角色化助手。文档助手查询知识库，开发助手修改代码并验证。</div>
+    </header>
+    <main>
+      <section id="messages" aria-live="polite">
+        <div class="message system">
+          <span class="meta">system</span>
+          服务已就绪。选择角色开始对话：文档助手只能查看知识库；开发助手可以读取、修改代码并运行验证。
+        </div>
+      </section>
+    </main>
+    <form id="chat-form">
+      <input id="user-id" value="browser-user" aria-label="User ID" />
+      <select id="role-select" aria-label="Role">
+        <option value="reviewer" selected>文档助手 (reviewer)</option>
+        <option value="developer">开发助手 (developer)</option>
+      </select>
+      <textarea id="message-input" placeholder="输入消息..." aria-label="Message"></textarea>
+      <button id="send-button" type="submit">发送</button>
+    </form>
+    <script src="/dev/chat/app.js"></script>
+  </body>
+</html>

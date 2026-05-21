@@ -10,7 +10,8 @@ export default tseslint.config(
       ".harness/**",
       "node_modules/**",
       "eslint.config.js",
-      "prettier.config.js"
+      "prettier.config.js",
+      "src/server/dev-chat/**"
     ]
   },
   js.configs.recommended,
