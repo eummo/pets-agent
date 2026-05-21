@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -10,6 +10,16 @@ import type { DevProgressBroker } from "./progressBroker.js";
 import { writeSse } from "./sseUtils.js";
 
 const devChatDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "dev-chat");
+
+const mimeTypes: Record<string, string> = {
+  ".html": "text/html",
+  ".css": "text/css",
+  ".js": "text/javascript",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
 
 export type CreateServerOptions = {
   readonly messageHandler: MessageHandler;
@@ -62,14 +72,29 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  server.get("/dev/chat/style.css", async (_request, reply) => {
-    const css = await readFile(path.join(devChatDir, "style.css"), "utf8");
-    return reply.type("text/css; charset=utf-8").send(css);
-  });
+  // Serve dev-chat static assets: /dev/chat/style.css, /dev/chat/app.js, etc.
+  server.get("/dev/chat/*", async (request, reply) => {
+    const relativePath = (request.params as Record<string, string>)["*"] ?? "";
+    const filePath = path.join(devChatDir, relativePath);
 
-  server.get("/dev/chat/app.js", async (_request, reply) => {
-    const js = await readFile(path.join(devChatDir, "app.js"), "utf8");
-    return reply.type("text/javascript; charset=utf-8").send(js);
+    // Prevent path traversal
+    if (!filePath.startsWith(devChatDir)) {
+      return reply.status(403).send("Forbidden");
+    }
+
+    const fileStat = await stat(filePath).catch(() => undefined);
+    if (!fileStat?.isFile()) {
+      return reply.status(404).send("Not found");
+    }
+
+    const ext = path.extname(filePath);
+    const contentType = mimeTypes[ext];
+    if (!contentType) {
+      return reply.status(415).send("Unsupported media type");
+    }
+
+    const content = await readFile(filePath);
+    return reply.type(`${contentType}; charset=utf-8`).send(content);
   });
 
   server.get<{ Querystring: DevEventsQuery }>("/dev/events", async (request, reply) => {
