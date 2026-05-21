@@ -1,5 +1,4 @@
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import "dotenv/config";
 import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
 import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
@@ -15,10 +14,7 @@ import { DevProgressBroker } from "./server/progressBroker.js";
 import { createDevRoleStore } from "./security/devRoleStore.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
 
-// Pets Agent - Main entry point for the agent runtime service
-export const serviceName = "pets-agent";
-
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export async function main(): Promise<void> {
   const port = Number.parseInt(process.env["PORT"] ?? "3000", 10);
   const knowledgeBasePath = process.env["KNOWLEDGE_BASE_PATH"] ?? ".harness/knowledge-base";
   const wechatToken = process.env["WECHAT_TOKEN"] ?? "dev-token";
@@ -30,7 +26,6 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   const devRoleStore = createDevRoleStore();
   const progressBroker = new DevProgressBroker();
 
-  // Configure SDK environment from LLM config
   await configureSdkEnvironment();
 
   const agentRuntimes = await createAgentRuntimes(llmRawLogger);
@@ -52,7 +47,7 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   });
 
   await server.listen({ port, host: "0.0.0.0" });
-  console.info(`${serviceName} listening on http://localhost:${port}`);
+  console.info(`pets-agent listening on http://localhost:${port}`);
   console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
   console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
   console.info(`conversation log: ${conversationLogger.filePath}`);
@@ -65,8 +60,6 @@ async function configureSdkEnvironment(): Promise<void> {
     const llmConfig = await loadLlmConfig(llmConfigPath);
     const resolved = resolveLlmConfig(llmConfig);
 
-    // The Claude Agent SDK uses ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL
-    // Map from the existing LLM config
     process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
     process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
 
@@ -105,3 +98,5 @@ async function createAgentRuntimes(llmRawLogger: JsonlLogger): Promise<Record<st
     };
   }
 }
+
+await main();
