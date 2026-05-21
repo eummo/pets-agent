@@ -19,11 +19,6 @@ export type OutboundMessage = {
   readonly sessionId?: string;
 };
 
-export type MessageChannel = {
-  readonly name: string;
-  send(message: OutboundMessage, replyTo: InboundMessage): Promise<void>;
-};
-
 export type MessageHandler = {
   handle(message: InboundMessage): Promise<OutboundMessage>;
 };
@@ -95,10 +90,8 @@ export type ConversationHistoryStore = {
   archive(key: ConversationSessionKey): Promise<void>;
 };
 
-export type WorkspaceKind = "knowledge-base" | "source-repository";
-
 export type KnowledgeWorkspace = {
-  readonly kind: WorkspaceKind;
+  readonly kind: "knowledge-base" | "source-repository";
   readonly id: string;
   readonly path: string;
 };
@@ -117,19 +110,4 @@ export type AuthorizationDecision = {
 export type AuthorizationService = {
   roleFor(user: ChannelUser): Promise<UserRole>;
   can(user: ChannelUser, action: AuthorizationAction, workspace: KnowledgeWorkspace): Promise<AuthorizationDecision>;
-};
-
-export type ChangeRequest = {
-  readonly workspace: KnowledgeWorkspace;
-  readonly summary: string;
-};
-
-export type ChangePublication = {
-  readonly workspaceId: string;
-  readonly branch: string;
-  readonly url?: string;
-};
-
-export type ChangePublisher = {
-  publish(requests: readonly ChangeRequest[]): Promise<readonly ChangePublication[]>;
 };

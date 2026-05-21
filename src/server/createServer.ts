@@ -1,10 +1,10 @@
-import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AgentStreamEvent, MessageHandler, UserRole } from "../core/ports.js";
 import type { DevRoleStore } from "../security/devRoleStore.js";
 import { verifyWechatSignature } from "../wechat/signature.js";
 import { buildWechatTextReply, parseWechatMessage } from "../wechat/xml.js";
 import type { DevProgressBroker } from "./progressBroker.js";
+import { writeSse } from "./sseUtils.js";
 
 export type CreateServerOptions = {
   readonly messageHandler: MessageHandler;
@@ -195,11 +195,6 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
 function normalizeOptionalText(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized === "" ? undefined : normalized;
-}
-
-function writeSse(response: ServerResponse, event: string, data: unknown): void {
-  response.write(`event: ${event}\n`);
-  response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 function renderDevChatPage(): string {

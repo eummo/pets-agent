@@ -193,7 +193,7 @@ function formatRuntimeError(error: unknown): string {
   }
 
   if (error.message.includes("invalid api key")) {
-    return "Invalid API key. Check LOCAL_LLM_API_KEY for the configured MiniMax Anthropic endpoint.";
+    return "Invalid API key. Check ANTHROPIC_API_KEY for the configured Anthropic-compatible endpoint.";
   }
 
   return error.message.split("\n")[0] ?? "Unknown error.";

@@ -1,5 +1,6 @@
 import type { ServerResponse } from "node:http";
 import type { AgentProgressEvent, ChannelUser, ProgressReporter } from "../core/ports.js";
+import { writeSse } from "./sseUtils.js";
 
 type Subscriber = {
   readonly id: string;
@@ -45,9 +46,4 @@ export class DevProgressBroker implements ProgressReporter {
 
     return Promise.resolve();
   }
-}
-
-function writeSse(response: ServerResponse, event: string, data: unknown): void {
-  response.write(`event: ${event}\n`);
-  response.write(`data: ${JSON.stringify(data)}\n\n`);
 }

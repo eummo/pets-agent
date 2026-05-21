@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "./ports.js";
+import { isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredHistory = {
   readonly messages: readonly AgentConversationMessage[];
@@ -32,7 +33,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
 
   public async get(key: ConversationSessionKey): Promise<readonly AgentConversationMessage[]> {
     const file = await this.readStore();
-    return file.histories?.[serializeKey(key)]?.messages ?? [];
+    return file.histories?.[serializeSessionKey(key)]?.messages ?? [];
   }
 
   public async append(
@@ -45,7 +46,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
 
     const file = await this.readStore();
     const histories = { ...(file.histories ?? {}) };
-    const keyText = serializeKey(key);
+    const keyText = serializeSessionKey(key);
     const now = new Date().toISOString();
     const previous = histories[keyText];
     histories[keyText] = {
@@ -58,7 +59,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
 
   public async delete(key: ConversationSessionKey): Promise<void> {
     const file = await this.readStore();
-    const keyText = serializeKey(key);
+    const keyText = serializeSessionKey(key);
     const histories = Object.fromEntries(
       Object.entries(file.histories ?? {}).filter(([storedKey]) => storedKey !== keyText)
     );
@@ -67,7 +68,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
 
   public async archive(key: ConversationSessionKey): Promise<void> {
     const file = await this.readStore();
-    const keyText = serializeKey(key);
+    const keyText = serializeSessionKey(key);
     const current = file.histories?.[keyText];
 
     if (current === undefined || current.messages.length === 0) {
@@ -108,10 +109,6 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
   }
 }
 
-function serializeKey(key: ConversationSessionKey): string {
-  return JSON.stringify([key.channel, key.userId, path.resolve(key.workspacePath)]);
-}
-
 function withExistingArchives(file: HistoryStoreFile, existingFile: HistoryStoreFile): HistoryStoreFile {
   if (existingFile.archives === undefined) {
     return file;
@@ -121,8 +118,4 @@ function withExistingArchives(file: HistoryStoreFile, existingFile: HistoryStore
     ...file,
     archives: existingFile.archives
   };
-}
-
-function isFileNotFound(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

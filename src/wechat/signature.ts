@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type VerifyWechatSignatureInput = {
+type VerifyWechatSignatureInput = {
   readonly token: string;
   readonly timestamp: string;
   readonly nonce: string;

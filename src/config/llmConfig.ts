@@ -2,20 +2,15 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 
 const llmConfigSchema = z.object({
-  runtime: z.enum(["messages", "managed-sessions"]).optional(),
   baseUrl: z.string().url(),
   apiKeyEnv: z.string().min(1),
-  modelId: z.string().min(1),
-  agentIdEnv: z.string().min(1).optional(),
-  environmentIdEnv: z.string().min(1).optional()
+  modelId: z.string().min(1)
 });
 
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
 
 export type ResolvedLlmConfig = LlmConfig & {
   readonly apiKey: string;
-  readonly agentId?: string;
-  readonly environmentId?: string;
 };
 
 export async function loadLlmConfig(path: string): Promise<LlmConfig> {
@@ -30,37 +25,9 @@ export function resolveLlmConfig(config: LlmConfig, env: NodeJS.ProcessEnv = pro
     throw new Error(`Missing LLM API key environment variable: ${config.apiKeyEnv}`);
   }
 
-  if (config.runtime !== "managed-sessions") {
-    return {
-      ...config,
-      apiKey
-    };
-  }
-
-  if (config.agentIdEnv === undefined) {
-    throw new Error("Managed sessions runtime requires agentIdEnv in LLM config.");
-  }
-
-  if (config.environmentIdEnv === undefined) {
-    throw new Error("Managed sessions runtime requires environmentIdEnv in LLM config.");
-  }
-
-  const agentId = env[config.agentIdEnv];
-  const environmentId = env[config.environmentIdEnv];
-
-  if (agentId === undefined || agentId.trim().length === 0) {
-    throw new Error(`Missing managed agent environment variable: ${config.agentIdEnv}`);
-  }
-
-  if (environmentId === undefined || environmentId.trim().length === 0) {
-    throw new Error(`Missing managed agent environment variable: ${config.environmentIdEnv}`);
-  }
-
   return {
     ...config,
-    apiKey,
-    agentId,
-    environmentId
+    apiKey
   };
 }
 
