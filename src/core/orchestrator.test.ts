@@ -12,14 +12,16 @@ describe("AgentOrchestrator", () => {
   it("returns a safe error message when the runtime fails", async () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
-      agentRuntime: {
-        name: "failing",
-        run() {
-          return Promise.reject(new Error('401 {"error":{"message":"invalid api key"}}'));
-        },
-        disposeSession() {
-          return Promise.resolve();
+      authorization: reviewerAuthorization,
+      agentRuntimes: {
+        reviewer: {
+          name: "failing",
+          run() {
+            return Promise.reject(new Error('401 {"error":{"message":"invalid api key"}}'));
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
@@ -34,15 +36,17 @@ describe("AgentOrchestrator", () => {
     let runtimeCalled = false;
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
-      agentRuntime: {
-        name: "runtime",
-        run() {
-          runtimeCalled = true;
-          return Promise.resolve({ text: "runtime" });
-        },
-        disposeSession() {
-          return Promise.resolve();
+      authorization: reviewerAuthorization,
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run() {
+            runtimeCalled = true;
+            return Promise.resolve({ text: "runtime" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
@@ -53,75 +57,78 @@ describe("AgentOrchestrator", () => {
     expect(runtimeCalled).toBe(false);
   });
 
-  it("does not route mutate requests to any runtime for viewers", async () => {
-    let readRuntimeCalled = false;
-    let codeRuntimeCalled = false;
+  it("uses reviewer runtime for reviewer/viewer users", async () => {
+    let reviewerCalled = false;
+    let developerCalled = false;
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
-      agentRuntime: {
-        name: "runtime",
-        run() {
-          readRuntimeCalled = true;
-          return Promise.resolve({ text: "runtime" });
+      authorization: reviewerAuthorization,
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            reviewerCalled = true;
+            return Promise.resolve({ text: "reviewer response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         },
-        disposeSession() {
-          return Promise.resolve();
-        }
-      },
-      codeChangeRuntime: {
-        name: "code-runtime",
-        run() {
-          codeRuntimeCalled = true;
-          return Promise.resolve({ text: "code runtime" });
-        },
-        disposeSession() {
-          return Promise.resolve();
+        developer: {
+          name: "developer",
+          run() {
+            developerCalled = true;
+            return Promise.resolve({ text: "developer response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
 
-    const response = await orchestrator.handle(testMessage("重构订单系统"));
+    const response = await orchestrator.handle(testMessage("hello"));
 
-    expect(response.text).toContain("修改请求");
-    expect(response.text).toContain("不能直接修改文件");
-    expect(readRuntimeCalled).toBe(false);
-    expect(codeRuntimeCalled).toBe(false);
+    expect(response.text).toBe("reviewer response");
+    expect(reviewerCalled).toBe(true);
+    expect(developerCalled).toBe(false);
   });
 
-  it("routes mutate requests through the code change runtime for developers", async () => {
-    let readRuntimeCalled = false;
-    const requests: string[] = [];
+  it("uses developer runtime for developer users", async () => {
+    let reviewerCalled = false;
+    let developerCalled = false;
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: developerAuthorization,
-      agentRuntime: {
-        name: "runtime",
-        run() {
-          readRuntimeCalled = true;
-          return Promise.resolve({ text: "runtime" });
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            reviewerCalled = true;
+            return Promise.resolve({ text: "reviewer response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         },
-        disposeSession() {
-          return Promise.resolve();
-        }
-      },
-      codeChangeRuntime: {
-        name: "code-runtime",
-        run(request) {
-          requests.push(request.text);
-          return Promise.resolve({ text: "code change complete" });
-        },
-        disposeSession() {
-          return Promise.resolve();
+        developer: {
+          name: "developer",
+          run() {
+            developerCalled = true;
+            return Promise.resolve({ text: "developer response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
 
-    const response = await orchestrator.handle(testMessage("重构订单系统", "developer-1"));
+    const response = await orchestrator.handle(testMessage("refactor the code"));
 
-    expect(response.text).toBe("code change complete");
-    expect(requests).toEqual(["重构订单系统"]);
-    expect(readRuntimeCalled).toBe(false);
+    expect(response.text).toBe("developer response");
+    expect(developerCalled).toBe(true);
+    expect(reviewerCalled).toBe(false);
   });
 
   it("reuses stored runtime sessions for follow-up messages", async () => {
@@ -129,16 +136,18 @@ describe("AgentOrchestrator", () => {
     const calls: (string | undefined)[] = [];
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
+      authorization: reviewerAuthorization,
       sessionStore: store,
-      agentRuntime: {
-        name: "runtime",
-        run(request) {
-          calls.push(request.sessionId);
-          return Promise.resolve({ text: "runtime", sessionId: "session-1" });
-        },
-        disposeSession() {
-          return Promise.resolve();
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run(request) {
+            calls.push(request.sessionId);
+            return Promise.resolve({ text: "runtime", sessionId: "session-1" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
@@ -149,41 +158,29 @@ describe("AgentOrchestrator", () => {
     expect(calls).toEqual([undefined, "session-1"]);
   });
 
-  it("passes stored message history to the runtime and appends new turns", async () => {
+  it("appends new turns to history store", async () => {
     const historyStore = new MemoryHistoryStore();
     const sessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
-    await historyStore.append(sessionKey, [
-      { role: "user", content: "first question" },
-      { role: "assistant", content: "first answer" }
-    ]);
-    const histories: unknown[] = [];
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
+      authorization: reviewerAuthorization,
       historyStore,
-      agentRuntime: {
-        name: "runtime",
-        run(request) {
-          histories.push(request.history);
-          return Promise.resolve({ text: "second answer" });
-        },
-        disposeSession() {
-          return Promise.resolve();
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run() {
+            return Promise.resolve({ text: "second answer" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
 
     await orchestrator.handle(testMessage("second question", "user-1", "2"));
 
-    expect(histories).toEqual([
-      [
-        { role: "user", content: "first question" },
-        { role: "assistant", content: "first answer" }
-      ]
-    ]);
     await expect(historyStore.get(sessionKey)).resolves.toEqual([
-      { role: "user", content: "first question" },
-      { role: "assistant", content: "first answer" },
       { role: "user", content: "second question" },
       { role: "assistant", content: "second answer" }
     ]);
@@ -198,17 +195,19 @@ describe("AgentOrchestrator", () => {
     const archivedSessions: string[] = [];
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
+      authorization: reviewerAuthorization,
       sessionStore: store,
       historyStore,
-      agentRuntime: {
-        name: "runtime",
-        run() {
-          return Promise.resolve({ text: "runtime" });
-        },
-        disposeSession(sessionId) {
-          archivedSessions.push(sessionId);
-          return Promise.resolve();
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run() {
+            return Promise.resolve({ text: "runtime" });
+          },
+          disposeSession(sessionId) {
+            archivedSessions.push(sessionId);
+            return Promise.resolve();
+          }
         }
       }
     });
@@ -225,14 +224,16 @@ describe("AgentOrchestrator", () => {
   it("returns a generic error for non-API-key runtime failures", async () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
-      authorization: viewerAuthorization,
-      agentRuntime: {
-        name: "failing",
-        run() {
-          return Promise.reject(new Error("Network timeout"));
-        },
-        disposeSession() {
-          return Promise.resolve();
+      authorization: reviewerAuthorization,
+      agentRuntimes: {
+        reviewer: {
+          name: "failing",
+          run() {
+            return Promise.reject(new Error("Network timeout"));
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
         }
       }
     });
@@ -251,14 +252,14 @@ const workspaceResolver: KnowledgeWorkspaceResolver = {
   }
 };
 
-const viewerAuthorization: AuthorizationService = {
+const reviewerAuthorization: AuthorizationService = {
   roleFor() {
-    return Promise.resolve("viewer");
+    return Promise.resolve("reviewer" as const);
   },
   can(_user, action) {
     return Promise.resolve(
       action === "mutate"
-        ? { allowed: false, reason: "viewer cannot mutate" }
+        ? { allowed: false, reason: "reviewer cannot mutate" }
         : { allowed: true }
     );
   }
@@ -266,7 +267,7 @@ const viewerAuthorization: AuthorizationService = {
 
 const developerAuthorization: AuthorizationService = {
   roleFor() {
-    return Promise.resolve("developer");
+    return Promise.resolve("developer" as const);
   },
   can() {
     return Promise.resolve({ allowed: true });

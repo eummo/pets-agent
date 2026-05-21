@@ -1,4 +1,4 @@
-export type UserRole = "developer" | "viewer";
+export type UserRole = "reviewer" | "developer" | "viewer";
 
 export type ChannelUser = {
   readonly id: string;
@@ -11,10 +11,12 @@ export type InboundMessage = {
   readonly user: ChannelUser;
   readonly text: string;
   readonly receivedAt: Date;
+  readonly stream?: AgentStreamPublisher;
 };
 
 export type OutboundMessage = {
   readonly text: string;
+  readonly sessionId?: string;
 };
 
 export type MessageChannel = {
@@ -26,6 +28,16 @@ export type MessageHandler = {
   handle(message: InboundMessage): Promise<OutboundMessage>;
 };
 
+export type AgentStreamEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "tool_use_start"; toolName: string; toolUseId: string; input: Record<string, unknown> }
+  | { type: "tool_use_result"; toolUseId: string; result: string; isError?: boolean }
+  | { type: "thinking"; text: string }
+  | { type: "completed"; sessionId: string; costUsd?: number }
+  | { type: "error"; message: string };
+
+export type AgentStreamPublisher = (event: AgentStreamEvent) => void;
+
 export type AgentRequest = {
   readonly user: ChannelUser;
   readonly text: string;
@@ -33,6 +45,7 @@ export type AgentRequest = {
   readonly history?: readonly AgentConversationMessage[];
   readonly sessionId?: string;
   readonly progress?: AgentProgressPublisher;
+  readonly stream?: AgentStreamPublisher;
 };
 
 export type AgentResponse = {

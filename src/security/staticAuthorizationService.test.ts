@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { StaticAuthorizationService, mapRoleProvider } from "./staticAuthorizationService.js";
 
-const viewerUser = { id: "viewer-1" };
+const reviewerUser = { id: "reviewer-1" };
 const developerUser = { id: "dev-1" };
 const workspace = { kind: "knowledge-base" as const, id: "kb", path: "/kb" };
 
 describe("StaticAuthorizationService", () => {
-  it("allows read for viewers", async () => {
+  it("allows read for reviewers", async () => {
     const service = new StaticAuthorizationService();
-    const decision = await service.can(viewerUser, "read", workspace);
+    const decision = await service.can(reviewerUser, "read", workspace);
 
     expect(decision).toEqual({ allowed: true });
   });
 
-  it("allows suggest for viewers", async () => {
+  it("allows suggest for reviewers", async () => {
     const service = new StaticAuthorizationService();
-    const decision = await service.can(viewerUser, "suggest", workspace);
+    const decision = await service.can(reviewerUser, "suggest", workspace);
 
     expect(decision).toEqual({ allowed: true });
   });
@@ -28,12 +28,12 @@ describe("StaticAuthorizationService", () => {
     expect(decision).toEqual({ allowed: true });
   });
 
-  it("denies mutate for viewers with a Chinese reason", async () => {
+  it("denies mutate for reviewers with a Chinese reason", async () => {
     const service = new StaticAuthorizationService();
-    const decision = await service.can(viewerUser, "mutate", workspace);
+    const decision = await service.can(reviewerUser, "mutate", workspace);
 
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain("普通用户权限");
+    expect(decision.reason).toContain("文档助手权限");
   });
 
   it("resolves role from the role provider", async () => {
@@ -41,7 +41,15 @@ describe("StaticAuthorizationService", () => {
     const service = new StaticAuthorizationService(mapRoleProvider(roles));
 
     await expect(service.roleFor(developerUser)).resolves.toBe("developer");
-    await expect(service.roleFor(viewerUser)).resolves.toBe("viewer");
+    await expect(service.roleFor(reviewerUser)).resolves.toBe("reviewer");
+  });
+
+  it("maps viewer to reviewer", async () => {
+    const roles = new Map([["viewer-1", "viewer" as const]]);
+    const service = new StaticAuthorizationService(mapRoleProvider(roles));
+    const viewerUser = { id: "viewer-1" };
+
+    await expect(service.roleFor(viewerUser)).resolves.toBe("reviewer");
   });
 });
 
@@ -53,9 +61,9 @@ describe("mapRoleProvider", () => {
     expect(provider.getRole("user-1")).toBe("developer");
   });
 
-  it("defaults to viewer for unknown users", () => {
+  it("defaults to reviewer for unknown users", () => {
     const provider = mapRoleProvider(new Map());
 
-    expect(provider.getRole("unknown")).toBe("viewer");
+    expect(provider.getRole("unknown")).toBe("reviewer");
   });
 });

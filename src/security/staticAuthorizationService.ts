@@ -15,7 +15,8 @@ export class StaticAuthorizationService implements AuthorizationService {
   public constructor(private readonly roleProvider: RoleProvider = mapRoleProvider(new Map())) {}
 
   public roleFor(user: ChannelUser): Promise<UserRole> {
-    return Promise.resolve(this.roleProvider.getRole(user.id));
+    const role = this.roleProvider.getRole(user.id);
+    return Promise.resolve(role === "viewer" ? "reviewer" : role);
   }
 
   public async can(
@@ -37,7 +38,7 @@ export class StaticAuthorizationService implements AuthorizationService {
 
     return {
       allowed: false,
-      reason: "我已识别到这是修改请求，但你当前是普通用户权限，只能查看知识库或生成建议，不能直接修改文件。"
+      reason: "我已识别到这是修改请求，但你当前是文档助手权限，只能查看知识库，不能修改文件。"
     };
   }
 }
@@ -45,7 +46,8 @@ export class StaticAuthorizationService implements AuthorizationService {
 export function mapRoleProvider(roles: ReadonlyMap<string, UserRole>): RoleProvider {
   return {
     getRole(userId) {
-      return roles.get(userId) ?? "viewer";
+      const role = roles.get(userId) ?? "reviewer";
+      return role === "viewer" ? "reviewer" : role;
     }
   };
 }

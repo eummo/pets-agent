@@ -1,8 +1,8 @@
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
-import { classifyMessageIntent } from "./intent.js";
 import type {
   AgentRequest,
   AgentRuntime,
+  AgentStreamEvent,
   AuthorizationService,
   ConversationHistoryStore,
   ConversationSessionKey,
@@ -17,8 +17,7 @@ import type {
 export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
   readonly authorization: AuthorizationService;
-  readonly agentRuntime: AgentRuntime;
-  readonly codeChangeRuntime?: AgentRuntime;
+  readonly agentRuntimes: Record<string, AgentRuntime>;
   readonly sessionStore?: ConversationSessionStore;
   readonly historyStore?: ConversationHistoryStore;
   readonly conversationLogger?: JsonlLogger;
@@ -57,17 +56,51 @@ export class AgentOrchestrator implements MessageHandler {
       return response;
     }
 
-    if (classifyMessageIntent(message.text) === "mutate") {
-      const response = await this.handleMutation(message, workspace.path);
+    // Role-based routing: select runtime by user role
+    const role = await this.dependencies.authorization.roleFor(message.user);
+    const effectiveRole = role === "viewer" ? "reviewer" : role;
+    const runtime = this.dependencies.agentRuntimes[effectiveRole];
+    if (runtime === undefined) {
+      const response = { text: `No runtime configured for role: ${effectiveRole}` };
       await this.logConversation(message, response.text, workspace.path);
       return response;
     }
 
     const sessionKey = this.createSessionKey(message, workspace.path);
-    const response = await this.runAgentSafely(message, workspace.path, sessionKey);
-    await this.logConversation(message, response.text, workspace.path);
+    const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
 
-    return { text: response.text };
+    const request: AgentRequest = {
+      user: message.user,
+      text: message.text,
+      workspacePath: workspace.path,
+      progress: (event) => this.publishProgress(message, event),
+      stream: message.stream ?? ((event) => this.publishStreamEvent(message, event)),
+    };
+    if (sessionId !== undefined) {
+      (request as { sessionId?: string }).sessionId = sessionId;
+    }
+
+    try {
+      const response = await runtime.run(request);
+
+      if (response.sessionId !== undefined) {
+        await this.dependencies.sessionStore?.set(sessionKey, response.sessionId);
+      }
+      await this.dependencies.historyStore?.append(sessionKey, [
+        { role: "user", content: message.text },
+        { role: "assistant", content: response.text },
+      ]);
+      await this.logConversation(message, response.text, workspace.path);
+
+      return {
+        text: response.text,
+        ...(response.sessionId !== undefined ? { sessionId: response.sessionId } : {}),
+      };
+    } catch (error) {
+      const errorText = `Model call failed: ${formatRuntimeError(error)}`;
+      await this.logConversation(message, errorText, workspace.path);
+      return { text: errorText };
+    }
   }
 
   private handleCommandWithoutWorkspace(message: InboundMessage): OutboundMessage | undefined {
@@ -95,7 +128,12 @@ export class AgentOrchestrator implements MessageHandler {
     const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
 
     if (sessionId !== undefined) {
-      await this.dependencies.agentRuntime.disposeSession(sessionId);
+      const role = await this.dependencies.authorization.roleFor(message.user);
+      const effectiveRole = role === "viewer" ? "reviewer" : role;
+      const runtime = this.dependencies.agentRuntimes[effectiveRole];
+      if (runtime !== undefined) {
+        await runtime.disposeSession(sessionId);
+      }
       await this.dependencies.sessionStore?.delete(sessionKey);
     }
     await this.dependencies.historyStore?.archive(sessionKey);
@@ -103,96 +141,6 @@ export class AgentOrchestrator implements MessageHandler {
     return {
       text: "New conversation started."
     };
-  }
-
-  private async handleMutation(
-    message: InboundMessage,
-    workspacePath: string
-  ): Promise<{ readonly text: string }> {
-    const mutationDecision = await this.dependencies.authorization.can(message.user, "mutate", {
-      kind: "source-repository",
-      id: "selected-workspace",
-      path: workspacePath
-    });
-
-    if (!mutationDecision.allowed) {
-      await this.publishProgress(message, {
-        stage: "code_change.denied",
-        message: "修改请求已识别，但当前用户没有直接修改权限。"
-      });
-      return {
-        text: [
-          "已识别到修改请求。",
-          "你当前权限不足，不能直接修改文件。",
-          mutationDecision.reason ?? "请联系开发者处理，或先让我生成修改建议。"
-        ].join("\n")
-      };
-    }
-
-    if (this.dependencies.codeChangeRuntime === undefined) {
-      await this.publishProgress(message, {
-        stage: "code_change.not_configured",
-        message: "代码执行 runtime 未配置，没有修改文件。"
-      });
-      return {
-        text: [
-          "已识别到修改请求。",
-          "你当前具备开发者权限，可以进入代码变更流程。",
-          "不过代码执行 runtime 还没有配置，所以这次没有修改文件。"
-        ].join("\n")
-      };
-    }
-
-    try {
-      return await this.dependencies.codeChangeRuntime.run({
-        user: message.user,
-        text: message.text,
-        workspacePath,
-        progress: (event) => this.publishProgress(message, event)
-      });
-    } catch (error) {
-      await this.publishProgress(message, {
-        stage: "code_change.failed",
-        message: "代码变更流程失败。",
-        data: { error: formatRuntimeError(error) }
-      });
-      return {
-        text: `Code change failed: ${formatRuntimeError(error)}`
-      };
-    }
-  }
-
-  private async runAgentSafely(
-    message: InboundMessage,
-    workspacePath: string,
-    sessionKey: ConversationSessionKey
-  ): Promise<{ readonly text: string }> {
-    try {
-      const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
-      const history = (await this.dependencies.historyStore?.get(sessionKey)) ?? [];
-      const request: AgentRequest = {
-        user: message.user,
-        text: message.text,
-        workspacePath,
-        ...(history.length === 0 ? {} : { history }),
-        ...(sessionId === undefined ? {} : { sessionId })
-      };
-      const response = await this.dependencies.agentRuntime.run(request);
-
-      if (response.sessionId !== undefined) {
-        await this.dependencies.sessionStore?.set(sessionKey, response.sessionId);
-      }
-      await this.dependencies.historyStore?.append(sessionKey, [
-        { role: "user", content: message.text },
-        { role: "assistant", content: response.text }
-      ]);
-
-      return response;
-    } catch (error) {
-      return {
-        text: `Model call failed: ${formatRuntimeError(error)}`
-      };
-    }
   }
 
   private createSessionKey(message: InboundMessage, workspacePath: string): ConversationSessionKey {
@@ -221,6 +169,21 @@ export class AgentOrchestrator implements MessageHandler {
 
   private async publishProgress(message: InboundMessage, event: Parameters<ProgressReporter["publish"]>[1]): Promise<void> {
     await this.dependencies.progressReporter?.publish(message.user, event);
+  }
+
+  private publishStreamEvent(message: InboundMessage, event: AgentStreamEvent): void {
+    const stage = event.type === "text_delta" ? "agent.text_delta"
+      : event.type === "tool_use_start" ? "agent.tool_use_start"
+      : event.type === "tool_use_result" ? "agent.tool_use_result"
+      : event.type === "thinking" ? "agent.thinking"
+      : event.type === "completed" ? "agent.completed"
+      : "agent.error";
+
+    void this.publishProgress(message, {
+      stage,
+      message: stage,
+      data: event,
+    });
   }
 }
 

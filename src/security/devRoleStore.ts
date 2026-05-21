@@ -10,10 +10,11 @@ export function createDevRoleStore(initialRoles: ReadonlyMap<string, UserRole> =
 
   return {
     getRole(userId) {
-      return roles.get(userId) ?? "viewer";
+      const role = roles.get(userId) ?? "reviewer";
+      return role === "viewer" ? "reviewer" : role;
     },
     setRole(userId, role) {
-      roles.set(userId, role);
+      roles.set(userId, role === "viewer" ? "reviewer" : role);
     }
   };
 }

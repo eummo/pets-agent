@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MessageHandler } from "../core/ports.js";
+import type { MessageHandler, OutboundMessage } from "../core/ports.js";
 import { createDevRoleStore } from "../security/devRoleStore.js";
 import { createWechatSignature } from "../wechat/signature.js";
 import { createServer } from "./createServer.js";
@@ -27,10 +27,11 @@ describe("createServer", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
-    expect(response.body).toContain("Pets Agent Dev Chat");
+    expect(response.body).toContain("Pets Agent");
+    expect(response.body).toContain("Claude Agent SDK");
   });
 
-  it("routes browser chat messages to the message handler", async () => {
+  it("routes browser chat messages via SSE streaming", async () => {
     const server = createServer({
       messageHandler: echoHandler,
       wechatToken: "token"
@@ -46,7 +47,11 @@ describe("createServer", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ text: "received: hello" });
+    expect(response.headers["content-type"]).toContain("text/event-stream");
+    // SSE format: contains event and data lines
+    expect(response.body).toContain("event: agent");
+    expect(response.body).toContain("completed");
+    expect(response.body).toContain("received: hello");
   });
 
   it("sets development roles from the browser", async () => {
@@ -69,6 +74,28 @@ describe("createServer", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ userId: "browser-user", role: "developer" });
     expect(roleStore.getRole("browser-user")).toBe("developer");
+  });
+
+  it("accepts reviewer role", async () => {
+    const roleStore = createDevRoleStore();
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      devRoleStore: roleStore
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/dev/role",
+      payload: {
+        userId: "browser-user",
+        role: "reviewer"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ userId: "browser-user", role: "reviewer" });
+    expect(roleStore.getRole("browser-user")).toBe("reviewer");
   });
 
   it("verifies WeChat callback requests", async () => {
@@ -145,6 +172,7 @@ describe("createServer", () => {
 
 const echoHandler: MessageHandler = {
   handle(message) {
-    return Promise.resolve({ text: `received: ${message.text}` });
+    const result: OutboundMessage = { text: `received: ${message.text}` };
+    return Promise.resolve(result);
   }
 };

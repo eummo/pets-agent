@@ -1,9 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import "dotenv/config";
-import { AnthropicCodeChangeRuntime } from "./agent/anthropicCodeChangeRuntime.js";
-import { AnthropicCompatibleAgentRuntime } from "./agent/anthropicCompatibleAgentRuntime.js";
-import { AnthropicManagedSessionAgentRuntime } from "./agent/anthropicManagedSessionAgentRuntime.js";
+import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
 import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
 import { loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
 import { FileConversationHistoryStore } from "./core/fileConversationHistoryStore.js";
@@ -17,6 +15,7 @@ import { DevProgressBroker } from "./server/progressBroker.js";
 import { createDevRoleStore } from "./security/devRoleStore.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
 
+// Pets Agent - Main entry point for the agent runtime service
 export const serviceName = "pets-agent";
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -30,12 +29,15 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   const llmRawLogger = createJsonlLogger(path.join(logDir, "llm-raw.jsonl"));
   const devRoleStore = createDevRoleStore();
   const progressBroker = new DevProgressBroker();
-  const runtimes = await createAgentRuntimes(llmRawLogger);
+
+  // Configure SDK environment from LLM config
+  await configureSdkEnvironment();
+
+  const agentRuntimes = await createAgentRuntimes(llmRawLogger);
   const orchestrator = new AgentOrchestrator({
     workspaceResolver: new StaticWorkspaceResolver({ knowledgeBasePath }),
     authorization: new StaticAuthorizationService(devRoleStore),
-    agentRuntime: runtimes.agentRuntime,
-    ...(runtimes.codeChangeRuntime === undefined ? {} : { codeChangeRuntime: runtimes.codeChangeRuntime }),
+    agentRuntimes,
     sessionStore: new FileConversationSessionStore(sessionStorePath),
     historyStore: new FileConversationHistoryStore(historyStorePath),
     conversationLogger,
@@ -51,59 +53,55 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
 
   await server.listen({ port, host: "0.0.0.0" });
   console.info(`${serviceName} listening on http://localhost:${port}`);
-  console.info(`agent runtime: ${runtimes.agentRuntime.name}`);
-  console.info(`code change runtime: ${runtimes.codeChangeRuntime?.name ?? "not configured"}`);
+  console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
+  console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
   console.info(`conversation log: ${conversationLogger.filePath}`);
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
 }
 
-async function createAgentRuntimes(llmRawLogger: JsonlLogger): Promise<{
-  readonly agentRuntime: AgentRuntime;
-  readonly codeChangeRuntime?: AgentRuntime;
-}> {
+async function configureSdkEnvironment(): Promise<void> {
   try {
     const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
     const llmConfig = await loadLlmConfig(llmConfigPath);
     const resolved = resolveLlmConfig(llmConfig);
+
+    // The Claude Agent SDK uses ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL
+    // Map from the existing LLM config
+    process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
+    process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
+
     const summary = summarizeLlmConfig(resolved);
-    console.info(`loaded LLM config: ${summary.modelId} at ${summary.baseUrl}`);
-    if (resolved.runtime === "managed-sessions") {
-      return {
-        agentRuntime: new AnthropicManagedSessionAgentRuntime({
-          baseUrl: resolved.baseUrl,
-          apiKey: resolved.apiKey,
-          agentId: resolved.agentId ?? "",
-          environmentId: resolved.environmentId ?? "",
-          rawLogger: llmRawLogger
-        }),
-        codeChangeRuntime: new AnthropicCodeChangeRuntime({
-          baseUrl: resolved.baseUrl,
-          apiKey: resolved.apiKey,
-          modelId: resolved.modelId,
-          rawLogger: llmRawLogger
-        })
-      };
-    }
+    console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`SDK env configuration skipped: ${message}`);
+  }
+}
+
+async function createAgentRuntimes(llmRawLogger: JsonlLogger): Promise<Record<string, AgentRuntime>> {
+  try {
+    const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
+    const llmConfig = await loadLlmConfig(llmConfigPath);
+    const resolved = resolveLlmConfig(llmConfig);
 
     return {
-      agentRuntime: new AnthropicCompatibleAgentRuntime({
-        baseUrl: resolved.baseUrl,
-        apiKey: resolved.apiKey,
-        modelId: resolved.modelId,
-        rawLogger: llmRawLogger
+      reviewer: new ClaudeSdkAgentRuntime({
+        roleConfig: REVIEWER_CONFIG,
+        rawLogger: llmRawLogger,
+        model: resolved.modelId,
       }),
-      codeChangeRuntime: new AnthropicCodeChangeRuntime({
-        baseUrl: resolved.baseUrl,
-        apiKey: resolved.apiKey,
-        modelId: resolved.modelId,
-        rawLogger: llmRawLogger
-      })
+      developer: new ClaudeSdkAgentRuntime({
+        roleConfig: DEVELOPER_CONFIG,
+        rawLogger: llmRawLogger,
+        model: resolved.modelId,
+      }),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`using echo runtime because real LLM runtime is not configured: ${message}`);
     return {
-      agentRuntime: new EchoAgentRuntime()
+      reviewer: new EchoAgentRuntime(),
+      developer: new EchoAgentRuntime(),
     };
   }
 }
