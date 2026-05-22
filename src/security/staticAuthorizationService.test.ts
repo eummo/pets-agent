@@ -113,6 +113,60 @@ describe("StaticAuthorizationService", () => {
 
     expect(decision.allowed).toBe(false);
   });
+
+  it("denies mutate for read-only roles that can use Bash", async () => {
+    const roles = new Map([["reader-1", "reader"]]);
+    const service = new StaticAuthorizationService(mapRoleProvider(roles), {
+      getAll() {
+        return Promise.resolve([]);
+      },
+      getByName(name) {
+        return Promise.resolve({
+          name,
+          systemPrompt: "You can inspect.",
+          allowedTools: ["Read", "Grep", "Bash"],
+          permissionMode: "auto",
+        });
+      },
+      upsert() {
+        return Promise.resolve();
+      },
+      deleteByName() {
+        return Promise.resolve(false);
+      }
+    });
+
+    const decision = await service.can({ id: "reader-1" }, "mutate", workspace);
+
+    expect(decision.allowed).toBe(false);
+  });
+
+  it("denies mutate for custom roles with mutating tools but read-only permission mode", async () => {
+    const roles = new Map([["reader-1", "reader"]]);
+    const service = new StaticAuthorizationService(mapRoleProvider(roles), {
+      getAll() {
+        return Promise.resolve([]);
+      },
+      getByName(name) {
+        return Promise.resolve({
+          name,
+          systemPrompt: "You can read.",
+          allowedTools: ["Read", "Edit"],
+          permissionMode: "dontAsk",
+        });
+      },
+      upsert() {
+        return Promise.resolve();
+      },
+      deleteByName() {
+        return Promise.resolve(false);
+      }
+    });
+
+    const decision = await service.can({ id: "reader-1" }, "mutate", workspace);
+
+    expect(decision.allowed).toBe(false);
+  });
 });
 
 describe("mapRoleProvider", () => {

@@ -30,22 +30,41 @@ export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
     }
 
     if (config.name === REVIEWER_CONFIG.name && shouldRaiseMaxTurns(existingConfig, config)) {
-      const raisedMaxTurns = config.maxTurns;
-      if (raisedMaxTurns === undefined) {
-        continue;
-      }
       await store.upsert({
         ...existingConfig,
-        maxTurns: raisedMaxTurns,
+        ...reviewerRuntimeDefaultsToRaise(existingConfig, config),
       });
     }
   }
 }
 
+function reviewerRuntimeDefaultsToRaise(
+  existing: StoredRoleConfig,
+  nextDefault: StoredRoleConfig,
+): Pick<StoredRoleConfig, "allowedTools" | "permissionMode"> & { readonly maxTurns?: number } {
+  const maxTurns = maxTurnsToRaise(existing, nextDefault);
+
+  return {
+    allowedTools: mergeTools(existing.allowedTools, nextDefault.allowedTools),
+    permissionMode: existing.permissionMode === "dontAsk" ? nextDefault.permissionMode : existing.permissionMode,
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
+  };
+}
+
 function shouldRaiseMaxTurns(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): boolean {
-  if (nextDefault.maxTurns === undefined) {
-    return false;
+  return maxTurnsToRaise(existing, nextDefault) !== existing.maxTurns
+    || existing.permissionMode === "dontAsk"
+    || !existing.allowedTools.includes("Bash");
+}
+
+function maxTurnsToRaise(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): number | undefined {
+  if (nextDefault.maxTurns === undefined || existing.maxTurns !== undefined && existing.maxTurns >= nextDefault.maxTurns) {
+    return existing.maxTurns;
   }
 
-  return existing.maxTurns === undefined || existing.maxTurns < nextDefault.maxTurns;
+  return nextDefault.maxTurns;
+}
+
+function mergeTools(left: readonly string[], right: readonly string[]): readonly string[] {
+  return [...new Set([...left, ...right])];
 }

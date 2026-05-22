@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   console.info("[pass] reviewer-update-recorded-as-feedback");
 
   const chineseMutationUserId = "smoke-reviewer-mutation-user";
-  const chineseMutationText = "\u6211\u60f3\u4fee\u6539\u8ba2\u5355\u7cfb\u7edf";
+  const chineseMutationText = "我想修改订单系统";
   const chineseMutationResult = await chat(chineseMutationText, chineseMutationUserId);
   assertIncludes(chineseMutationResult.text, ["修改请求", "记录"], "reviewer-chinese-mutation-denied");
   assertForbidden(chineseMutationResult.text, ["计划", "审批", "Express", "TypeScript"], "reviewer-chinese-mutation-denied");

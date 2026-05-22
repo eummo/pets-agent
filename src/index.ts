@@ -6,6 +6,7 @@ import path from "node:path";
 import "dotenv/config";
 import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
 import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
+import { LlmBashPermissionDecider } from "./agent/llmBashPermissionDecider.js";
 import { loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
 import { FileConversationHistoryStore } from "./core/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./core/fileConversationSessionStore.js";
@@ -117,6 +118,9 @@ async function createAgentRuntimes(
 ): Promise<Record<string, AgentRuntime>> {
   // Read role configs from DB
   const roleConfigs = await roleConfigStore.getAll();
+  const toolPermissionDecider = resolvedLlmConfig === undefined
+    ? undefined
+    : new LlmBashPermissionDecider(resolvedLlmConfig).decide;
 
   if (roleConfigs.length > 0 && resolvedLlmConfig !== undefined) {
     const runtimes: Record<string, AgentRuntime> = {};
@@ -125,6 +129,7 @@ async function createAgentRuntimes(
         roleConfig: config,
         rawLogger: llmRawLogger,
         model: config.model ?? resolvedLlmConfig.modelId,
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
       });
     }
     return runtimes;
@@ -137,11 +142,13 @@ async function createAgentRuntimes(
         roleConfig: REVIEWER_CONFIG,
         rawLogger: llmRawLogger,
         model: resolvedLlmConfig.modelId,
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
       }),
       developer: new ClaudeSdkAgentRuntime({
         roleConfig: DEVELOPER_CONFIG,
         rawLogger: llmRawLogger,
         model: resolvedLlmConfig.modelId,
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
       }),
     };
   }

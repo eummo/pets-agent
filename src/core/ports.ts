@@ -118,7 +118,7 @@ export type StoredRoleConfig = {
   readonly name: string;
   readonly systemPrompt: string;
   readonly allowedTools: readonly string[];
-  readonly permissionMode: "dontAsk" | "acceptEdits" | "bypassPermissions";
+  readonly permissionMode: "auto" | "dontAsk" | "acceptEdits" | "bypassPermissions";
   readonly maxTurns?: number;
   readonly model?: string;
 };

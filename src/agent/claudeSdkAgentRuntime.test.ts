@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentStreamEvent } from "../core/ports.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
@@ -44,11 +47,14 @@ describe("ClaudeSdkAgentRuntime", () => {
 
     const expectedOptions: Record<string, unknown> = {
       cwd: "D:/workspace",
+      tools: ["Read", "Grep"],
       allowedTools: ["Read", "Grep"],
+      disallowedTools: [],
       permissionMode: "dontAsk",
       allowDangerouslySkipPermissions: false,
       systemPrompt: "Answer from the workspace.",
       includePartialMessages: true,
+      canUseTool: expect.any(Function),
       maxTurns: 3,
       model: "model-1",
       resume: "session-1"
@@ -59,6 +65,169 @@ describe("ClaudeSdkAgentRuntime", () => {
       prompt: "What changed?",
       options: expectedOptions
     });
+  });
+
+  it("grounds the prompt with the selected workspace context when available", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const workspacePath = await mkdtemp(path.join(os.tmpdir(), "pets-agent-runtime-"));
+    await writeFile(
+      path.join(workspacePath, "CLAUDE.md"),
+      "This workspace documents catalog checks and order lifecycle recording.",
+      "utf8"
+    );
+    const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
+
+    try {
+      await runtime.run({
+        user: { id: "user-1" },
+        text: "What is the current architecture?",
+        workspacePath,
+      });
+    } finally {
+      await rm(workspacePath, { recursive: true, force: true });
+    }
+
+    const call = firstQueryCall();
+    expect(call.prompt).toContain("Selected workspace context:");
+    expect(call.prompt).toContain("catalog checks and order lifecycle recording");
+    expect(call.prompt).toContain("User request:\nWhat is the current architecture?");
+  });
+
+  it("does not pass mutating tools to the SDK when the role lacks edit permission mode", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "misconfigured-reviewer",
+        allowedTools: ["Read", "Bash", "Edit", "Write"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+      }
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Inspect files",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.prompt).toBe("Inspect files");
+    expect(call.options["allowedTools"]).toEqual(["Read"]);
+    expect(call.options["tools"]).toEqual(["Read", "Bash"]);
+    expect(call.options["disallowedTools"]).toEqual(["Edit", "Write"]);
+    expect(call.options["permissionMode"]).toBe("dontAsk");
+    expect(call.options["allowDangerouslySkipPermissions"]).toBe(false);
+  });
+
+  it("exposes Bash but does not auto-allow it for read-only roles", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "reviewer",
+        allowedTools: ["Read", "Bash"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+      }
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "List files",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.options["tools"]).toEqual(["Read", "Bash"]);
+    expect(call.options["allowedTools"]).toEqual(["Read"]);
+    expect(call.options["permissionMode"]).toBe("dontAsk");
+  });
+
+  it("uses the permission decider for Bash on read-only roles", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const decisions: Record<string, unknown>[] = [];
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "reviewer",
+        allowedTools: ["Read", "Bash"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+      },
+      toolPermissionDecider(roleConfig, toolName, input) {
+        decisions.push({ roleName: roleConfig.name, toolName, input });
+        return Promise.resolve({ behavior: "allow" });
+      }
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "List files",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    const canUseTool = call.options["canUseTool"];
+    if (!isCanUseTool(canUseTool)) {
+      throw new Error("Expected canUseTool callback.");
+    }
+    await canUseTool("Bash", { command: "ls" });
+
+    expect(decisions).toEqual([
+      { roleName: "reviewer", toolName: "Bash", input: { command: "ls" } }
+    ]);
+  });
+
+  it("passes mutating tools to the SDK when the role has edit permission mode", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "editor",
+        allowedTools: ["Read", "Edit"],
+        permissionMode: "acceptEdits",
+        systemPrompt: "Edit when needed.",
+      }
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Edit files",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.prompt).toBe("Edit files");
+    expect(call.options["tools"]).toEqual(["Read", "Edit"]);
+    expect(call.options["allowedTools"]).toEqual(["Read", "Edit"]);
+    expect(call.options["disallowedTools"]).toEqual([]);
   });
 
   it("returns the final result, forwards stream events, and writes raw logs", async () => {
@@ -162,6 +331,56 @@ describe("ClaudeSdkAgentRuntime", () => {
     ]);
   });
 
+  it("reports an error instead of forwarding unauthorized mutating tool events", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages(
+        {
+          type: "assistant",
+          session_id: "session-2",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-1",
+                name: "Edit",
+                input: { file_path: "README.md" }
+              }
+            ]
+          }
+        },
+        {
+          type: "result",
+          subtype: "success",
+          session_id: "session-2",
+          result: "final answer"
+        }
+      )
+    );
+    const streamEvents: AgentStreamEvent[] = [];
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "reviewer",
+        allowedTools: ["Read", "Edit"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+      }
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Inspect files",
+      workspacePath: "D:/workspace",
+      stream: (event) => streamEvents.push(event),
+    });
+
+    expect(streamEvents).toEqual([
+      {
+        type: "error",
+        message: "Tool Edit is not permitted for role reviewer."
+      }
+    ]);
+  });
+
   it("returns a user-facing error when the SDK result is not successful", async () => {
     sdkMocks.query.mockReturnValue(
       streamMessages({
@@ -197,4 +416,19 @@ function streamMessages(...messages: readonly unknown[]): AsyncIterable<unknown>
       }
     }
   };
+}
+
+function firstQueryCall(): { readonly prompt: string; readonly options: Record<string, unknown> } {
+  const calls = sdkMocks.query.mock.calls as unknown as [
+    { readonly prompt: string; readonly options: Record<string, unknown> }
+  ][];
+  const call = calls[0]?.[0];
+  if (call === undefined) {
+    throw new Error("Expected SDK query to be called.");
+  }
+  return call;
+}
+
+function isCanUseTool(value: unknown): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
+  return typeof value === "function";
 }

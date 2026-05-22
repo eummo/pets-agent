@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRequest, AgentResponse, AgentRuntime, AgentStreamEvent } from "../core/ports.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
@@ -8,15 +10,23 @@ import type { JsonlLogger } from "../logging/jsonlLogger.js";
 export type RoleConfig = {
   readonly name: string;
   readonly allowedTools: readonly string[];
-  readonly permissionMode: "dontAsk" | "acceptEdits" | "bypassPermissions";
+  readonly permissionMode: "auto" | "dontAsk" | "acceptEdits" | "bypassPermissions";
   readonly systemPrompt: string;
   readonly maxTurns?: number;
   readonly model?: string;
 };
 
+export type ToolPermissionDecider = (
+  roleConfig: RoleConfig,
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<PermissionResult>;
+
+const FILE_MUTATION_TOOLS = new Set(["Edit", "MultiEdit", "NotebookEdit", "Write"]);
+
 export const REVIEWER_CONFIG: RoleConfig = {
   name: "reviewer",
-  allowedTools: ["Read", "Glob", "Grep"],
+  allowedTools: ["Read", "Glob", "Grep", "Bash"],
   permissionMode: "dontAsk",
   systemPrompt: [
     "You are a knowledge-base assistant (文档助手).",
@@ -26,6 +36,7 @@ export const REVIEWER_CONFIG: RoleConfig = {
     "Use only the provided workspace context when answering questions.",
     "Do not infer product domain from the project name.",
     "Do not describe the assistant runtime, message channels, model provider, test page, or implementation unless the user explicitly asks how this assistant is built or tested.",
+    "Prefer Read, Glob, and Grep for inspection. Use Bash only for non-mutating inspection commands when those tools are insufficient.",
     "If the context is insufficient, say what is missing instead of guessing.",
   ].join("\n"),
   maxTurns: 20,
@@ -63,6 +74,7 @@ export type ClaudeSdkAgentRuntimeOptions = {
   readonly roleConfig: RoleConfig;
   readonly rawLogger?: JsonlLogger;
   readonly model?: string;
+  readonly toolPermissionDecider?: ToolPermissionDecider;
 };
 
 export class ClaudeSdkAgentRuntime implements AgentRuntime {
@@ -70,22 +82,28 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
   private readonly roleConfig: RoleConfig;
   private readonly rawLogger: JsonlLogger | undefined;
   private readonly model: string | undefined;
+  private readonly toolPermissionDecider: ToolPermissionDecider | undefined;
 
   public constructor(options: ClaudeSdkAgentRuntimeOptions) {
     this.name = `claude-sdk-${options.roleConfig.name}`;
     this.roleConfig = options.roleConfig;
     this.rawLogger = options.rawLogger;
     this.model = options.model;
+    this.toolPermissionDecider = options.toolPermissionDecider;
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
+    const prompt = await buildWorkspacePrompt(request);
     const queryOptions: Record<string, unknown> = {
       cwd: request.workspacePath,
-      allowedTools: [...this.roleConfig.allowedTools],
+      tools: availableToolsForRole(this.roleConfig),
+      allowedTools: autoAllowedToolsForRole(this.roleConfig),
+      disallowedTools: disallowedToolsForRole(this.roleConfig),
       permissionMode: this.roleConfig.permissionMode,
       allowDangerouslySkipPermissions: this.roleConfig.permissionMode === "bypassPermissions",
       systemPrompt: this.roleConfig.systemPrompt,
       includePartialMessages: true,
+      canUseTool: (toolName: string, input: Record<string, unknown>) => this.canUseTool(toolName, input),
     };
     if (this.roleConfig.maxTurns !== undefined) {
       queryOptions["maxTurns"] = this.roleConfig.maxTurns;
@@ -100,7 +118,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     // SDK Options type has complex union; use typed helper for compatibility
     const sdkOptions = buildSdkOptions(queryOptions);
     const stream = query({
-      prompt: request.text,
+      prompt,
       options: sdkOptions,
     });
 
@@ -147,6 +165,23 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     // SDK manages sessions internally; no explicit disposal needed
   }
 
+  private async canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
+    if (!this.roleConfig.allowedTools.includes(toolName)) {
+      return denyTool(this.roleConfig.name, toolName);
+    }
+
+    if (FILE_MUTATION_TOOLS.has(toolName) && !roleCanUseFileMutationTools(this.roleConfig)) {
+      return denyTool(this.roleConfig.name, toolName);
+    }
+
+    if (toolName === "Bash" && !roleCanUseFileMutationTools(this.roleConfig)) {
+      return this.toolPermissionDecider?.(this.roleConfig, toolName, input)
+        ?? denyTool(this.roleConfig.name, toolName);
+    }
+
+    return { behavior: "allow" };
+  }
+
   private processAssistantMessage(
     msg: Extract<SDKMessage, { type: "assistant" }>,
     request: AgentRequest,
@@ -158,18 +193,30 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
       const blockType = block["type"] as string;
 
       if (blockType === "tool_use") {
+        const toolName = block["name"] as string;
+        if (!canUseTool(this.roleConfig, toolName)) {
+          const message = `Tool ${toolName} is not permitted for role ${this.roleConfig.name}.`;
+          request.stream?.({ type: "error", message });
+          void request.progress?.({
+            stage: "agent.error",
+            message,
+            data: { toolName },
+          });
+          continue;
+        }
+
         const input = (block["input"] as Record<string, unknown> | null) ?? {};
         const toolEvent: AgentStreamEvent = {
           type: "tool_use_start",
-          toolName: block["name"] as string,
+          toolName,
           toolUseId: block["id"] as string,
           input,
         };
         request.stream?.(toolEvent);
         void request.progress?.({
           stage: "agent.tool_use_start",
-          message: `${block["name"] as string}: ${JSON.stringify(block["input"]).slice(0, 100)}`,
-          data: { toolUseId: block["id"], toolName: block["name"] },
+          message: `${toolName}: ${JSON.stringify(block["input"]).slice(0, 100)}`,
+          data: { toolUseId: block["id"], toolName },
         });
       } else if (blockType === "tool_result") {
         const isError = block["is_error"] === true;
@@ -215,4 +262,81 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
 // Helper to bridge Record<string, unknown> to SDK Options type
 function buildSdkOptions(opts: Record<string, unknown>): NonNullable<Parameters<typeof query>[0]["options"]> {
   return opts;
+}
+
+async function buildWorkspacePrompt(request: AgentRequest): Promise<string> {
+  const workspaceContext = await readWorkspaceContext(request.workspacePath);
+  if (workspaceContext === undefined) {
+    return request.text;
+  }
+
+  return [
+    "Selected workspace context:",
+    workspaceContext,
+    "",
+    "Use the selected workspace context above as the primary source of truth.",
+    "If the user asks about the current project, architecture, or system, answer about this selected workspace.",
+    "Do not answer from the host agent implementation unless the user explicitly asks how this assistant is built.",
+    "",
+    "User request:",
+    request.text,
+  ].join("\n");
+}
+
+async function readWorkspaceContext(workspacePath: string): Promise<string | undefined> {
+  try {
+    const content = await readFile(path.join(workspacePath, "CLAUDE.md"), "utf8");
+    const normalized = content.trim();
+    return normalized.length > 0 ? normalized.slice(0, 4_000) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function availableToolsForRole(config: RoleConfig): readonly string[] {
+  if (roleCanUseFileMutationTools(config)) {
+    return [...config.allowedTools];
+  }
+
+  return config.allowedTools.filter((tool) => !FILE_MUTATION_TOOLS.has(tool));
+}
+
+function autoAllowedToolsForRole(config: RoleConfig): readonly string[] {
+  if (roleCanUseFileMutationTools(config)) {
+    return [...config.allowedTools];
+  }
+
+  return config.allowedTools.filter((tool) => tool !== "Bash" && !FILE_MUTATION_TOOLS.has(tool));
+}
+
+function disallowedToolsForRole(config: RoleConfig): readonly string[] {
+  if (roleCanUseFileMutationTools(config)) {
+    return [];
+  }
+
+  return [...FILE_MUTATION_TOOLS].filter((tool) => config.allowedTools.includes(tool));
+}
+
+function canUseTool(config: RoleConfig, toolName: string): boolean {
+  if (!config.allowedTools.includes(toolName)) {
+    return false;
+  }
+
+  return !FILE_MUTATION_TOOLS.has(toolName) || roleCanUseFileMutationTools(config);
+}
+
+function roleCanUseFileMutationTools(config: RoleConfig): boolean {
+  if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
+    return false;
+  }
+
+  return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
+}
+
+function denyTool(roleName: string, toolName: string): PermissionResult {
+  return {
+    behavior: "deny",
+    message: `Tool ${toolName} is not permitted for role ${roleName}.`,
+    decisionClassification: "user_reject",
+  };
 }

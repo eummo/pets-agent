@@ -70,6 +70,10 @@ function normalizeRoleName(role: string): UserRole {
 }
 
 function configAllowsMutation(config: StoredRoleConfig): boolean {
-  const mutatingTools = new Set(["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"]);
+  const mutatingTools = new Set(["Edit", "MultiEdit", "NotebookEdit", "Write"]);
+  if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
+    return false;
+  }
+
   return config.allowedTools.some((tool) => mutatingTools.has(tool));
 }

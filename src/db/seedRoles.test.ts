@@ -19,7 +19,7 @@ describe("seedDefaultRoles", () => {
     }));
   });
 
-  it("raises existing reviewer max turns without replacing the role config", async () => {
+  it("raises existing reviewer runtime defaults without replacing the prompt", async () => {
     const store = new SqliteRoleConfigStore(createSqliteConnection(":memory:"));
     await store.upsert({
       name: "reviewer",
@@ -34,7 +34,7 @@ describe("seedDefaultRoles", () => {
     await expect(store.getByName("reviewer")).resolves.toEqual({
       name: "reviewer",
       systemPrompt: "Custom reviewer prompt",
-      allowedTools: ["Read"],
+      allowedTools: ["Read", "Glob", "Grep", "Bash"],
       permissionMode: "dontAsk",
       maxTurns: REVIEWER_CONFIG.maxTurns,
     });

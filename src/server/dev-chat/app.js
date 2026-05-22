@@ -67,7 +67,7 @@ function createToolCallCard(toolName, inputObj, toolUseId) {
   header.className = "tool-call-header";
   const icon = document.createElement("span");
   icon.className = "tool-call-icon";
-  icon.textContent = "\u{1F527}";
+  icon.textContent = "🔧";
   const name = document.createElement("span");
   name.className = "tool-call-name";
   name.textContent = toolName;
@@ -76,7 +76,7 @@ function createToolCallCard(toolName, inputObj, toolUseId) {
   summary.textContent = " " + JSON.stringify(inputObj).slice(0, 80);
   const toggle = document.createElement("span");
   toggle.className = "tool-call-toggle";
-  toggle.textContent = "\u25B6";
+  toggle.textContent = "▶";
   header.append(icon, name, summary, toggle);
 
   const body = document.createElement("div");
@@ -87,7 +87,7 @@ function createToolCallCard(toolName, inputObj, toolUseId) {
 
   header.addEventListener("click", () => {
     body.classList.toggle("open");
-    toggle.textContent = body.classList.contains("open") ? "\u25BC" : "\u25B6";
+    toggle.textContent = body.classList.contains("open") ? "▼" : "▶";
   });
 
   card.append(header, body);
@@ -104,7 +104,7 @@ function updateToolCallCard(toolUseId, result, isError) {
   body.append(pre);
   body.classList.add("open");
   const toggle = card.querySelector(".tool-call-toggle");
-  if (toggle) toggle.textContent = "\u25BC";
+  if (toggle) toggle.textContent = "▼";
 }
 
 // ── Role ──
@@ -160,7 +160,7 @@ async function setRole() {
 roleSelect.addEventListener("change", async () => {
   try {
     const body = await setRole();
-    addSystemMessage("\u89D2\u8272\u5DF2\u5207\u6362\u4E3A " + body.role);
+    addSystemMessage("角色已切换为 " + body.role);
   } catch (error) {
     addMessage("error", error instanceof Error ? error.message : String(error));
   }
