@@ -17,6 +17,42 @@ const INTENT_TIMEOUT_MS = 5000;
 
 const VALID_INTENTS = new Set<string>(["query", "mutate", "update_kb"]);
 
+const UPDATE_KB_KEYWORDS = [
+  "update the documentation",
+  "update documentation",
+  "update the knowledge base",
+  "update knowledge base",
+  "add to the knowledge base",
+  "\u66f4\u65b0\u77e5\u8bc6\u5e93",
+  "\u4fee\u6539\u77e5\u8bc6\u5e93",
+  "\u8865\u5145\u77e5\u8bc6\u5e93",
+  "\u66f4\u65b0\u6587\u6863",
+  "\u4fee\u6539\u6587\u6863",
+  "\u8865\u5145\u6587\u6863",
+] as const;
+
+const MUTATION_KEYWORDS = [
+  "fix the bug",
+  "modify the file",
+  "edit the file",
+  "write code",
+  "change the code",
+  "add a comment",
+  "\u4fee\u6539\u4ee3\u7801",
+  "\u4fee\u590d",
+  "\u6539\u4e00\u4e0b",
+  "\u5199\u4ee3\u7801",
+  "\u91cd\u6784",
+  "\u5b9e\u73b0",
+  "\u5f00\u53d1",
+  "\u65b0\u589e",
+  "\u6dfb\u52a0",
+  "\u589e\u52a0",
+  "\u5220\u9664",
+] as const;
+
+const CHINESE_MUTATION_VERBS = /[\u4fee\u6539\u589e\u52a0\u6dfb\u5220\u91cd\u5b9e\u5f00]/u;
+
 export class LlmIntentDetectionService implements IntentDetectionService {
   public constructor(private readonly config: ResolvedLlmConfig) {}
 
@@ -72,36 +108,16 @@ export class LlmIntentDetectionService implements IntentDetectionService {
 
 function detectDeterministicIntent(userMessage: string): UserIntent | undefined {
   const normalized = userMessage.toLowerCase();
-  const updateKnowledgeBaseKeywords = [
-    "update the documentation",
-    "update documentation",
-    "update the knowledge base",
-    "update knowledge base",
-    "add to the knowledge base",
-    "更新知识库",
-    "修改知识库",
-    "补充知识库",
-    "更新文档",
-    "修改文档",
-    "补充文档",
-  ];
-  if (updateKnowledgeBaseKeywords.some((keyword) => normalized.includes(keyword))) {
+
+  if (UPDATE_KB_KEYWORDS.some((keyword) => normalized.includes(keyword))) {
     return { type: "update_kb" };
   }
 
-  const mutationKeywords = [
-    "fix the bug",
-    "modify the file",
-    "edit the file",
-    "write code",
-    "change the code",
-    "add a comment",
-    "修改代码",
-    "修复",
-    "改一下",
-    "写代码",
-  ];
-  if (mutationKeywords.some((keyword) => normalized.includes(keyword))) {
+  if (MUTATION_KEYWORDS.some((keyword) => normalized.includes(keyword))) {
+    return { type: "mutate" };
+  }
+
+  if (CHINESE_MUTATION_VERBS.test(userMessage)) {
     return { type: "mutate" };
   }
 

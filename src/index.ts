@@ -1,3 +1,7 @@
+/**
+ * pets-agent - Main entry point for the pets-agent server.
+ * Initializes and starts the agent orchestrator with all required services.
+ */
 import path from "node:path";
 import "dotenv/config";
 import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG } from "./agent/claudeSdkAgentRuntime.js";

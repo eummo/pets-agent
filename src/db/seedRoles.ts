@@ -3,7 +3,7 @@ import { REVIEWER_CONFIG, DEVELOPER_CONFIG } from "../agent/claudeSdkAgentRuntim
 
 export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
   const existing = await store.getAll();
-  if (existing.length > 0) return;
+  const existingByName = new Map(existing.map((config) => [config.name, config]));
 
   const defaults: readonly StoredRoleConfig[] = [
     {
@@ -23,6 +23,29 @@ export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
   ];
 
   for (const config of defaults) {
-    await store.upsert(config);
+    const existingConfig = existingByName.get(config.name);
+    if (existingConfig === undefined) {
+      await store.upsert(config);
+      continue;
+    }
+
+    if (config.name === REVIEWER_CONFIG.name && shouldRaiseMaxTurns(existingConfig, config)) {
+      const raisedMaxTurns = config.maxTurns;
+      if (raisedMaxTurns === undefined) {
+        continue;
+      }
+      await store.upsert({
+        ...existingConfig,
+        maxTurns: raisedMaxTurns,
+      });
+    }
   }
+}
+
+function shouldRaiseMaxTurns(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): boolean {
+  if (nextDefault.maxTurns === undefined) {
+    return false;
+  }
+
+  return existing.maxTurns === undefined || existing.maxTurns < nextDefault.maxTurns;
 }

@@ -63,6 +63,15 @@ async function main(): Promise<void> {
   assertFeedbackRecorded(feedbackUserId, feedbackText, "update_kb");
   console.info("[pass] reviewer-update-recorded-as-feedback");
 
+  const chineseMutationUserId = "smoke-reviewer-mutation-user";
+  const chineseMutationText = "\u6211\u60f3\u4fee\u6539\u8ba2\u5355\u7cfb\u7edf";
+  const chineseMutationResult = await chat(chineseMutationText, chineseMutationUserId);
+  assertIncludes(chineseMutationResult.text, ["修改请求", "记录"], "reviewer-chinese-mutation-denied");
+  assertForbidden(chineseMutationResult.text, ["计划", "审批", "Express", "TypeScript"], "reviewer-chinese-mutation-denied");
+  assertFeedbackRecorded(chineseMutationUserId, chineseMutationText, "mutate");
+  await assertNoLlmResponseForUser(chineseMutationUserId);
+  console.info("[pass] reviewer-chinese-mutation-denied");
+
   // Developer role can make code changes
   await setRole("smoke-developer", "developer");
   const mutationResult = await chat("Add a comment to the main file", "smoke-developer");
@@ -181,6 +190,14 @@ async function assertLogContainsAny(filePath: string, expectedValues: readonly s
 
   if (!expectedValues.some((expected) => content.includes(expected))) {
     throw new Error(`Expected ${filePath} to include one of: ${expectedValues.join(", ")}.`);
+  }
+}
+
+async function assertNoLlmResponseForUser(userId: string): Promise<void> {
+  const content = await readFile(llmRawLogPath, "utf8");
+
+  if (content.split(/\r?\n/).some((line) => line.includes(`"userId":"${userId}"`))) {
+    throw new Error(`Expected no LLM response for denied reviewer mutation user ${userId}.`);
   }
 }
 

@@ -28,7 +28,7 @@ export const REVIEWER_CONFIG: RoleConfig = {
     "Do not describe the assistant runtime, message channels, model provider, test page, or implementation unless the user explicitly asks how this assistant is built or tested.",
     "If the context is insufficient, say what is missing instead of guessing.",
   ].join("\n"),
-  maxTurns: 10,
+  maxTurns: 20,
 };
 
 export const DEVELOPER_CONFIG: RoleConfig = {

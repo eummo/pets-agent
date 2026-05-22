@@ -54,6 +54,24 @@ describe("LlmIntentDetectionService", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("classifies Chinese system modification requests without calling the API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const service = new LlmIntentDetectionService(mockConfig);
+    const result = await service.detectIntent("\u6211\u60f3\u4fee\u6539\u8ba2\u5355\u7cfb\u7edf", "reviewer");
+
+    expect(result).toEqual({ type: "mutate" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("classifies Chinese feature-add requests without calling the API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const service = new LlmIntentDetectionService(mockConfig);
+    const result = await service.detectIntent("\u6dfb\u52a0\u65b0\u7684\u8ba2\u5355\u529f\u80fd \u589e\u52a0\u4e0b\u5355", "reviewer");
+
+    expect(result).toEqual({ type: "mutate" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("classifies mutate intent", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ content: [{ text: "mutate" }] }), { status: 200 })
