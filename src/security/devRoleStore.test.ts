@@ -31,11 +31,11 @@ describe("createDevRoleStore", () => {
     expect(store.getRole("user-1")).toBe("developer");
   });
 
-  it("maps viewer to reviewer", () => {
+  it("stores arbitrary role strings", () => {
     const store = createDevRoleStore();
 
-    store.setRole("user-1", "viewer");
+    store.setRole("user-1", "custom-role");
 
-    expect(store.getRole("user-1")).toBe("reviewer");
+    expect(store.getRole("user-1")).toBe("custom-role");
   });
 });

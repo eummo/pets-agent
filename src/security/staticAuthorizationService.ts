@@ -4,19 +4,24 @@ import type {
   AuthorizationService,
   ChannelUser,
   KnowledgeWorkspace,
+  RoleConfigStore,
+  StoredRoleConfig,
   UserRole
 } from "../core/ports.js";
 
 export type RoleProvider = {
-  getRole(userId: string): UserRole;
+  getRole(userId: string): string;
 };
 
 export class StaticAuthorizationService implements AuthorizationService {
-  public constructor(private readonly roleProvider: RoleProvider = mapRoleProvider(new Map())) {}
+  public constructor(
+    private readonly roleProvider: RoleProvider = mapRoleProvider(new Map()),
+    private readonly roleConfigStore?: RoleConfigStore,
+  ) {}
 
   public roleFor(user: ChannelUser): Promise<UserRole> {
     const role = this.roleProvider.getRole(user.id);
-    return Promise.resolve(role === "viewer" ? "reviewer" : role);
+    return Promise.resolve(normalizeRoleName(role));
   }
 
   public async can(
@@ -32,22 +37,39 @@ export class StaticAuthorizationService implements AuthorizationService {
       return { allowed: true };
     }
 
-    if (role === "developer") {
+    if (await this.roleCanMutate(role)) {
       return { allowed: true };
     }
 
     return {
       allowed: false,
-      reason: "我已识别到这是修改请求，但你当前是文档助手权限，只能查看知识库，不能修改文件。"
+      reason: "Insufficient permissions for this action."
     };
+  }
+
+  private async roleCanMutate(role: UserRole): Promise<boolean> {
+    if (role === "developer") {
+      return true;
+    }
+
+    const config = await this.roleConfigStore?.getByName(role);
+    return config === undefined ? false : configAllowsMutation(config);
   }
 }
 
-export function mapRoleProvider(roles: ReadonlyMap<string, UserRole>): RoleProvider {
+export function mapRoleProvider(roles: ReadonlyMap<string, string>): RoleProvider {
   return {
     getRole(userId) {
-      const role = roles.get(userId) ?? "reviewer";
-      return role === "viewer" ? "reviewer" : role;
+      return roles.get(userId) ?? "reviewer";
     }
   };
+}
+
+function normalizeRoleName(role: string): UserRole {
+  return role === "viewer" ? "reviewer" : role;
+}
+
+function configAllowsMutation(config: StoredRoleConfig): boolean {
+  const mutatingTools = new Set(["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"]);
+  return config.allowedTools.some((tool) => mutatingTools.has(tool));
 }

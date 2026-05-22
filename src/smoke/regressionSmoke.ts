@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import Database from "better-sqlite3";
 
 type SseEvent = {
   readonly type: string;
@@ -19,6 +20,7 @@ const baseUrl = process.env["SMOKE_BASE_URL"] ?? "http://127.0.0.1:3000";
 const conversationLogPath =
   process.env["CONVERSATION_LOG_PATH"] ?? path.resolve(".harness", "logs", "conversation.jsonl");
 const llmRawLogPath = process.env["LLM_RAW_LOG_PATH"] ?? path.resolve(".harness", "logs", "llm-raw.jsonl");
+const dbPath = process.env["DB_PATH"] ?? path.resolve(".harness", "state", "agent.db");
 const firstCaseText = "What is the current project for?";
 const resetCaseText = "What is the current project after reset?";
 
@@ -52,6 +54,14 @@ async function main(): Promise<void> {
     assertForbidden(result.text, smokeCase.forbiddenIncludes, smokeCase.name);
     console.info(`[pass] ${smokeCase.name}`);
   }
+
+  // Reviewer mutation requests are denied and captured as feedback.
+  const feedbackUserId = "smoke-feedback-user";
+  const feedbackText = "Please update the documentation with the latest order lifecycle.";
+  const feedbackResult = await chat(feedbackText, feedbackUserId);
+  assertIncludes(feedbackResult.text, ["记录"], "reviewer-update-recorded-as-feedback");
+  assertFeedbackRecorded(feedbackUserId, feedbackText, "update_kb");
+  console.info("[pass] reviewer-update-recorded-as-feedback");
 
   // Developer role can make code changes
   await setRole("smoke-developer", "developer");
@@ -121,7 +131,7 @@ async function chat(text: string, userId = "smoke-user"): Promise<ChatResult> {
   return { text: finalText, ...(sessionId !== undefined ? { sessionId } : {}), toolCalls };
 }
 
-async function setRole(userId: string, role: "developer" | "reviewer"): Promise<void> {
+async function setRole(userId: string, role: string): Promise<void> {
   const response = await fetch(`${baseUrl}/dev/role`, {
     method: "POST",
     headers: {
@@ -171,6 +181,28 @@ async function assertLogContainsAny(filePath: string, expectedValues: readonly s
 
   if (!expectedValues.some((expected) => content.includes(expected))) {
     throw new Error(`Expected ${filePath} to include one of: ${expectedValues.join(", ")}.`);
+  }
+}
+
+function assertFeedbackRecorded(userId: string, text: string, intentType: string): void {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const row = db.prepare(`
+      SELECT user_message, intent_type, status
+      FROM feedback
+      WHERE user_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(userId) as { readonly user_message: string; readonly intent_type: string; readonly status: string } | undefined;
+
+    if (row === undefined) {
+      throw new Error(`Expected feedback row for ${userId}.`);
+    }
+    if (row.user_message !== text || row.intent_type !== intentType || row.status !== "pending") {
+      throw new Error(`Unexpected feedback row: ${JSON.stringify(row)}.`);
+    }
+  } finally {
+    db.close();
   }
 }
 

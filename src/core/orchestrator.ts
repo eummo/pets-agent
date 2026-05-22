@@ -3,15 +3,20 @@ import type {
   AgentRequest,
   AgentRuntime,
   AgentStreamEvent,
+  AuthorizationAction,
   AuthorizationService,
   ConversationHistoryStore,
   ConversationSessionKey,
   ConversationSessionStore,
+  FeedbackStore,
   InboundMessage,
+  IntentDetectionService,
   KnowledgeWorkspaceResolver,
   MessageHandler,
   OutboundMessage,
-  ProgressReporter
+  ProgressReporter,
+  UserIntent,
+  UserRole
 } from "./ports.js";
 
 export type OrchestratorDependencies = {
@@ -22,6 +27,8 @@ export type OrchestratorDependencies = {
   readonly historyStore?: ConversationHistoryStore;
   readonly conversationLogger?: JsonlLogger;
   readonly progressReporter?: ProgressReporter;
+  readonly intentDetection?: IntentDetectionService | undefined;
+  readonly feedbackStore?: FeedbackStore | undefined;
 };
 
 export class AgentOrchestrator implements MessageHandler {
@@ -49,19 +56,30 @@ export class AgentOrchestrator implements MessageHandler {
       return response;
     }
 
-    const decision = await this.dependencies.authorization.can(message.user, "read", workspace);
-    if (!decision.allowed) {
-      const response = { text: decision.reason ?? "You do not have permission to access this workspace." };
+    const readDecision = await this.dependencies.authorization.can(message.user, "read", workspace);
+    if (!readDecision.allowed) {
+      const response = { text: readDecision.reason ?? "You do not have permission to access this workspace." };
       await this.logConversation(message, response.text, workspace.path);
       return response;
     }
 
-    // Role-based routing: select runtime by user role
     const role = await this.dependencies.authorization.roleFor(message.user);
-    const effectiveRole = role === "viewer" ? "reviewer" : role;
-    const runtime = this.dependencies.agentRuntimes[effectiveRole];
+    const intent = await this.detectIntent(message.text, role);
+    const requiredAction = actionForIntent(intent);
+
+    if (requiredAction !== undefined) {
+      const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace);
+      if (!intentDecision.allowed) {
+        await this.saveFeedback(message, workspace.path, intent, role);
+        const response = { text: responseForDeniedIntent(intent) };
+        await this.logConversation(message, response.text, workspace.path);
+        return response;
+      }
+    }
+
+    const runtime = this.dependencies.agentRuntimes[role];
     if (runtime === undefined) {
-      const response = { text: `No runtime configured for role: ${effectiveRole}` };
+      const response = { text: `No runtime configured for role: ${role}` };
       await this.logConversation(message, response.text, workspace.path);
       return response;
     }
@@ -123,14 +141,46 @@ export class AgentOrchestrator implements MessageHandler {
     return message.text.trim().toLowerCase() === "/new";
   }
 
+  private async detectIntent(userMessage: string, role: UserRole): Promise<UserIntent> {
+    if (this.dependencies.intentDetection === undefined) {
+      return { type: "query" };
+    }
+    return this.dependencies.intentDetection.detectIntent(userMessage, role);
+  }
+
+  private async saveFeedback(
+    message: InboundMessage,
+    workspacePath: string,
+    intent: UserIntent,
+    role: UserRole,
+  ): Promise<void> {
+    if (this.dependencies.feedbackStore === undefined) return;
+
+    const sessionKey = this.createSessionKey(message, workspacePath);
+    const history = await this.dependencies.historyStore?.get(sessionKey);
+    const contextParts = (history ?? []).slice(-4).map((m) => `${m.role}: ${m.content}`);
+    const conversationContext = contextParts.join("\n");
+
+    await this.dependencies.feedbackStore.save({
+      userId: message.user.id,
+      channel: message.channel,
+      messageId: message.id,
+      workspacePath,
+      intentType: intent.type,
+      roleName: role,
+      userMessage: message.text,
+      conversationContext,
+      status: "pending",
+    });
+  }
+
   private async startNewConversation(message: InboundMessage, workspacePath: string): Promise<OutboundMessage> {
     const sessionKey = this.createSessionKey(message, workspacePath);
     const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
 
     if (sessionId !== undefined) {
       const role = await this.dependencies.authorization.roleFor(message.user);
-      const effectiveRole = role === "viewer" ? "reviewer" : role;
-      const runtime = this.dependencies.agentRuntimes[effectiveRole];
+      const runtime = this.dependencies.agentRuntimes[role];
       if (runtime !== undefined) {
         await runtime.disposeSession(sessionId);
       }
@@ -185,6 +235,18 @@ export class AgentOrchestrator implements MessageHandler {
       data: event,
     });
   }
+}
+
+function actionForIntent(intent: UserIntent): AuthorizationAction | undefined {
+  return intent.type === "mutate" || intent.type === "update_kb" ? "mutate" : undefined;
+}
+
+function responseForDeniedIntent(intent: UserIntent): string {
+  if (intent.type === "update_kb") {
+    return "感谢您的反馈！我已记录您希望更新知识库的请求。当前文档助手权限仅支持查看知识库，不支持修改内容。您的请求已保存，管理员将尽快审核处理。";
+  }
+
+  return "我已识别到这是修改请求，但你当前是文档助手权限，只能查看知识库，不能修改文件。您的请求已记录，管理员将尽快审核处理。";
 }
 
 function formatRuntimeError(error: unknown): string {

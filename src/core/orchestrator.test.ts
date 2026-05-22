@@ -4,6 +4,9 @@ import type {
   ConversationHistoryStore,
   ConversationSessionKey,
   ConversationSessionStore,
+  FeedbackEntry,
+  FeedbackStore,
+  IntentDetectionService,
   KnowledgeWorkspaceResolver
 } from "./ports.js";
 import { AgentOrchestrator } from "./orchestrator.js";
@@ -129,6 +132,84 @@ describe("AgentOrchestrator", () => {
     expect(response.text).toBe("developer response");
     expect(developerCalled).toBe(true);
     expect(reviewerCalled).toBe(false);
+  });
+
+  it("records feedback instead of running runtime when a reviewer asks to mutate", async () => {
+    let runtimeCalled = false;
+    const feedbackStore = new MemoryFeedbackStore();
+    const intentDetection: IntentDetectionService = {
+      detectIntent() {
+        return Promise.resolve({ type: "update_kb" });
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      feedbackStore,
+      intentDetection,
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            runtimeCalled = true;
+            return Promise.resolve({ text: "runtime response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("请帮我更新知识库", "user-1", "message-1"));
+
+    expect(response.text).toContain("感谢您的反馈");
+    expect(runtimeCalled).toBe(false);
+    expect(feedbackStore.entries).toEqual([
+      expect.objectContaining({
+        userId: "user-1",
+        channel: "test",
+        messageId: "message-1",
+        workspacePath: "D:/kb",
+        intentType: "update_kb",
+        roleName: "reviewer",
+        userMessage: "请帮我更新知识库",
+        status: "pending",
+      })
+    ]);
+  });
+
+  it("routes custom roles to their matching runtime", async () => {
+    let customCalled = false;
+    const customAuthorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve("custom-reader");
+      },
+      can() {
+        return Promise.resolve({ allowed: true });
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: customAuthorization,
+      agentRuntimes: {
+        "custom-reader": {
+          name: "custom-reader",
+          run() {
+            customCalled = true;
+            return Promise.resolve({ text: "custom response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("hello"));
+
+    expect(response.text).toBe("custom response");
+    expect(customCalled).toBe(true);
   });
 
   it("reuses stored runtime sessions for follow-up messages", async () => {
@@ -332,5 +413,26 @@ class MemoryHistoryStore implements ConversationHistoryStore {
       this.histories.delete(keyText);
     }
     return Promise.resolve();
+  }
+}
+
+class MemoryFeedbackStore implements FeedbackStore {
+  public readonly entries: FeedbackEntry[] = [];
+
+  public save(entry: FeedbackEntry): Promise<number> {
+    this.entries.push({ ...entry, id: this.entries.length + 1 });
+    return Promise.resolve(this.entries.length);
+  }
+
+  public updateStatus(id: number, status: FeedbackEntry["status"]): Promise<void> {
+    const entry = this.entries.find((item) => item.id === id);
+    if (entry !== undefined) {
+      this.entries.splice(this.entries.indexOf(entry), 1, { ...entry, status });
+    }
+    return Promise.resolve();
+  }
+
+  public getAll(): Promise<readonly FeedbackEntry[]> {
+    return Promise.resolve(this.entries);
   }
 }

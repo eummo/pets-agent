@@ -1,20 +1,17 @@
-import type { UserRole } from "../core/ports.js";
-
 export type DevRoleStore = {
-  getRole(userId: string): UserRole;
-  setRole(userId: string, role: UserRole): void;
+  getRole(userId: string): string;
+  setRole(userId: string, role: string): void;
 };
 
-export function createDevRoleStore(initialRoles: ReadonlyMap<string, UserRole> = new Map()): DevRoleStore {
+export function createDevRoleStore(initialRoles: ReadonlyMap<string, string> = new Map()): DevRoleStore {
   const roles = new Map(initialRoles);
 
   return {
     getRole(userId) {
-      const role = roles.get(userId) ?? "reviewer";
-      return role === "viewer" ? "reviewer" : role;
+      return roles.get(userId) ?? "reviewer";
     },
     setRole(userId, role) {
-      roles.set(userId, role === "viewer" ? "reviewer" : role);
+      roles.set(userId, role);
     }
   };
 }

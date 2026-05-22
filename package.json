@@ -11,7 +11,7 @@
     "dev": "tsx src/index.ts",
     "harness": "tsx src/harness/cli.ts",
     "smoke": "tsx src/smoke/regressionSmoke.ts",
-    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');const p=require('path');const s=p.join('src','server','dev-chat');const d=p.join('dist','server','dev-chat');fs.mkdirSync(d,{recursive:true});for(const f of fs.readdirSync(s)){fs.copyFileSync(p.join(s,f),p.join(d,f))}\"",
+    "build": "tsc -p tsconfig.build.json && tsx src/build/copyDevChatAssets.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.146",
+    "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "fast-xml-parser": "^5.8.0",
     "fastify": "^5.8.5",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9.17.0",

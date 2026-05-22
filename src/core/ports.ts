@@ -1,4 +1,4 @@
-export type UserRole = "reviewer" | "developer" | "viewer";
+export type UserRole = string;
 
 export type ChannelUser = {
   readonly id: string;
@@ -110,4 +110,58 @@ export type AuthorizationDecision = {
 export type AuthorizationService = {
   roleFor(user: ChannelUser): Promise<UserRole>;
   can(user: ChannelUser, action: AuthorizationAction, workspace: KnowledgeWorkspace): Promise<AuthorizationDecision>;
+};
+
+// ── Role Configuration Store ─────────────────────────────────────────────────
+
+export type StoredRoleConfig = {
+  readonly name: string;
+  readonly systemPrompt: string;
+  readonly allowedTools: readonly string[];
+  readonly permissionMode: "dontAsk" | "acceptEdits" | "bypassPermissions";
+  readonly maxTurns?: number;
+  readonly model?: string;
+};
+
+export type RoleConfigStore = {
+  getAll(): Promise<readonly StoredRoleConfig[]>;
+  getByName(name: string): Promise<StoredRoleConfig | undefined>;
+  upsert(config: StoredRoleConfig): Promise<void>;
+  deleteByName(name: string): Promise<boolean>;
+};
+
+// ── Intent Detection ─────────────────────────────────────────────────────────
+
+export type UserIntent =
+  | { readonly type: "query" }
+  | { readonly type: "mutate" }
+  | { readonly type: "update_kb" };
+
+export type IntentDetectionService = {
+  detectIntent(userMessage: string, role: UserRole): Promise<UserIntent>;
+};
+
+// ── Feedback Store ───────────────────────────────────────────────────────────
+
+export type FeedbackStatus = "pending" | "reviewed" | "resolved";
+
+export type FeedbackEntry = {
+  readonly id?: number;
+  readonly userId: string;
+  readonly channel?: string;
+  readonly messageId?: string;
+  readonly workspacePath?: string;
+  readonly intentType?: UserIntent["type"];
+  readonly roleName?: UserRole;
+  readonly userMessage: string;
+  readonly conversationContext: string;
+  readonly status: FeedbackStatus;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+};
+
+export type FeedbackStore = {
+  save(entry: FeedbackEntry): Promise<number>;
+  updateStatus(id: number, status: FeedbackStatus): Promise<void>;
+  getAll(): Promise<readonly FeedbackEntry[]>;
 };

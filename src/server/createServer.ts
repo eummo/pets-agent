@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
-import type { AgentStreamEvent, MessageHandler, UserRole } from "../core/ports.js";
+import type { AgentStreamEvent, MessageHandler, RoleConfigStore } from "../core/ports.js";
 import type { DevRoleStore } from "../security/devRoleStore.js";
 import { verifyWechatSignature } from "../wechat/signature.js";
 import { buildWechatTextReply, parseWechatMessage } from "../wechat/xml.js";
@@ -25,6 +25,7 @@ export type CreateServerOptions = {
   readonly messageHandler: MessageHandler;
   readonly wechatToken: string;
   readonly devRoleStore?: DevRoleStore;
+  readonly roleConfigStore?: RoleConfigStore;
   readonly progressBroker?: DevProgressBroker;
   readonly logger?: boolean;
 };
@@ -36,7 +37,7 @@ type DevChatBody = {
 
 type DevRoleBody = {
   readonly userId?: string;
-  readonly role?: UserRole;
+  readonly role?: string;
 };
 
 type DevEventsQuery = {
@@ -95,6 +96,14 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
 
     const content = await readFile(filePath);
     return reply.type(`${contentType}; charset=utf-8`).send(content);
+  });
+
+  server.get("/dev/roles", async () => {
+    if (options.roleConfigStore === undefined) {
+      return { roles: [] };
+    }
+    const configs = await options.roleConfigStore.getAll();
+    return { roles: configs.map((c) => ({ name: c.name })) };
   });
 
   server.get<{ Querystring: DevEventsQuery }>("/dev/events", async (request, reply) => {
@@ -167,8 +176,16 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
     const userId = normalizeOptionalText(request.body.userId) ?? "browser-user";
     const role = request.body.role;
 
-    if (role !== "viewer" && role !== "reviewer" && role !== "developer") {
-      return reply.status(400).send({ error: "Role must be reviewer or developer." });
+    if (typeof role !== "string" || role.trim().length === 0) {
+      return reply.status(400).send({ error: "Role must be a non-empty string." });
+    }
+
+    // Validate role exists in config store if available
+    if (options.roleConfigStore !== undefined) {
+      const config = await options.roleConfigStore.getByName(role);
+      if (config === undefined) {
+        return reply.status(400).send({ error: `Unknown role: ${role}` });
+      }
     }
 
     options.devRoleStore?.setRole(userId, role);

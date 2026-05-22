@@ -108,6 +108,44 @@ function updateToolCallCard(toolUseId, result, isError) {
 }
 
 // ── Role ──
+async function loadRoles() {
+  try {
+    const response = await fetch("/dev/roles");
+    const data = await response.json();
+    const roles = data.roles || [];
+    if (roles.length === 0) {
+      addFallbackRoles();
+      return;
+    }
+    roleSelect.innerHTML = "";
+    for (const role of roles) {
+      const option = document.createElement("option");
+      option.value = role.name;
+      option.textContent = role.name;
+      roleSelect.append(option);
+    }
+    // Default to "reviewer" if available
+    if (roleSelect.querySelector('option[value="reviewer"]')) {
+      roleSelect.value = "reviewer";
+    }
+  } catch (_error) {
+    addFallbackRoles();
+  }
+}
+loadRoles();
+
+function addFallbackRoles() {
+  roleSelect.innerHTML = "";
+  const reviewer = document.createElement("option");
+  reviewer.value = "reviewer";
+  reviewer.textContent = "reviewer";
+  reviewer.selected = true;
+  const developer = document.createElement("option");
+  developer.value = "developer";
+  developer.textContent = "developer";
+  roleSelect.append(reviewer, developer);
+}
+
 async function setRole() {
   const response = await fetch("/dev/role", {
     method: "POST",

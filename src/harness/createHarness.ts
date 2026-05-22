@@ -84,17 +84,6 @@ export async function createHarnessEnvironment(
     ].join("\n")
   );
   await writeFile(
-    path.join(knowledgeBasePath, "docs", "test-entrypoints.md"),
-    [
-      "# Test Entrypoints",
-      "",
-      "The local browser test page is available at http://127.0.0.1:3000/.",
-      "The development chat API is POST /dev/chat.",
-      "The Enterprise WeChat callback is /wechat/callback.",
-      "The health check is /health."
-    ].join("\n")
-  );
-  await writeFile(
     path.join(knowledgeBasePath, "requirements", "REQ-0001.md"),
     [
       "# REQ-0001 Order Flow Knowledge",
