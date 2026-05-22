@@ -30,6 +30,13 @@ Use these logs to verify actual behavior:
 
 Do not log API keys, secrets, authorization headers, access tokens, or refresh tokens.
 
+Log files are UTF-8 encoded and contain CJK characters. On Windows, always read logs with UTF-8 encoding:
+
+```powershell
+Get-Content .harness\logs\llm-raw.jsonl -Encoding utf8
+Get-Content .harness\logs\conversation.jsonl -Encoding utf8
+```
+
 ## Development Harness
 
 Create or reset the local workspace fixture with:
