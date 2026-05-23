@@ -24,6 +24,10 @@ const CREATE_TABLE_MIGRATIONS = [
   )`,
 ];
 
+const ROLES_METADATA_COLUMNS = [
+  { name: "capabilities", definition: "TEXT" },
+] as const;
+
 const FEEDBACK_METADATA_COLUMNS = [
   { name: "channel", definition: "TEXT" },
   { name: "message_id", definition: "TEXT" },
@@ -44,11 +48,23 @@ export function createSqliteConnection(dbPath: string): Database.Database {
     for (const sql of CREATE_TABLE_MIGRATIONS) {
       db.exec(sql);
     }
+    migrateRolesMetadataColumns(db);
     migrateFeedbackMetadataColumns(db);
   });
   runMigrations();
 
   return db;
+}
+
+function migrateRolesMetadataColumns(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(roles)").all() as { readonly name: string }[];
+  const existingColumnNames = new Set(columns.map((column) => column.name));
+
+  for (const column of ROLES_METADATA_COLUMNS) {
+    if (!existingColumnNames.has(column.name)) {
+      db.exec(`ALTER TABLE roles ADD COLUMN ${column.name} ${column.definition}`);
+    }
+  }
 }
 
 function migrateFeedbackMetadataColumns(db: Database.Database): void {

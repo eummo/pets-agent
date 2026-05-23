@@ -64,11 +64,11 @@ export class SqliteFeedbackStore implements FeedbackStore {
     return Promise.resolve(Number(result.lastInsertRowid));
   }
 
-  public updateStatus(id: number, status: FeedbackStatus): Promise<void> {
-    this.db.prepare(`
+  public updateStatus(id: number, status: FeedbackStatus): Promise<boolean> {
+    const result = this.db.prepare(`
       UPDATE feedback SET status = ?, updated_at = datetime('now') WHERE id = ?
     `).run(status, id);
-    return Promise.resolve();
+    return Promise.resolve(result.changes > 0);
   }
 
   public getAll(): Promise<readonly FeedbackEntry[]> {

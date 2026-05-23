@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MessageHandler, OutboundMessage } from "../core/ports.js";
+import type { AuthorizationService, FeedbackEntry, MessageHandler, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/ports.js";
 import { createDevRoleStore } from "../security/devRoleStore.js";
 import { createWechatSignature } from "../wechat/signature.js";
 import { createServer } from "./createServer.js";
@@ -170,9 +170,158 @@ describe("createServer", () => {
   });
 });
 
+describe("feedback endpoints", () => {
+  it("returns 501 when feedback store is not configured", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/feedback?userId=admin-1",
+    });
+
+    expect(response.statusCode).toBe(501);
+  });
+
+  it("returns 403 when user lacks feedback_view capability", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      feedbackStore: makeFeedbackStore(),
+      authorization: makeAuthorization({ "reviewer-1": ["workspace_read"] }),
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/feedback?userId=reviewer-1",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("returns feedback list for user with feedback_view capability", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      feedbackStore: makeFeedbackStore(),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/feedback?userId=admin-1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body: { feedback: unknown[] } = response.json();
+    expect(body.feedback).toBeDefined();
+    expect(Array.isArray(body.feedback)).toBe(true);
+  });
+
+  it("rejects feedback access from non-local clients", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      feedbackStore: makeFeedbackStore(),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/feedback?userId=admin-1",
+      remoteAddress: "10.0.0.8",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("returns 403 when updating feedback without feedback_manage capability", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      feedbackStore: makeFeedbackStore(),
+      authorization: makeAuthorization({ "dev-1": ["workspace_read", "workspace_mutate", "feedback_view"] }),
+    });
+
+    const response = await server.inject({
+      method: "PATCH",
+      url: "/dev/feedback/1",
+      payload: { status: "reviewed", userId: "dev-1" },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("updates feedback status with feedback_manage capability", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      feedbackStore: makeFeedbackStore(),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+    });
+
+    const response = await server.inject({
+      method: "PATCH",
+      url: "/dev/feedback/1",
+      payload: { status: "reviewed", userId: "admin-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ id: 1, status: "reviewed" });
+  });
+
+  it("returns 404 when updating missing feedback", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      feedbackStore: makeFeedbackStore({ existingIds: [1] }),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+    });
+
+    const response = await server.inject({
+      method: "PATCH",
+      url: "/dev/feedback/999",
+      payload: { status: "reviewed", userId: "admin-1" },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});
+
 const echoHandler: MessageHandler = {
   handle(message) {
     const result: OutboundMessage = { text: `received: ${message.text}` };
     return Promise.resolve(result);
   }
 };
+
+function makeFeedbackStore(options: { readonly existingIds?: readonly number[] } = {}) {
+  const entries: readonly FeedbackEntry[] = [
+    { id: 1, userId: "user-1", userMessage: "update the docs", conversationContext: "", status: "pending", createdAt: "2026-01-01T00:00:00Z" },
+  ];
+  const existingIds = options.existingIds ?? [1];
+  return {
+    save: () => Promise.resolve(1),
+    updateStatus: (id: number) => Promise.resolve(existingIds.includes(id)),
+    getAll: () => Promise.resolve(entries),
+  };
+}
+
+function makeAuthorization(roleCapabilities: Record<string, readonly RoleCapability[]>): AuthorizationService {
+  return {
+    roleFor(user: ChannelUser): Promise<UserRole> {
+      return Promise.resolve(roleCapabilities[user.id] ? user.id : "reviewer");
+    },
+    can(user: ChannelUser, action: AuthorizationAction): Promise<AuthorizationDecision> {
+      const caps = roleCapabilities[user.id] ?? ["workspace_read"];
+      const required = action === "mutate" ? "workspace_mutate" : "workspace_read";
+      return Promise.resolve(caps.includes(required) ? { allowed: true } : { allowed: false, reason: "Insufficient permissions" });
+    },
+    hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean> {
+      const caps = roleCapabilities[user.id] ?? ["workspace_read"];
+      return Promise.resolve(caps.includes(capability));
+    },
+  };
+}

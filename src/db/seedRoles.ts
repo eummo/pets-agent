@@ -1,5 +1,5 @@
 import type { RoleConfigStore, StoredRoleConfig } from "../core/ports.js";
-import { REVIEWER_CONFIG, DEVELOPER_CONFIG } from "../agent/claudeSdkAgentRuntime.js";
+import { REVIEWER_CONFIG, DEVELOPER_CONFIG, ADMIN_CONFIG } from "../agent/claudeSdkAgentRuntime.js";
 
 export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
   const existing = await store.getAll();
@@ -12,6 +12,7 @@ export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
       allowedTools: [...REVIEWER_CONFIG.allowedTools],
       permissionMode: REVIEWER_CONFIG.permissionMode,
       ...(REVIEWER_CONFIG.maxTurns !== undefined ? { maxTurns: REVIEWER_CONFIG.maxTurns } : {}),
+      capabilities: ["workspace_read"],
     },
     {
       name: DEVELOPER_CONFIG.name,
@@ -19,6 +20,15 @@ export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
       allowedTools: [...DEVELOPER_CONFIG.allowedTools],
       permissionMode: DEVELOPER_CONFIG.permissionMode,
       ...(DEVELOPER_CONFIG.maxTurns !== undefined ? { maxTurns: DEVELOPER_CONFIG.maxTurns } : {}),
+      capabilities: ["workspace_read", "workspace_mutate"],
+    },
+    {
+      name: ADMIN_CONFIG.name,
+      systemPrompt: ADMIN_CONFIG.systemPrompt,
+      allowedTools: [...ADMIN_CONFIG.allowedTools],
+      permissionMode: ADMIN_CONFIG.permissionMode,
+      ...(ADMIN_CONFIG.maxTurns !== undefined ? { maxTurns: ADMIN_CONFIG.maxTurns } : {}),
+      capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
     },
   ];
 

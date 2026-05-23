@@ -2,6 +2,7 @@ import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import type {
   AgentRequest,
   AgentRuntime,
+  AgentRuntimeFactory,
   AgentStreamEvent,
   AuthorizationAction,
   AuthorizationService,
@@ -23,6 +24,7 @@ export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
   readonly authorization: AuthorizationService;
   readonly agentRuntimes: Record<string, AgentRuntime>;
+  readonly runtimeFactory?: AgentRuntimeFactory;
   readonly sessionStore?: ConversationSessionStore;
   readonly historyStore?: ConversationHistoryStore;
   readonly conversationLogger?: JsonlLogger;
@@ -32,7 +34,11 @@ export type OrchestratorDependencies = {
 };
 
 export class AgentOrchestrator implements MessageHandler {
-  public constructor(private readonly dependencies: OrchestratorDependencies) {}
+  private readonly runtimeCache: Record<string, AgentRuntime>;
+
+  public constructor(private readonly dependencies: OrchestratorDependencies) {
+    this.runtimeCache = { ...dependencies.agentRuntimes };
+  }
 
   public async handle(message: InboundMessage): Promise<OutboundMessage> {
     const commandResponse = this.handleCommandWithoutWorkspace(message);
@@ -77,7 +83,14 @@ export class AgentOrchestrator implements MessageHandler {
       }
     }
 
-    const runtime = this.dependencies.agentRuntimes[role];
+    let runtime = this.runtimeCache[role];
+    if (runtime === undefined && this.dependencies.runtimeFactory !== undefined) {
+      const created = await this.dependencies.runtimeFactory.createRuntime(role);
+      if (created !== undefined) {
+        this.runtimeCache[role] = created;
+        runtime = created;
+      }
+    }
     if (runtime === undefined) {
       const response = { text: `No runtime configured for role: ${role}` };
       await this.logConversation(message, response.text, workspace.path);
@@ -180,7 +193,7 @@ export class AgentOrchestrator implements MessageHandler {
 
     if (sessionId !== undefined) {
       const role = await this.dependencies.authorization.roleFor(message.user);
-      const runtime = this.dependencies.agentRuntimes[role];
+      const runtime = this.runtimeCache[role];
       if (runtime !== undefined) {
         await runtime.disposeSession(sessionId);
       }

@@ -13,9 +13,15 @@ describe("seedDefaultRoles", () => {
     await expect(store.getByName("reviewer")).resolves.toEqual(expect.objectContaining({
       name: "reviewer",
       maxTurns: REVIEWER_CONFIG.maxTurns,
+      capabilities: ["workspace_read"],
     }));
     await expect(store.getByName("developer")).resolves.toEqual(expect.objectContaining({
       name: "developer",
+      capabilities: ["workspace_read", "workspace_mutate"],
+    }));
+    await expect(store.getByName("admin")).resolves.toEqual(expect.objectContaining({
+      name: "admin",
+      capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
     }));
   });
 

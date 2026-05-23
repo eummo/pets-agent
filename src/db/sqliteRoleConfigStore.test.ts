@@ -122,4 +122,29 @@ describe("SqliteRoleConfigStore", () => {
     expect(retrieved?.maxTurns).toBeUndefined();
     expect(retrieved?.model).toBeUndefined();
   });
+
+  it("persists and retrieves capabilities", async () => {
+    await store.upsert({
+      name: "admin",
+      systemPrompt: "Admin prompt",
+      allowedTools: ["Read", "Edit"],
+      permissionMode: "bypassPermissions",
+      capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
+    });
+
+    const retrieved = await store.getByName("admin");
+    expect(retrieved?.capabilities).toEqual(["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"]);
+  });
+
+  it("handles undefined capabilities", async () => {
+    await store.upsert({
+      name: "basic",
+      systemPrompt: "Basic prompt",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+    });
+
+    const retrieved = await store.getByName("basic");
+    expect(retrieved?.capabilities).toBeUndefined();
+  });
 });

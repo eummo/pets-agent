@@ -4,14 +4,14 @@
  */
 import path from "node:path";
 import "dotenv/config";
-import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
+import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG, ADMIN_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
 import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
 import { LlmBashPermissionDecider } from "./agent/llmBashPermissionDecider.js";
-import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
+import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig, type ResolvedLlmConfig } from "./config/llmConfig.js";
 import { FileConversationHistoryStore } from "./core/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./core/fileConversationSessionStore.js";
 import { AgentOrchestrator } from "./core/orchestrator.js";
-import type { AgentRuntime } from "./core/ports.js";
+import type { AgentRuntime, AgentRuntimeFactory } from "./core/ports.js";
 import { createSqliteConnection } from "./db/sqliteConnection.js";
 import { SqliteFeedbackStore } from "./db/sqliteFeedbackStore.js";
 import { SqliteRoleConfigStore } from "./db/sqliteRoleConfigStore.js";
@@ -55,10 +55,29 @@ export async function main(): Promise<void> {
     ? new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey)
     : undefined;
 
+  const authorization = new StaticAuthorizationService(devRoleStore, roleConfigStore);
+
+  const runtimeFactory: AgentRuntimeFactory = {
+    async createRuntime(role: string): Promise<AgentRuntime | undefined> {
+      if (resolvedLlmConfig === undefined) return undefined;
+      const config = await roleConfigStore.getByName(role);
+      if (config === undefined) return undefined;
+      const permissionModel = buildPiModel(resolvedLlmConfig);
+      const toolPermissionDecider = new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;
+      return new ClaudeSdkAgentRuntime({
+        roleConfig: config,
+        rawLogger: llmRawLogger,
+        model: config.model ?? resolvedLlmConfig.modelId,
+        toolPermissionDecider,
+      });
+    },
+  };
+
   const orchestrator = new AgentOrchestrator({
     workspaceResolver: new StaticWorkspaceResolver({ knowledgeBasePath }),
-    authorization: new StaticAuthorizationService(devRoleStore, roleConfigStore),
+    authorization,
     agentRuntimes,
+    runtimeFactory,
     sessionStore: new FileConversationSessionStore(sessionStorePath),
     historyStore: new FileConversationHistoryStore(historyStorePath),
     conversationLogger,
@@ -71,6 +90,8 @@ export async function main(): Promise<void> {
     wechatToken,
     devRoleStore,
     roleConfigStore,
+    feedbackStore,
+    authorization,
     progressBroker,
     logger: true
   });
@@ -79,6 +100,7 @@ export async function main(): Promise<void> {
   console.info(`pets-agent listening on http://localhost:${port}`);
   console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
   console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
+  console.info(`admin runtime: ${agentRuntimes["admin"]?.name ?? "not configured"}`);
   console.info(`conversation log: ${conversationLogger.filePath}`);
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
   console.info(`database: ${dbPath}`);
@@ -101,7 +123,7 @@ async function configureSdkEnvironment(): Promise<void> {
   }
 }
 
-async function loadResolvedLlmConfig(): Promise<ReturnType<typeof resolveLlmConfig> | undefined> {
+async function loadResolvedLlmConfig(): Promise<ResolvedLlmConfig | undefined> {
   try {
     const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
     const llmConfig = await loadLlmConfig(llmConfigPath);
@@ -114,13 +136,16 @@ async function loadResolvedLlmConfig(): Promise<ReturnType<typeof resolveLlmConf
 async function createAgentRuntimes(
   llmRawLogger: JsonlLogger,
   roleConfigStore: SqliteRoleConfigStore,
-  resolvedLlmConfig: ReturnType<typeof resolveLlmConfig> | undefined,
+  resolvedLlmConfig: ResolvedLlmConfig | undefined,
 ): Promise<Record<string, AgentRuntime>> {
   // Read role configs from DB
   const roleConfigs = await roleConfigStore.getAll();
-  const toolPermissionDecider = resolvedLlmConfig === undefined
+  const permissionModel = resolvedLlmConfig === undefined
     ? undefined
-    : new LlmBashPermissionDecider(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey).decide;
+    : buildPiModel(resolvedLlmConfig);
+  const toolPermissionDecider = resolvedLlmConfig === undefined || permissionModel === undefined
+    ? undefined
+    : new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;
 
   if (roleConfigs.length > 0 && resolvedLlmConfig !== undefined) {
     const runtimes: Record<string, AgentRuntime> = {};
@@ -150,6 +175,12 @@ async function createAgentRuntimes(
         model: resolvedLlmConfig.modelId,
         ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
       }),
+      admin: new ClaudeSdkAgentRuntime({
+        roleConfig: ADMIN_CONFIG,
+        rawLogger: llmRawLogger,
+        model: resolvedLlmConfig.modelId,
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
+      }),
     };
   }
 
@@ -157,6 +188,7 @@ async function createAgentRuntimes(
   return {
     reviewer: new EchoAgentRuntime(),
     developer: new EchoAgentRuntime(),
+    admin: new EchoAgentRuntime(),
   };
 }
 

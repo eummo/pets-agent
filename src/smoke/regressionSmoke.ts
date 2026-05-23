@@ -82,6 +82,26 @@ async function main(): Promise<void> {
   assertIncludes(mutationResult.text, [], "developer-can-act");
   console.info("[pass] developer-can-act");
 
+  // Admin role can manage feedback
+  await setRole("smoke-admin", "admin");
+  const feedbackListResponse = await fetch(`${baseUrl}/dev/feedback?userId=smoke-admin`);
+  if (!feedbackListResponse.ok) {
+    throw new Error(`Admin feedback list failed: ${feedbackListResponse.status}`);
+  }
+  const feedbackData = await feedbackListResponse.json() as { feedback: unknown[] };
+  if (!Array.isArray(feedbackData.feedback)) {
+    throw new Error("Admin feedback list did not return an array");
+  }
+  console.info("[pass] admin-can-view-feedback");
+
+  // Reviewer cannot access feedback
+  await setRole("smoke-reviewer-no-feedback", "reviewer");
+  const deniedFeedbackResponse = await fetch(`${baseUrl}/dev/feedback?userId=smoke-reviewer-no-feedback`);
+  if (deniedFeedbackResponse.status !== 403) {
+    throw new Error(`Expected 403 for reviewer feedback access, got ${deniedFeedbackResponse.status}`);
+  }
+  console.info("[pass] reviewer-denied-feedback-access");
+
   // New conversation resets context
   const resetResult = await chat("/new");
   assertIncludes(resetResult.text, ["New conversation started"], "new-conversation-command");

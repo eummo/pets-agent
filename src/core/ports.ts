@@ -54,6 +54,10 @@ export type AgentRuntime = {
   disposeSession(sessionId: string): Promise<void>;
 };
 
+export type AgentRuntimeFactory = {
+  createRuntime(role: string): Promise<AgentRuntime | undefined>;
+};
+
 export type AgentProgressEvent = {
   readonly stage: string;
   readonly message: string;
@@ -110,9 +114,22 @@ export type AuthorizationDecision = {
 export type AuthorizationService = {
   roleFor(user: ChannelUser): Promise<UserRole>;
   can(user: ChannelUser, action: AuthorizationAction, workspace: KnowledgeWorkspace): Promise<AuthorizationDecision>;
+  hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean>;
 };
 
 // ── Role Configuration Store ─────────────────────────────────────────────────
+
+// ── Role Capabilities ────────────────────────────────────────────────────────
+// Each capability is an independent, composable unit that a role can possess.
+// Adding a new capability only requires extending this union and assigning it
+// to the desired roles in the database — no code changes needed elsewhere.
+
+export type RoleCapability =
+  | "workspace_read"       // browse and read workspace content
+  | "workspace_mutate"     // modify files in the workspace
+  | "feedback_view"        // view user feedback entries
+  | "feedback_manage"      // review and update feedback status
+  | "roles_manage";        // create, update, delete role configurations (future)
 
 export type StoredRoleConfig = {
   readonly name: string;
@@ -121,6 +138,7 @@ export type StoredRoleConfig = {
   readonly permissionMode: "auto" | "dontAsk" | "acceptEdits" | "bypassPermissions";
   readonly maxTurns?: number;
   readonly model?: string;
+  readonly capabilities?: readonly RoleCapability[];
 };
 
 export type RoleConfigStore = {
@@ -162,6 +180,6 @@ export type FeedbackEntry = {
 
 export type FeedbackStore = {
   save(entry: FeedbackEntry): Promise<number>;
-  updateStatus(id: number, status: FeedbackStatus): Promise<void>;
+  updateStatus(id: number, status: FeedbackStatus): Promise<boolean>;
   getAll(): Promise<readonly FeedbackEntry[]>;
 };

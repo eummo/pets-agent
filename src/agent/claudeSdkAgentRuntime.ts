@@ -58,6 +58,21 @@ export const DEVELOPER_CONFIG: RoleConfig = {
   maxTurns: 30,
 };
 
+export const ADMIN_CONFIG: RoleConfig = {
+  name: "admin",
+  allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+  permissionMode: "bypassPermissions",
+  systemPrompt: [
+    "You are an administrative assistant (管理员助手) with full access to the selected workspace.",
+    "You can read, modify, and manage all workspace content.",
+    "After making changes, run verification commands (npm run check, npm test) to confirm correctness.",
+    "Use relative paths inside the selected workspace. Do not include absolute paths.",
+    "Keep the change focused on the user's request.",
+    "Answer concisely in the same language as the user.",
+  ].join("\n"),
+  maxTurns: 30,
+};
+
 // ─── Type Guards ─────────────────────────────────────────────────────────────
 
 function isAssistantMessage(msg: SDKMessage): boolean {

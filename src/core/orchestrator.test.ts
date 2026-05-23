@@ -187,6 +187,9 @@ describe("AgentOrchestrator", () => {
       },
       can() {
         return Promise.resolve({ allowed: true });
+      },
+      hasCapability() {
+        return Promise.resolve(false);
       }
     };
     const orchestrator = new AgentOrchestrator({
@@ -325,6 +328,74 @@ describe("AgentOrchestrator", () => {
     expect(response.text).toContain("Network timeout");
     expect(response.text).not.toContain("Invalid API key");
   });
+
+  it("creates missing runtime via factory when role has no pre-configured runtime", async () => {
+    let factoryCalled = false;
+    const adminAuthorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve("admin");
+      },
+      can() {
+        return Promise.resolve({ allowed: true });
+      },
+      hasCapability() {
+        return Promise.resolve(true);
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: adminAuthorization,
+      agentRuntimes: {},
+      runtimeFactory: {
+        createRuntime(role: string) {
+          factoryCalled = true;
+          expect(role).toBe("admin");
+          return Promise.resolve({
+            name: "admin",
+            run() {
+              return Promise.resolve({ text: "admin response" });
+            },
+            disposeSession() {
+              return Promise.resolve();
+            }
+          });
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("hello"));
+
+    expect(factoryCalled).toBe(true);
+    expect(response.text).toBe("admin response");
+  });
+
+  it("returns no-runtime error when factory is absent or returns undefined", async () => {
+    const adminAuthorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve("admin");
+      },
+      can() {
+        return Promise.resolve({ allowed: true });
+      },
+      hasCapability() {
+        return Promise.resolve(true);
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: adminAuthorization,
+      agentRuntimes: {},
+      runtimeFactory: {
+        createRuntime() {
+          return Promise.resolve(undefined);
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("hello"));
+
+    expect(response.text).toContain("No runtime configured for role: admin");
+  });
 });
 
 const workspaceResolver: KnowledgeWorkspaceResolver = {
@@ -343,6 +414,9 @@ const reviewerAuthorization: AuthorizationService = {
         ? { allowed: false, reason: "reviewer cannot mutate" }
         : { allowed: true }
     );
+  },
+  hasCapability() {
+    return Promise.resolve(false);
   }
 };
 
@@ -352,6 +426,9 @@ const developerAuthorization: AuthorizationService = {
   },
   can() {
     return Promise.resolve({ allowed: true });
+  },
+  hasCapability() {
+    return Promise.resolve(true);
   }
 };
 
@@ -424,12 +501,13 @@ class MemoryFeedbackStore implements FeedbackStore {
     return Promise.resolve(this.entries.length);
   }
 
-  public updateStatus(id: number, status: FeedbackEntry["status"]): Promise<void> {
+  public updateStatus(id: number, status: FeedbackEntry["status"]): Promise<boolean> {
     const entry = this.entries.find((item) => item.id === id);
     if (entry !== undefined) {
       this.entries.splice(this.entries.indexOf(entry), 1, { ...entry, status });
+      return Promise.resolve(true);
     }
-    return Promise.resolve();
+    return Promise.resolve(false);
   }
 
   public getAll(): Promise<readonly FeedbackEntry[]> {

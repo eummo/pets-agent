@@ -4,6 +4,7 @@ import type {
   AuthorizationService,
   ChannelUser,
   KnowledgeWorkspace,
+  RoleCapability,
   RoleConfigStore,
   StoredRoleConfig,
   UserRole
@@ -11,6 +12,13 @@ import type {
 
 export type RoleProvider = {
   getRole(userId: string): string;
+};
+
+// Maps AuthorizationAction to the required RoleCapability
+const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {
+  read: "workspace_read",
+  suggest: "workspace_read",
+  mutate: "workspace_mutate",
 };
 
 export class StaticAuthorizationService implements AuthorizationService {
@@ -31,13 +39,10 @@ export class StaticAuthorizationService implements AuthorizationService {
   ): Promise<AuthorizationDecision> {
     void workspace;
 
-    const role = await this.roleFor(user);
+    const required = ACTION_CAPABILITY_MAP[action];
+    const hasIt = await this.hasCapability(user, required);
 
-    if (action === "read" || action === "suggest") {
-      return { allowed: true };
-    }
-
-    if (await this.roleCanMutate(role)) {
+    if (hasIt) {
       return { allowed: true };
     }
 
@@ -47,13 +52,26 @@ export class StaticAuthorizationService implements AuthorizationService {
     };
   }
 
-  private async roleCanMutate(role: UserRole): Promise<boolean> {
-    if (role === "developer") {
-      return true;
+  public async hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean> {
+    const role = await this.roleFor(user);
+    const capabilities = await this.resolveCapabilities(role);
+    return capabilities.includes(capability);
+  }
+
+  private async resolveCapabilities(role: UserRole): Promise<readonly RoleCapability[]> {
+    const config = await this.roleConfigStore?.getByName(role);
+
+    // If the role has explicit capabilities, use them
+    if (config?.capabilities !== undefined && config.capabilities.length > 0) {
+      return config.capabilities;
     }
 
-    const config = await this.roleConfigStore?.getByName(role);
-    return config === undefined ? false : configAllowsMutation(config);
+    // Backwards compat: infer from allowedTools and permissionMode
+    if (config !== undefined && configAllowsMutation(config)) {
+      return ["workspace_read", "workspace_mutate"];
+    }
+
+    return ["workspace_read"];
   }
 }
 

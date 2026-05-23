@@ -9,14 +9,27 @@
   <body>
     <header>
       <h1>Pets Agent</h1>
-      <div class="subtitle">基于 Claude Agent SDK 的角色化助手。文档助手查询知识库，开发助手修改代码并验证。</div>
+      <div class="subtitle">基于 Claude Agent SDK 的角色化助手。文档助手查询知识库，开发助手修改代码并验证，管理员管理用户反馈。</div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="chat">对话</button>
+        <button class="tab" data-tab="feedback">反馈管理</button>
+      </nav>
     </header>
     <main>
-      <section id="messages" aria-live="polite">
-        <div class="message system">
-          <span class="meta">system</span>
-          服务已就绪。选择角色开始对话：文档助手只能查看知识库；开发助手可以读取、修改代码并运行验证。
+      <section id="chat-panel" class="panel active">
+        <div id="messages" aria-live="polite">
+          <div class="message system">
+            <span class="meta">system</span>
+            服务已就绪。选择角色开始对话：文档助手只能查看知识库；开发助手可以读取、修改代码并运行验证；管理员拥有全部权限并可管理反馈。
+          </div>
         </div>
+      </section>
+      <section id="feedback-panel" class="panel">
+        <div class="feedback-header">
+          <h2>用户反馈</h2>
+          <button id="refresh-feedback" type="button">刷新</button>
+        </div>
+        <div id="feedback-list"></div>
       </section>
     </main>
     <form id="chat-form">

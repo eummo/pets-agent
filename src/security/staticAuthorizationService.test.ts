@@ -1,39 +1,82 @@
 import { describe, expect, it } from "vitest";
 import { StaticAuthorizationService, mapRoleProvider } from "./staticAuthorizationService.js";
+import type { RoleCapability, RoleConfigStore } from "../core/ports.js";
 
 const reviewerUser = { id: "reviewer-1" };
 const developerUser = { id: "dev-1" };
+const adminUser = { id: "admin-1" };
 const workspace = { kind: "knowledge-base" as const, id: "kb", path: "/kb" };
 
+function makeRoleConfigStore(roles: Record<string, readonly RoleCapability[]>): RoleConfigStore {
+  return {
+    getAll() { return Promise.resolve([]); },
+    getByName(name) {
+      const caps = roles[name];
+      return Promise.resolve(caps === undefined ? undefined : {
+        name,
+        systemPrompt: `Prompt for ${name}`,
+        allowedTools: ["Read"],
+        permissionMode: "dontAsk" as const,
+        capabilities: caps,
+      });
+    },
+    upsert() { return Promise.resolve(); },
+    deleteByName() { return Promise.resolve(false); },
+  };
+}
+
 describe("StaticAuthorizationService", () => {
-  it("allows read for reviewers", async () => {
-    const service = new StaticAuthorizationService();
+  it("allows read for reviewers with workspace_read capability", async () => {
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(new Map()),
+      makeRoleConfigStore({ reviewer: ["workspace_read"] }),
+    );
     const decision = await service.can(reviewerUser, "read", workspace);
 
     expect(decision).toEqual({ allowed: true });
   });
 
-  it("allows suggest for reviewers", async () => {
-    const service = new StaticAuthorizationService();
+  it("allows suggest for reviewers with workspace_read capability", async () => {
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(new Map()),
+      makeRoleConfigStore({ reviewer: ["workspace_read"] }),
+    );
     const decision = await service.can(reviewerUser, "suggest", workspace);
 
     expect(decision).toEqual({ allowed: true });
   });
 
-  it("allows mutate for developers", async () => {
+  it("allows mutate for developers with workspace_mutate capability", async () => {
     const roles = new Map([["dev-1", "developer"]]);
-    const service = new StaticAuthorizationService(mapRoleProvider(roles));
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(roles),
+      makeRoleConfigStore({ developer: ["workspace_read", "workspace_mutate"] }),
+    );
     const decision = await service.can(developerUser, "mutate", workspace);
 
     expect(decision).toEqual({ allowed: true });
   });
 
-  it("denies mutate for reviewers with a generic reason", async () => {
-    const service = new StaticAuthorizationService();
+  it("denies mutate for reviewers without workspace_mutate capability", async () => {
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(new Map()),
+      makeRoleConfigStore({ reviewer: ["workspace_read"] }),
+    );
     const decision = await service.can(reviewerUser, "mutate", workspace);
 
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe("Insufficient permissions for this action.");
+  });
+
+  it("allows mutate for admin with workspace_mutate capability", async () => {
+    const roles = new Map([["admin-1", "admin"]]);
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(roles),
+      makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+    );
+    const decision = await service.can(adminUser, "mutate", workspace);
+
+    expect(decision).toEqual({ allowed: true });
   });
 
   it("resolves role from the role provider", async () => {
@@ -59,7 +102,44 @@ describe("StaticAuthorizationService", () => {
 
     await expect(service.roleFor(customUser)).resolves.toBe("custom-role");
   });
+});
 
+describe("hasCapability", () => {
+  it("returns true when role has the capability", async () => {
+    const roles = new Map([["admin-1", "admin"]]);
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(roles),
+      makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+    );
+
+    await expect(service.hasCapability(adminUser, "feedback_manage")).resolves.toBe(true);
+    await expect(service.hasCapability(adminUser, "feedback_view")).resolves.toBe(true);
+    await expect(service.hasCapability(adminUser, "workspace_read")).resolves.toBe(true);
+  });
+
+  it("returns false when role lacks the capability", async () => {
+    const roles = new Map([["dev-1", "developer"]]);
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(roles),
+      makeRoleConfigStore({ developer: ["workspace_read", "workspace_mutate"] }),
+    );
+
+    await expect(service.hasCapability(developerUser, "feedback_manage")).resolves.toBe(false);
+    await expect(service.hasCapability(developerUser, "feedback_view")).resolves.toBe(false);
+  });
+
+  it("returns false for reviewer without feedback capabilities", async () => {
+    const service = new StaticAuthorizationService(
+      mapRoleProvider(new Map()),
+      makeRoleConfigStore({ reviewer: ["workspace_read"] }),
+    );
+
+    await expect(service.hasCapability(reviewerUser, "feedback_manage")).resolves.toBe(false);
+    await expect(service.hasCapability(reviewerUser, "feedback_view")).resolves.toBe(false);
+  });
+});
+
+describe("backwards compatibility (no explicit capabilities)", () => {
   it("allows mutate for custom roles that have mutating tools", async () => {
     const roles = new Map([["builder-1", "builder"]]);
     const service = new StaticAuthorizationService(mapRoleProvider(roles), {

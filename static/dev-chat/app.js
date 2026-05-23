@@ -4,6 +4,23 @@ const userIdEl = document.querySelector("#user-id");
 const roleSelect = document.querySelector("#role-select");
 const input = document.querySelector("#message-input");
 const button = document.querySelector("#send-button");
+const feedbackList = document.querySelector("#feedback-list");
+const refreshFeedback = document.querySelector("#refresh-feedback");
+
+// ── Tab switching ──
+const tabs = document.querySelectorAll(".tab");
+const panels = document.querySelectorAll(".panel");
+
+tabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    tabs.forEach((t) => t.classList.remove("active"));
+    panels.forEach((p) => p.classList.remove("active"));
+    tab.classList.add("active");
+    const panelId = tab.dataset.tab === "chat" ? "chat-panel" : "feedback-panel";
+    document.getElementById(panelId).classList.add("active");
+    if (tab.dataset.tab === "feedback") loadFeedback();
+  });
+});
 
 // ── SSE progress channel ──
 let eventsSource;
@@ -108,6 +125,8 @@ function updateToolCallCard(toolUseId, result, isError) {
 }
 
 // ── Role ──
+let currentCapabilities = [];
+
 async function loadRoles() {
   try {
     const response = await fetch("/dev/roles");
@@ -117,6 +136,7 @@ async function loadRoles() {
       addFallbackRoles();
       return;
     }
+    const prevRole = roleSelect.value;
     roleSelect.innerHTML = "";
     for (const role of roles) {
       const option = document.createElement("option");
@@ -124,15 +144,25 @@ async function loadRoles() {
       option.textContent = role.name;
       roleSelect.append(option);
     }
-    // Default to "reviewer" if available
-    if (roleSelect.querySelector('option[value="reviewer"]')) {
+    // Preserve current selection; default to "reviewer" if available
+    if (roleSelect.querySelector('option[value="' + prevRole + '"]')) {
+      roleSelect.value = prevRole;
+    } else if (roleSelect.querySelector('option[value="reviewer"]')) {
       roleSelect.value = "reviewer";
     }
+    // Store capabilities for selected role
+    updateCapabilitiesFromRoles(roles);
   } catch (_error) {
     addFallbackRoles();
   }
+  updateFeedbackTabVisibility();
 }
-loadRoles();
+
+function updateCapabilitiesFromRoles(roles) {
+  const selected = roles.find((r) => r.name === roleSelect.value);
+  currentCapabilities = selected?.capabilities || [];
+  updateFeedbackTabVisibility();
+}
 
 function addFallbackRoles() {
   roleSelect.innerHTML = "";
@@ -143,7 +173,11 @@ function addFallbackRoles() {
   const developer = document.createElement("option");
   developer.value = "developer";
   developer.textContent = "developer";
-  roleSelect.append(reviewer, developer);
+  const admin = document.createElement("option");
+  admin.value = "admin";
+  admin.textContent = "admin";
+  roleSelect.append(reviewer, developer, admin);
+  currentCapabilities = ["workspace_read"];
 }
 
 async function setRole() {
@@ -161,10 +195,156 @@ roleSelect.addEventListener("change", async () => {
   try {
     const body = await setRole();
     addSystemMessage("角色已切换为 " + body.role);
+    // Reload roles to update capabilities
+    await loadRoles();
   } catch (error) {
     addMessage("error", error instanceof Error ? error.message : String(error));
   }
 });
+
+loadRoles();
+
+// ── Feedback management ──
+function updateFeedbackTabVisibility() {
+  const feedbackTab = document.querySelector('.tab[data-tab="feedback"]');
+  const feedbackPanel = document.getElementById("feedback-panel");
+  const canView = currentCapabilities.includes("feedback_view");
+  if (feedbackTab) {
+    feedbackTab.style.display = canView ? "" : "none";
+  }
+  // Switch back to chat panel if feedback panel is active but no longer visible
+  if (!canView && feedbackPanel?.classList.contains("active")) {
+    feedbackPanel.classList.remove("active");
+    document.getElementById("chat-panel").classList.add("active");
+    tabs.forEach((t) => t.classList.remove("active"));
+    const chatTab = document.querySelector('.tab[data-tab="chat"]');
+    if (chatTab) chatTab.classList.add("active");
+  }
+}
+
+async function loadFeedback() {
+  if (!feedbackList) return;
+  feedbackList.innerHTML = '<div class="feedback-loading">加载中...</div>';
+  try {
+    const response = await fetch("/dev/feedback?userId=" + encodeURIComponent(userIdEl.value));
+    if (!response.ok) {
+      const body = await response.json();
+      feedbackList.innerHTML = '<div class="feedback-error">' + (body.error || "无法加载反馈") + '</div>';
+      return;
+    }
+    const data = await response.json();
+    const entries = data.feedback || [];
+    if (entries.length === 0) {
+      feedbackList.innerHTML = '<div class="feedback-empty">暂无反馈记录</div>';
+      return;
+    }
+    feedbackList.innerHTML = "";
+    for (const entry of entries) {
+      feedbackList.append(createFeedbackCard(entry));
+    }
+  } catch (error) {
+    feedbackList.innerHTML = '<div class="feedback-error">加载失败: ' + (error instanceof Error ? error.message : String(error)) + '</div>';
+  }
+}
+
+function createFeedbackCard(entry) {
+  const card = document.createElement("div");
+  card.className = "feedback-card";
+  card.dataset.id = entry.id;
+
+  const header = document.createElement("div");
+  header.className = "feedback-card-header";
+
+  const statusBadge = document.createElement("span");
+  statusBadge.className = "feedback-status status-" + entry.status;
+  statusBadge.textContent = statusLabel(entry.status);
+  header.append(statusBadge);
+
+  const intentBadge = document.createElement("span");
+  intentBadge.className = "feedback-intent";
+  intentBadge.textContent = entry.intentType || "unknown";
+  header.append(intentBadge);
+
+  const timeEl = document.createElement("span");
+  timeEl.className = "feedback-time";
+  timeEl.textContent = entry.createdAt || "";
+  header.append(timeEl);
+
+  card.append(header);
+
+  const userEl = document.createElement("div");
+  userEl.className = "feedback-user";
+  userEl.textContent = (entry.roleName || entry.userId) + ": " + entry.userMessage;
+  card.append(userEl);
+
+  if (entry.conversationContext) {
+    const contextEl = document.createElement("details");
+    contextEl.className = "feedback-context";
+    const summary = document.createElement("summary");
+    summary.textContent = "对话上下文";
+    contextEl.append(summary);
+    const pre = document.createElement("pre");
+    pre.textContent = entry.conversationContext;
+    contextEl.append(pre);
+    card.append(contextEl);
+  }
+
+  // Action buttons for admin (feedback_manage capability)
+  if (currentCapabilities.includes("feedback_manage") && entry.status === "pending") {
+    const actions = document.createElement("div");
+    actions.className = "feedback-actions";
+
+    const reviewBtn = document.createElement("button");
+    reviewBtn.className = "feedback-btn review-btn";
+    reviewBtn.textContent = "标记已审阅";
+    reviewBtn.type = "button";
+    reviewBtn.addEventListener("click", () => updateFeedbackStatus(entry.id, "reviewed"));
+    actions.append(reviewBtn);
+
+    const resolveBtn = document.createElement("button");
+    resolveBtn.className = "feedback-btn resolve-btn";
+    resolveBtn.textContent = "标记已解决";
+    resolveBtn.type = "button";
+    resolveBtn.addEventListener("click", () => updateFeedbackStatus(entry.id, "resolved"));
+    actions.append(resolveBtn);
+
+    card.append(actions);
+  }
+
+  return card;
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case "pending": return "待处理";
+    case "reviewed": return "已审阅";
+    case "resolved": return "已解决";
+    default: return status;
+  }
+}
+
+async function updateFeedbackStatus(id, status) {
+  try {
+    const response = await fetch("/dev/feedback/" + id, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status, userId: userIdEl.value }),
+    });
+    if (!response.ok) {
+      const body = await response.json();
+      addSystemMessage("更新反馈状态失败: " + (body.error || "未知错误"));
+      return;
+    }
+    addSystemMessage("反馈 #" + id + " 已更新为 " + statusLabel(status));
+    loadFeedback();
+  } catch (error) {
+    addSystemMessage("更新反馈状态失败: " + (error instanceof Error ? error.message : String(error)));
+  }
+}
+
+if (refreshFeedback) {
+  refreshFeedback.addEventListener("click", loadFeedback);
+}
 
 // ── Chat with SSE streaming ──
 form.addEventListener("submit", async (event) => {
