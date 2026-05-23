@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { stopServerFromPidFile } from "./serverPid.js";
 
 export type HarnessRepository = {
   readonly name: string;
@@ -39,6 +40,9 @@ const repositories = [
   }
 ] as const satisfies readonly HarnessRepository[];
 
+const REMOVE_RETRY_COUNT = 10;
+const REMOVE_RETRY_DELAY_MS = 250;
+
 export async function createHarnessEnvironment(
   options: CreateHarnessOptions
 ): Promise<HarnessEnvironment> {
@@ -46,7 +50,8 @@ export async function createHarnessEnvironment(
   const knowledgeBasePath = path.join(root, "knowledge-base");
 
   if (options.reset === true) {
-    await rm(root, { recursive: true, force: true });
+    await stopServerFromPidFile(path.join(root, "state", "server.pid"));
+    await removeHarnessRoot(root);
   }
 
   await mkdir(path.join(knowledgeBasePath, "docs", "business-processes"), { recursive: true });
@@ -104,6 +109,32 @@ export async function createHarnessEnvironment(
   );
 
   return { root, knowledgeBasePath, repositories };
+}
+
+async function removeHarnessRoot(root: string): Promise<void> {
+  for (let attempt = 0; attempt <= REMOVE_RETRY_COUNT; attempt += 1) {
+    try {
+      await rm(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isRetryableRemoveError(error) || attempt === REMOVE_RETRY_COUNT) {
+        throw error;
+      }
+      await sleep(REMOVE_RETRY_DELAY_MS);
+    }
+  }
+}
+
+function isRetryableRemoveError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error
+    && "code" in error
+    && ((error as NodeJS.ErrnoException).code === "EBUSY" || (error as NodeJS.ErrnoException).code === "EPERM");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function createRepositoryFixture(

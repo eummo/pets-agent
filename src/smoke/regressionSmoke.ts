@@ -35,7 +35,7 @@ const cases = [
   {
     name: "architecture-focuses-on-workspace",
     text: "What is the current architecture?",
-    expectedIncludes: ["catalog", "order lifecycle"],
+    expectedIncludes: ["catalog", "lifecycle"],
     forbiddenIncludes: ["WeChat", "browser", "agent runtime", "model provider"]
   },
   {

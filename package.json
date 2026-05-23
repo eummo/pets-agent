@@ -8,7 +8,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/harness/devServer.ts",
     "harness": "tsx src/harness/cli.ts",
     "smoke": "tsx src/smoke/regressionSmoke.ts",
     "build": "tsc -p tsconfig.build.json",
