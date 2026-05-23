@@ -16,8 +16,8 @@ function rowToConfig(row: RoleRow): StoredRoleConfig {
     systemPrompt: row.system_prompt,
     allowedTools: JSON.parse(row.allowed_tools) as string[],
     permissionMode: row.permission_mode as StoredRoleConfig["permissionMode"],
-    ...(row.max_turns !== null ? { maxTurns: row.max_turns } : {}),
-    ...(row.model !== null ? { model: row.model } : {}),
+    ...(row.max_turns !== null && { maxTurns: row.max_turns }),
+    ...(row.model !== null && { model: row.model }),
   };
 }
 

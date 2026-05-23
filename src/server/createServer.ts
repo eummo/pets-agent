@@ -9,7 +9,8 @@ import { buildWechatTextReply, parseWechatMessage } from "../wechat/xml.js";
 import type { DevProgressBroker } from "./progressBroker.js";
 import { writeSse } from "./sseUtils.js";
 
-const devChatDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "dev-chat");
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const devChatDir = path.join(projectRoot, "static", "dev-chat");
 
 const mimeTypes: Record<string, string> = {
   ".html": "text/html",

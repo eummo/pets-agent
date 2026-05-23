@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
+import "dotenv/config";
 
 type SseEvent = {
   readonly type: string;
@@ -47,6 +48,9 @@ const cases = [
 
 async function main(): Promise<void> {
   await assertHealthy();
+
+  // Pi-ai smoke: verify complete() works with the configured Anthropic endpoint
+  await assertPiAiComplete();
 
   for (const smokeCase of cases) {
     const result = await chat(smokeCase.text);
@@ -221,6 +225,63 @@ function assertFeedbackRecorded(userId: string, text: string, intentType: string
   } finally {
     db.close();
   }
+}
+
+async function assertPiAiComplete(): Promise<void> {
+  const { complete } = await import("@earendil-works/pi-ai");
+  const { loadLlmConfig, resolveLlmConfig, buildPiModel } = await import("../config/llmConfig.js");
+
+  const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
+
+  let llmConfig: Awaited<ReturnType<typeof loadLlmConfig>>;
+  try {
+    llmConfig = await loadLlmConfig(llmConfigPath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) {
+      console.info("[skip] pi-ai-complete (no LLM config)");
+      return;
+    }
+    throw error;
+  }
+
+  let resolved: ReturnType<typeof resolveLlmConfig>;
+  try {
+    resolved = resolveLlmConfig(llmConfig);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Missing LLM API key environment variable")) {
+      throw new Error(`pi-ai smoke: ${message}`);
+    }
+    throw error;
+  }
+
+  const model = buildPiModel(resolved);
+
+  const response = await complete(model, {
+    systemPrompt: "Respond with exactly one word.",
+    messages: [{ role: "user", content: "What color is the sky?", timestamp: Date.now() }],
+  }, {
+    apiKey: resolved.apiKey,
+  });
+
+  const text = response.content
+    .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim()
+    .toLowerCase();
+
+  if (!text.includes("blue")) {
+    throw new Error(`pi-ai smoke: expected "blue" in response, got: ${text}`);
+  }
+
+  console.info("[pass] pi-ai-complete");
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return error instanceof Error
+    && "code" in error
+    && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 await main();

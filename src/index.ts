@@ -7,7 +7,7 @@ import "dotenv/config";
 import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
 import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
 import { LlmBashPermissionDecider } from "./agent/llmBashPermissionDecider.js";
-import { loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
+import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
 import { FileConversationHistoryStore } from "./core/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./core/fileConversationSessionStore.js";
 import { AgentOrchestrator } from "./core/orchestrator.js";
@@ -52,7 +52,7 @@ export async function main(): Promise<void> {
 
   // Build intent detection service
   const intentDetection = resolvedLlmConfig !== undefined
-    ? new LlmIntentDetectionService(resolvedLlmConfig)
+    ? new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey)
     : undefined;
 
   const orchestrator = new AgentOrchestrator({
@@ -120,7 +120,7 @@ async function createAgentRuntimes(
   const roleConfigs = await roleConfigStore.getAll();
   const toolPermissionDecider = resolvedLlmConfig === undefined
     ? undefined
-    : new LlmBashPermissionDecider(resolvedLlmConfig).decide;
+    : new LlmBashPermissionDecider(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey).decide;
 
   if (roleConfigs.length > 0 && resolvedLlmConfig !== undefined) {
     const runtimes: Record<string, AgentRuntime> = {};

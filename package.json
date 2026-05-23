@@ -11,7 +11,7 @@
     "dev": "tsx src/index.ts",
     "harness": "tsx src/harness/cli.ts",
     "smoke": "tsx src/smoke/regressionSmoke.ts",
-    "build": "tsc -p tsconfig.build.json && tsx src/build/copyDevChatAssets.ts",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.146",
+    "@earendil-works/pi-ai": "^0.75.4",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "fast-xml-parser": "^5.8.0",

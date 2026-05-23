@@ -1,7 +1,8 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai";
 import type { IntentDetectionService, UserIntent, UserRole } from "../core/ports.js";
-import type { ResolvedLlmConfig } from "../config/llmConfig.js";
 
-const INTENT_PROMPT = `You are an intent classifier for a knowledge-base assistant.
+const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
 Given a user message and their current role, classify the intent into exactly one of:
 
 - "query": The user is asking a question, searching for information, or requesting an explanation.
@@ -21,54 +22,44 @@ Examples:
 - "添加新的订单功能，增加下单" -> mutate
 - "更新知识库里的订单流程" -> update_kb
 
-Respond with ONLY the intent label, nothing else.
-
-User role: {role}
-User message: {message}`;
+Respond with ONLY the intent label, nothing else.`;
 
 const INTENT_TIMEOUT_MS = 5000;
-const INTENT_MAX_TOKENS = 256;
 
 const VALID_INTENTS = new Set<string>(["query", "mutate", "update_kb"]);
 
 export class LlmIntentDetectionService implements IntentDetectionService {
-  public constructor(private readonly config: ResolvedLlmConfig) {}
+  public constructor(
+    private readonly model: Model<Api>,
+    private readonly apiKey: string,
+  ) {}
 
   public async detectIntent(userMessage: string, role: UserRole): Promise<UserIntent> {
     try {
-      const prompt = INTENT_PROMPT.replace("{role}", role).replace("{message}", userMessage);
-
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), INTENT_TIMEOUT_MS);
 
-      const baseUrl = this.config.baseUrl.replace(/\/+$/, "");
-      const response = await fetch(`${baseUrl}/v1/messages`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": this.config.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: this.config.modelId,
-          max_tokens: INTENT_MAX_TOKENS,
-          messages: [{ role: "user", content: prompt }],
-        }),
+      const response = await complete(this.model, {
+        systemPrompt: INTENT_SYSTEM_PROMPT,
+        messages: [{
+          role: "user",
+          content: `User role: ${role}\nUser message: ${userMessage}`,
+          timestamp: Date.now(),
+        }],
+      }, {
+        apiKey: this.apiKey,
         signal: controller.signal,
-      });
+      }).finally(() => clearTimeout(timeout));
 
-      clearTimeout(timeout);
-
-      if (!response.ok) {
+      if (response.stopReason === "error") {
         return { type: "query" };
       }
 
-      const data = await response.json() as Record<string, unknown>;
-      const content = data["content"] as Record<string, unknown>[] | undefined;
-      const text = content
-        ?.map((block) => block["text"])
-        .find((value): value is string => typeof value === "string");
-      const label = text?.trim().toLowerCase() ?? "";
+      const text = response.content
+        .filter((block): block is Extract<typeof block, { type: "text" }> => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+      const label = text.trim().toLowerCase();
 
       if (VALID_INTENTS.has(label)) {
         return { type: label as UserIntent["type"] };

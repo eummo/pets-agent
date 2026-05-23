@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { Model } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
 const llmConfigSchema = z.object({
@@ -36,5 +37,20 @@ export function summarizeLlmConfig(config: LlmConfig): Pick<LlmConfig, "baseUrl"
     baseUrl: config.baseUrl,
     apiKeyEnv: config.apiKeyEnv,
     modelId: config.modelId
+  };
+}
+
+export function buildPiModel(config: ResolvedLlmConfig): Model<"anthropic-messages"> {
+  return {
+    id: config.modelId,
+    name: config.modelId,
+    api: "anthropic-messages",
+    provider: "pets-agent",
+    baseUrl: config.baseUrl.replace(/\/+$/, ""),
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200000,
+    maxTokens: 256,
   };
 }
