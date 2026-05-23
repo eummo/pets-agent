@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import type { IntentDetectionService, UserIntent, UserRole } from "../core/ports.js";
 
@@ -30,7 +30,7 @@ const VALID_INTENTS = new Set<string>(["query", "mutate", "update_kb"]);
 
 export class LlmIntentDetectionService implements IntentDetectionService {
   public constructor(
-    private readonly model: Model<"anthropic-messages">,
+    private readonly model: Model<Api>,
     private readonly apiKey: string,
   ) {}
 

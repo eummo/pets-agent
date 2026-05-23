@@ -124,6 +124,19 @@ function updateToolCallCard(toolUseId, result, isError) {
   if (toggle) toggle.textContent = "▼";
 }
 
+// ── Capabilities ──
+// Must stay in sync with RoleCapability in src/core/ports.ts
+const CAP = Object.freeze({
+  WORKSPACE_READ: "workspace_read",
+  WORKSPACE_MUTATE: "workspace_mutate",
+  FEEDBACK_VIEW: "feedback_view",
+  FEEDBACK_MANAGE: "feedback_manage",
+});
+
+function hasCapability(cap) {
+  return currentCapabilities.includes(cap);
+}
+
 // ── Role ──
 let currentCapabilities = [];
 
@@ -177,7 +190,7 @@ function addFallbackRoles() {
   admin.value = "admin";
   admin.textContent = "admin";
   roleSelect.append(reviewer, developer, admin);
-  currentCapabilities = ["workspace_read"];
+  currentCapabilities = [CAP.WORKSPACE_READ];
 }
 
 async function setRole() {
@@ -208,7 +221,7 @@ loadRoles();
 function updateFeedbackTabVisibility() {
   const feedbackTab = document.querySelector('.tab[data-tab="feedback"]');
   const feedbackPanel = document.getElementById("feedback-panel");
-  const canView = currentCapabilities.includes("feedback_view");
+  const canView = hasCapability(CAP.FEEDBACK_VIEW);
   if (feedbackTab) {
     feedbackTab.style.display = canView ? "" : "none";
   }
@@ -290,7 +303,7 @@ function createFeedbackCard(entry) {
   }
 
   // Action buttons for admin (feedback_manage capability)
-  if (currentCapabilities.includes("feedback_manage") && entry.status === "pending") {
+  if (hasCapability(CAP.FEEDBACK_MANAGE) && entry.status === "pending") {
     const actions = document.createElement("div");
     actions.className = "feedback-actions";
 

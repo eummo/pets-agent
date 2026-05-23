@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import type { Model } from "@earendil-works/pi-ai";
 import {
   registerFauxProvider,
   fauxAssistantMessage,
@@ -21,7 +20,7 @@ describe("LlmIntentDetectionService", () => {
 
   function createService(responses: ReturnType<typeof fauxAssistantMessage>[]): LlmIntentDetectionService {
     registration.setResponses(responses);
-    return new LlmIntentDetectionService(registration.getModel() as Model<"anthropic-messages">, "test-key");
+    return new LlmIntentDetectionService(registration.getModel(), "test-key");
   }
 
   it("classifies query intent", async () => {
@@ -101,7 +100,7 @@ describe("LlmIntentDetectionService", () => {
 
   it("defaults to query on provider error", async () => {
     // No responses set — faux provider will throw
-    const service = new LlmIntentDetectionService(registration.getModel() as Model<"anthropic-messages">, "test-key");
+    const service = new LlmIntentDetectionService(registration.getModel(), "test-key");
     const result = await service.detectIntent("Something", "reviewer");
 
     expect(result).toEqual({ type: "query" });

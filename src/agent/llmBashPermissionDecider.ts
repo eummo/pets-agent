@@ -1,5 +1,5 @@
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import type { RoleConfig, ToolPermissionDecider } from "./claudeSdkAgentRuntime.js";
 
@@ -16,7 +16,7 @@ const BASH_PERMISSION_TIMEOUT_MS = 5000;
 
 export class LlmBashPermissionDecider {
   public constructor(
-    private readonly model: Model<"anthropic-messages">,
+    private readonly model: Model<Api>,
     private readonly apiKey: string,
   ) {}
 

@@ -1,5 +1,4 @@
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
-import type { Model } from "@earendil-works/pi-ai";
 import {
   registerFauxProvider,
   fauxAssistantMessage,
@@ -29,7 +28,7 @@ describe("LlmBashPermissionDecider", () => {
 
   function createDecider(responses: ReturnType<typeof fauxAssistantMessage>[]): LlmBashPermissionDecider {
     registration.setResponses(responses);
-    return new LlmBashPermissionDecider(registration.getModel() as Model<"anthropic-messages">, "test-key");
+    return new LlmBashPermissionDecider(registration.getModel(), "test-key");
   }
 
   it("allows commands when the model classifies them as read-only", async () => {
@@ -69,7 +68,7 @@ describe("LlmBashPermissionDecider", () => {
 
   it("denies on provider error", async () => {
     // No responses set — faux provider will throw
-    const decider = new LlmBashPermissionDecider(registration.getModel() as Model<"anthropic-messages">, "test-key");
+    const decider = new LlmBashPermissionDecider(registration.getModel(), "test-key");
     const result = await decider.decide(roleConfig, "Bash", { command: "ls" });
 
     expect(result.behavior).toBe("deny");
