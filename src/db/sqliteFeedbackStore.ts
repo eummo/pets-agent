@@ -66,7 +66,7 @@ export class SqliteFeedbackStore implements FeedbackStore {
 
   public updateStatus(id: number, status: FeedbackStatus): Promise<boolean> {
     const result = this.db.prepare(`
-      UPDATE feedback SET status = ?, updated_at = datetime('now') WHERE id = ?
+      UPDATE feedback SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
     `).run(status, id);
     return Promise.resolve(result.changes > 0);
   }

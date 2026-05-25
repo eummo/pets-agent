@@ -4,46 +4,25 @@
 
 本清单基于当前仓库静态扫描、关键路径阅读和 `npm run check` 结果整理。项目当前类型检查、lint、单元测试和构建均通过；以下内容不是已确认线上故障，而是按稳定性、性能、可维护性和扩展性排序的后续优化机会。
 
+更新说明：2026-05-25 二次检查时，工作树中已经包含一批优化改动，包括 file conversation store 从 `src/core` 迁移到 `src/db`、增加 `FileMutex`、拆分 server dev/wechat routes、增加 LLM retry、收紧 dev role/feedback 本地访问，以及将 runtime 错误响应改为更安全的用户提示。下面的清单已按当前工作树重新校准。
+
 ## 摘要
 
 | 优先级 | 数量 | 主要方向 |
 | --- | ---: | --- |
-| P0 | 3 | 并发写入一致性、权限分类失败策略、运行时配置生效 |
-| P1 | 5 | 日志吞吐、工作区解析缓存、SQLite 查询边界、前端安全和 smoke 稳定性 |
-| P2 | 4 | 类型校验、配置清理、代码组织和可观测性增强 |
+| P0 | 2 | 权限分类失败策略、运行时配置生效 |
+| P1 | 8 | 文件锁完善、日志吞吐、工作区解析缓存、SQLite 查询边界、前端安全、retry 策略、静态资源路径、smoke 稳定性 |
+| P2 | 5 | 类型校验、配置清理、依赖升级、代码组织收尾和可观测性增强 |
 
 建议优先处理前三项：
 
-1. 为 session/history 文件存储增加串行写队列或迁移到 SQLite，避免并发消息丢历史。
-2. 为意图分类失败增加确定性保守兜底，避免分类服务超时后把明显修改请求当成普通查询。
-3. 让角色配置变更能使 runtime 缓存失效，避免后台更新角色配置后仍使用旧工具和模型权限。
+1. 为意图分类失败增加确定性保守兜底，避免分类服务超时后把明显修改请求当成普通查询。
+2. 让角色配置变更能使 runtime 缓存失效，避免后台更新角色配置后仍使用旧工具和模型权限。
+3. 补齐新增 `FileMutex` 的并发测试和锁释放清理，确认最近的文件写入优化不会留下长期内存增长或跨进程误判。
 
 ## P0 优化项
 
-### 1. 文件型 session/history store 存在并发丢写风险
-
-证据位置：
-
-- `src/core/fileConversationSessionStore.ts:29` 先读整个 JSON，再在 `src/core/fileConversationSessionStore.ts:66` rename 覆盖。
-- `src/core/fileConversationHistoryStore.ts:47` 同样先读整个 JSON，再在 `src/core/fileConversationHistoryStore.ts:108` 覆盖。
-
-风险：
-
-当同一进程内多个用户或同一用户多请求并发完成时，两个请求可能都基于旧文件内容修改，后完成的写入覆盖先完成的写入。现在的临时文件加 rename 能保证单次写原子性，但不能保证 read-modify-write 的事务性。
-
-建议：
-
-- 短期：在两个 file store 内实现按文件路径串行化的 promise queue，确保 `set/delete/append/archive` 串行执行。
-- 中期：把 session/history 也迁移到 SQLite，和 feedback/roles 使用同一类事务边界。
-- 为并发 append/set 增加 deterministic 单元测试，例如并发写 20 个不同 session key，断言最终都保留。
-
-验证：
-
-- 新增并发单元测试。
-- 运行 `npm run check`。
-- 如迁移存储，运行 `npm run harness -- --reset` 后再运行 `npm run smoke`。
-
-### 2. 意图分类失败默认放行为 query，权限策略偏乐观
+### P0-1. 意图分类失败默认放行为 query，权限策略偏乐观
 
 证据位置：
 
@@ -65,13 +44,12 @@
 - 增加 `LlmIntentDetectionService` 单元测试，覆盖 timeout/error/非法标签下的中文和英文修改请求。
 - 在 `src/smoke/regressionSmoke.ts` 增加“分类服务不可用时 reviewer 修改请求仍被拒绝”的运行时回归。
 
-### 3. Runtime 缓存只按 role 保存，角色配置更新后不会自动生效
+### P0-2. Runtime 缓存只按 role 保存，角色配置更新后不会自动生效
 
 证据位置：
 
-- `src/core/orchestrator.ts:37` 和 `src/core/orchestrator.ts:40` 初始化 `runtimeCache`。
-- `src/core/orchestrator.ts:86` 到 `src/core/orchestrator.ts:90` 只有缺失 runtime 时才创建。
-- `src/index.ts:152` 到 `src/index.ts:173` 启动时把 DB 中的 role config 转成 runtime。
+- `src/core/orchestrator.ts` 已将缓存改为 `Map` 并限制最大数量，但 cache key 仍然是 role。
+- `src/index.ts` 启动时把 DB 中的 role config 转成 runtime。
 
 风险：
 
@@ -85,7 +63,7 @@
 
 ## P1 优化项
 
-### 4. JSONL logger 每条日志都 mkdir + writeFile append，缺少写入队列
+### P1-1. JSONL logger 每条日志都 mkdir + writeFile append，缺少写入队列
 
 证据位置：
 
@@ -102,7 +80,7 @@
 - 使用内部 promise queue 串行化 append，或使用 `createWriteStream` 并提供 `flush/close`。
 - 继续保留当前密钥脱敏测试，并新增并发写入行数测试。
 
-### 5. 工作区解析每次请求都读 repos.json，且解析失败静默回退
+### P1-2. 工作区解析每次请求都读 repos.json，且解析失败静默回退
 
 证据位置：
 
@@ -120,7 +98,7 @@
 - 配置解析失败时写入结构化日志，并在开发环境暴露诊断信息。
 - 测试覆盖：合法配置缓存、配置变更刷新、非法配置可观测。
 
-### 6. SQLite store 缺少分页和部分索引，后台数据增长后会拖慢管理接口
+### P1-3. SQLite store 缺少分页和部分索引，后台数据增长后会拖慢管理接口
 
 证据位置：
 
@@ -138,7 +116,7 @@
 - 增加索引：`feedback(status, id)`、`feedback(user_id, id)`，如后续常按 workspace 查，再加 `workspace_path`。
 - 前端反馈页做分页或“加载更多”。
 
-### 7. Dev 前端仍有少量 innerHTML 拼接错误文本
+### P1-4. Dev 前端仍有少量 innerHTML 拼接错误文本
 
 证据位置：
 
@@ -156,7 +134,7 @@
 - 把 dev 前端迁移到 TypeScript 或至少加入 lightweight JS lint。
 - 给反馈页错误展示加浏览器级回归测试或单元化 DOM 测试。
 
-### 8. Smoke 依赖真实服务和模型，缺少“可控模型失败”场景
+### P1-5. Smoke 依赖真实服务和模型，缺少“可控模型失败”场景
 
 证据位置：
 
@@ -173,9 +151,61 @@
 - 保留 `npm run smoke` 作为真实模型回归。
 - 把“模型不可用时权限仍保守”的 case 放到 deterministic smoke 中。
 
+### P1-6. `FileMutex` 已降低同进程丢写风险，但还缺少锁生命周期和并发测试
+
+证据位置：
+
+- `src/db/fileStoreUtils.ts` 新增了 `FileMutex`。
+- `src/db/fileConversationSessionStore.ts` 和 `src/db/fileConversationHistoryStore.ts` 已在写路径使用 `mutex.acquire()`。
+- 当前 `src/db/fileConversationSessionStore.test.ts`、`src/db/fileConversationHistoryStore.test.ts` 仍主要覆盖串行读写，没有覆盖并发写入。
+
+风险：
+
+这是对上一版 P0 的重要修复，但仍有两个边界：`FileMutex` 的 `locks` map 不删除已完成 key，长期动态文件路径会增长；该锁只覆盖当前 Node 进程，若未来多进程部署或多个 worker 同写同一 JSON 文件，仍无法提供跨进程事务。
+
+建议：
+
+- 在 release 时只在当前 promise 仍是最新锁时删除 map key。
+- 增加并发单元测试：并发 `set` 多个 session、并发 `append` 同一 history，断言最终记录完整且顺序可接受。
+- 在文档中明确 file store 是单进程开发/轻量部署方案；生产化优先迁移 SQLite。
+
+### P1-7. Retry 逻辑固定间隔，缺少退避、抖动和可观测性
+
+证据位置：
+
+- `src/config/retry.ts` 新增了通用 `withRetry`。
+- `src/intent/llmIntentDetectionService.ts` 和 `src/agent/llmBashPermissionDecider.ts` 已接入。
+
+风险：
+
+固定 500ms retry 对瞬时波动有帮助，但多个请求同时失败时会同步重试，可能放大 provider 压力。当前也没有记录 retry 次数和最终失败原因，不利于排查分类或权限判断不稳定。
+
+建议：
+
+- 支持指数退避和 jitter。
+- 区分可重试错误与不可重试错误，例如鉴权失败、配置错误不应重试。
+- 在内部日志记录 retry attempt、duration、最终结果，但不要记录 API key 或完整 provider payload。
+
+### P1-8. Dev route 已拆分并增加本地限制，但静态资源路径校验仍可更稳
+
+证据位置：
+
+- `src/server/devRoutes.ts` 已把 dev 页面、role、feedback 路由拆出。
+- role 和 feedback 管理接口已检查 `isLocalRequest(request.ip)`。
+- 静态资源路由仍使用 `path.join(devChatDir, relativePath)` 后做 `startsWith(devChatDir)`。
+
+风险：
+
+`startsWith` 对路径边界比较脆弱，例如目录名共享前缀时容易误判。当前 Fastify 参数和 `path.join` 已降低风险，但静态文件服务最好用 `path.resolve` 后比较相对路径是否逃逸。
+
+建议：
+
+- 改为 `const resolved = path.resolve(devChatDir, relativePath)`，再用 `path.relative(devChatDir, resolved)` 判断是否以 `..` 或绝对路径开头。
+- 给 `/dev/chat/*` 增加路径穿越测试，覆盖 URL 编码后的 `..`。
+
 ## P2 优化项
 
-### 9. 数据库 JSON 字段读取只做类型断言，缺少运行时校验
+### P2-1. 数据库 JSON 字段读取只做类型断言，缺少运行时校验
 
 证据位置：
 
@@ -187,7 +217,7 @@
 - 复用或新增 zod schema 校验 DB 中的 role config。
 - 对损坏配置返回可诊断错误，避免把非法 permissionMode 或 tools 传入 runtime。
 
-### 10. `tsconfig.test.json` 指向不存在的旧测试路径
+### P2-2. `tsconfig.test.json` 指向不存在的旧测试路径
 
 证据位置：
 
@@ -202,11 +232,26 @@
 - 删除无用的 `tsconfig.test.json`，或改成当前测试范围。
 - 如果保留，明确它的用途，并让 `npm run typecheck` 或 Vitest 配置实际引用它。
 
-### 11. Composition root 偏长，配置加载和 runtime 构建可以拆成小模块
+### P2-3. 依赖存在可控升级窗口
 
 证据位置：
 
-- `src/index.ts` 同时负责环境读取、SDK 环境变量配置、SQLite 初始化、角色 seed、runtime 构建、server 创建和启动。
+- `npm outdated --json` 显示 `@anthropic-ai/claude-agent-sdk` 当前 `0.3.146`，wanted/latest 为 `0.3.150`。
+- `@earendil-works/pi-ai` 当前 `0.75.4`，wanted/latest 为 `0.75.5`。
+- `vitest` / `@vitest/coverage-v8` 有 patch 版本 `4.1.7`。
+- ESLint、TypeScript、Zod 有大版本更新，但风险更高，适合单独批次评估。
+
+建议：
+
+- 先做低风险 patch/minor：Claude Agent SDK、pi-ai、Vitest patch。
+- 大版本升级分批处理：ESLint 10、TypeScript 6、Zod 4 各自单独分支，先读 release notes，再跑 check/smoke。
+
+### P2-4. Composition root 偏长，配置加载和 runtime 构建可以继续拆小
+
+证据位置：
+
+- `src/index.ts` 仍同时负责环境读取、SDK 环境变量配置、SQLite 初始化、角色 seed、runtime 构建、server 创建和启动。
+- server route 已拆分，这是好的第一步；runtime factory 和 config 解析仍可继续独立出来。
 
 建议：
 
@@ -214,7 +259,7 @@
 - 拆出 `src/agent/createAgentRuntimes.ts` 负责 runtime factory 和缓存策略。
 - 保持 `src/index.ts` 作为 composition root，但让主流程更短、更容易测试。
 
-### 12. 可观测性可以补充分类、权限和 workspace 选择事件
+### P2-5. 可观测性可以补充分类、权限和 workspace 选择事件
 
 证据位置：
 
@@ -229,18 +274,21 @@
 
 ## 建议实施顺序
 
-1. P0-1 文件存储并发队列或 SQLite 迁移。
-2. P0-2 意图分类失败的确定性保守兜底。
-3. P0-3 runtime cache invalidation。
-4. P1-4 logger 写入队列和目录初始化优化。
-5. P1-5 workspace resolver 缓存和诊断日志。
-6. P1-6 feedback 分页、索引和前端分页。
-7. P1-7 dev 前端错误展示去除 innerHTML。
-8. P1-8 deterministic smoke 拆分。
-9. P2-9 DB JSON schema 校验。
-10. P2-10 清理 `tsconfig.test.json`。
-11. P2-11 拆分 composition root。
-12. P2-12 增强内部可观测事件。
+1. P0-1 意图分类失败的确定性保守兜底。
+2. P0-2 runtime cache invalidation。
+3. P1-6 完善 `FileMutex` 清理和并发测试。
+4. P1-1 logger 写入队列和目录初始化优化。
+5. P1-2 workspace resolver 缓存和诊断日志。
+6. P1-3 feedback 分页、索引和前端分页。
+7. P1-4 dev 前端错误展示去除 innerHTML。
+8. P1-7 retry 退避、抖动和可观测性。
+9. P1-8 静态资源路径校验加固。
+10. P1-5 deterministic smoke 拆分。
+11. P2-1 DB JSON schema 校验。
+12. P2-2 清理 `tsconfig.test.json`。
+13. P2-3 低风险依赖升级。
+14. P2-4 拆分 composition root。
+15. P2-5 增强内部可观测事件。
 
 ## 当前验证结果
 
@@ -254,7 +302,7 @@ npm run check
 
 - TypeScript typecheck 通过。
 - ESLint 通过。
-- Vitest 20 个测试文件、132 个测试通过。
+- Vitest 20 个测试文件、136 个测试通过。
 - 生产构建通过。
 
 未运行：

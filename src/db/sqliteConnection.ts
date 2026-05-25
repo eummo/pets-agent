@@ -10,8 +10,8 @@ const CREATE_TABLE_MIGRATIONS = [
     permission_mode TEXT NOT NULL,
     max_turns       INTEGER,
     model           TEXT,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
   `CREATE TABLE IF NOT EXISTS feedback (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,8 +19,8 @@ const CREATE_TABLE_MIGRATIONS = [
     user_message         TEXT NOT NULL,
     conversation_context TEXT NOT NULL DEFAULT '',
     status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','reviewed','resolved')),
-    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`,
 ];
 

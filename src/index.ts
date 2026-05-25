@@ -1,6 +1,13 @@
 /**
  * pets-agent - Main entry point for the pets-agent server.
  * Initializes and starts the agent orchestrator with all required services.
+ *
+ * Architecture overview:
+ * - AgentOrchestrator: Coordinates agent interactions, workspace resolution, and authorization
+ * - Agent runtimes: Execute agent logic (Claude SDK, Echo for dev, or custom implementations)
+ * - Intent detection: Routes incoming requests to appropriate intents using LLM
+ * - Stores: Persist sessions, conversation history, role configs, and feedback
+ * - Server: HTTP/WebSocket server handling incoming messages and progress updates
  */
 import path from "node:path";
 import "dotenv/config";

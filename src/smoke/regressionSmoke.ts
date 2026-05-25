@@ -65,6 +65,7 @@ async function main(): Promise<void> {
   const feedbackResult = await chat(feedbackText, feedbackUserId);
   assertIncludes(feedbackResult.text, ["记录"], "reviewer-update-recorded-as-feedback");
   assertFeedbackRecorded(feedbackUserId, feedbackText, "update_kb");
+  assertFeedbackTimestampLocal(feedbackUserId, "reviewer-update-recorded-as-feedback");
   console.info("[pass] reviewer-update-recorded-as-feedback");
 
   const chineseMutationUserId = "smoke-reviewer-mutation-user";
@@ -296,6 +297,40 @@ async function assertPiAiComplete(): Promise<void> {
   }
 
   console.info("[pass] pi-ai-complete");
+}
+
+function assertFeedbackTimestampLocal(userId: string, caseName: string): void {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const row = db.prepare(`
+      SELECT created_at
+      FROM feedback
+      WHERE user_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(userId) as { readonly created_at: string } | undefined;
+
+    if (row === undefined) {
+      throw new Error(`[${caseName}] Expected feedback row for ${userId}.`);
+    }
+
+    const createdAt = row.created_at;
+    const localNow = new Date();
+    const parsed = new Date(createdAt.replace(" ", "T"));
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`[${caseName}] Invalid created_at format: ${createdAt}`);
+    }
+
+    const diffMs = Math.abs(localNow.getTime() - parsed.getTime());
+    const toleranceMs = 5 * 60 * 1000;
+    if (diffMs > toleranceMs) {
+      throw new Error(
+        `[${caseName}] created_at (${createdAt}) is more than 5 min from local time (${localNow.toISOString()}). Diff: ${diffMs}ms`,
+      );
+    }
+  } finally {
+    db.close();
+  }
 }
 
 function isFileNotFoundError(error: unknown): boolean {
