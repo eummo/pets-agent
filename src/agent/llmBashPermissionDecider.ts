@@ -1,7 +1,9 @@
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
-import type { RoleConfig, ToolPermissionDecider } from "./claudeSdkAgentRuntime.js";
+import { withRetry } from "../config/retry.js";
+import type { StoredRoleConfig } from "../core/ports.js";
+import type { ToolPermissionDecider } from "./claudeSdkAgentRuntime.js";
 
 const BASH_PERMISSION_SYSTEM_PROMPT = `You are a Bash command permission classifier.
 Decide whether a Bash command is read-only inspection.
@@ -21,7 +23,7 @@ export class LlmBashPermissionDecider {
   ) {}
 
   public readonly decide: ToolPermissionDecider = async (
-    roleConfig: RoleConfig,
+    roleConfig: StoredRoleConfig,
     toolName: string,
     input: Record<string, unknown>,
   ) => {
@@ -39,20 +41,22 @@ export class LlmBashPermissionDecider {
 
   private async classify(roleName: string, command: string): Promise<PermissionResult> {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), BASH_PERMISSION_TIMEOUT_MS);
+      const response = await withRetry(async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), BASH_PERMISSION_TIMEOUT_MS);
 
-      const response = await complete(this.model, {
-        systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: `Role: ${roleName}\nCommand: ${command}`,
-          timestamp: Date.now(),
-        }],
-      }, {
-        apiKey: this.apiKey,
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
+        return complete(this.model, {
+          systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
+          messages: [{
+            role: "user",
+            content: `Role: ${roleName}\nCommand: ${command}`,
+            timestamp: Date.now(),
+          }],
+        }, {
+          apiKey: this.apiKey,
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeout));
+      });
 
       if (response.stopReason === "error") {
         return deny("Bash", "Bash permission classifier failed.");

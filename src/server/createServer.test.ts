@@ -54,6 +54,27 @@ describe("createServer", () => {
     expect(response.body).toContain("received: hello");
   });
 
+  it("rejects role management from non-local clients", async () => {
+    const roleStore = createDevRoleStore();
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      devRoleStore: roleStore
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/dev/role",
+      payload: {
+        userId: "browser-user",
+        role: "developer"
+      },
+      remoteAddress: "10.0.0.5",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
   it("sets development roles from the browser", async () => {
     const roleStore = createDevRoleStore();
     const server = createServer({
@@ -99,7 +120,8 @@ describe("createServer", () => {
   });
 
   it("verifies WeChat callback requests", async () => {
-    const signature = createWechatSignature("token", "123", "nonce");
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createWechatSignature("token", timestamp, "nonce");
     const server = createServer({
       messageHandler: echoHandler,
       wechatToken: "token"
@@ -107,7 +129,7 @@ describe("createServer", () => {
 
     const response = await server.inject({
       method: "GET",
-      url: `/wechat/callback?signature=${signature}&timestamp=123&nonce=nonce&echostr=ok`
+      url: `/wechat/callback?signature=${signature}&timestamp=${timestamp}&nonce=nonce&echostr=ok`
     });
 
     expect(response.statusCode).toBe(200);

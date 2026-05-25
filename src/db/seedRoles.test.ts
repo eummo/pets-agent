@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { REVIEWER_CONFIG } from "../agent/claudeSdkAgentRuntime.js";
+import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 import { createSqliteConnection } from "./sqliteConnection.js";
 import { SqliteRoleConfigStore } from "./sqliteRoleConfigStore.js";
 import { seedDefaultRoles } from "./seedRoles.js";
+
+const REVIEWER_DEFAULT = DEFAULT_ROLE_CONFIGS.find((c) => c.name === "reviewer");
+if (REVIEWER_DEFAULT === undefined) throw new Error("reviewer default config missing");
 
 describe("seedDefaultRoles", () => {
   it("seeds missing default roles", async () => {
@@ -12,7 +15,7 @@ describe("seedDefaultRoles", () => {
 
     await expect(store.getByName("reviewer")).resolves.toEqual(expect.objectContaining({
       name: "reviewer",
-      maxTurns: REVIEWER_CONFIG.maxTurns,
+      maxTurns: REVIEWER_DEFAULT.maxTurns,
       capabilities: ["workspace_read"],
     }));
     await expect(store.getByName("developer")).resolves.toEqual(expect.objectContaining({
@@ -42,7 +45,7 @@ describe("seedDefaultRoles", () => {
       systemPrompt: "Custom reviewer prompt",
       allowedTools: ["Read", "Glob", "Grep", "Bash"],
       permissionMode: "dontAsk",
-      maxTurns: REVIEWER_CONFIG.maxTurns,
+      maxTurns: REVIEWER_DEFAULT.maxTurns,
     });
   });
 });

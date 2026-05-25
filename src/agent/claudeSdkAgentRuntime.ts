@@ -2,76 +2,17 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime, AgentStreamEvent } from "../core/ports.js";
+import type { AgentRequest, AgentResponse, AgentRuntime, AgentStreamEvent, StoredRoleConfig } from "../core/ports.js";
+import { FILE_MUTATION_TOOLS } from "../core/ports.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 // ─── Role Configuration ──────────────────────────────────────────────────────
 
-export type RoleConfig = {
-  readonly name: string;
-  readonly allowedTools: readonly string[];
-  readonly permissionMode: "auto" | "dontAsk" | "acceptEdits" | "bypassPermissions";
-  readonly systemPrompt: string;
-  readonly maxTurns?: number;
-  readonly model?: string;
-};
-
 export type ToolPermissionDecider = (
-  roleConfig: RoleConfig,
+  roleConfig: StoredRoleConfig,
   toolName: string,
   input: Record<string, unknown>,
 ) => Promise<PermissionResult>;
-
-const FILE_MUTATION_TOOLS = new Set(["Edit", "MultiEdit", "NotebookEdit", "Write"]);
-
-export const REVIEWER_CONFIG: RoleConfig = {
-  name: "reviewer",
-  allowedTools: ["Read", "Glob", "Grep", "Bash"],
-  permissionMode: "dontAsk",
-  systemPrompt: [
-    "You are a knowledge-base assistant (文档助手).",
-    "Answer questions about the selected workspace or knowledge base.",
-    "Answer concisely in the same language as the user.",
-    "Treat phrases like current project, this project, system architecture, or business architecture as referring to the selected workspace content, not this assistant service.",
-    "Use only the provided workspace context when answering questions.",
-    "Do not infer product domain from the project name.",
-    "Do not describe the assistant runtime, message channels, model provider, test page, or implementation unless the user explicitly asks how this assistant is built or tested.",
-    "Prefer Read, Glob, and Grep for inspection. Use Bash only for non-mutating inspection commands when those tools are insufficient.",
-    "If the context is insufficient, say what is missing instead of guessing.",
-  ].join("\n"),
-  maxTurns: 20,
-};
-
-export const DEVELOPER_CONFIG: RoleConfig = {
-  name: "developer",
-  allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
-  permissionMode: "bypassPermissions",
-  systemPrompt: [
-    "You are a coding assistant (开发助手) that edits the selected workspace.",
-    "Read and understand the codebase, then make the requested changes.",
-    "After making changes, run verification commands (npm run check, npm test) to confirm correctness.",
-    "Iterate until the task is complete and all checks pass.",
-    "Use relative paths inside the selected workspace. Do not include absolute paths.",
-    "Keep the change focused on the user's request.",
-    "Answer concisely in the same language as the user.",
-  ].join("\n"),
-  maxTurns: 30,
-};
-
-export const ADMIN_CONFIG: RoleConfig = {
-  name: "admin",
-  allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
-  permissionMode: "bypassPermissions",
-  systemPrompt: [
-    "You are an administrative assistant (管理员助手) with full access to the selected workspace.",
-    "You can read, modify, and manage all workspace content.",
-    "After making changes, run verification commands (npm run check, npm test) to confirm correctness.",
-    "Use relative paths inside the selected workspace. Do not include absolute paths.",
-    "Keep the change focused on the user's request.",
-    "Answer concisely in the same language as the user.",
-  ].join("\n"),
-  maxTurns: 30,
-};
 
 // ─── Type Guards ─────────────────────────────────────────────────────────────
 
@@ -86,7 +27,7 @@ function isResultMessage(msg: SDKMessage): boolean {
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export type ClaudeSdkAgentRuntimeOptions = {
-  readonly roleConfig: RoleConfig;
+  readonly roleConfig: StoredRoleConfig;
   readonly rawLogger?: JsonlLogger;
   readonly model?: string;
   readonly toolPermissionDecider?: ToolPermissionDecider;
@@ -94,7 +35,7 @@ export type ClaudeSdkAgentRuntimeOptions = {
 
 export class ClaudeSdkAgentRuntime implements AgentRuntime {
   public readonly name: string;
-  private readonly roleConfig: RoleConfig;
+  private readonly roleConfig: StoredRoleConfig;
   private readonly rawLogger: JsonlLogger | undefined;
   private readonly model: string | undefined;
   private readonly toolPermissionDecider: ToolPermissionDecider | undefined;
@@ -132,6 +73,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
 
     // SDK Options type has complex union; use typed helper for compatibility
     const sdkOptions = buildSdkOptions(queryOptions);
+    const startTime = Date.now();
     const stream = query({
       prompt,
       options: sdkOptions,
@@ -168,6 +110,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
       workspacePath: request.workspacePath,
       sessionId,
       extractedText: finalText,
+      durationMs: Date.now() - startTime,
     });
 
     return {
@@ -308,7 +251,7 @@ async function readWorkspaceContext(workspacePath: string): Promise<string | und
   }
 }
 
-function availableToolsForRole(config: RoleConfig): readonly string[] {
+function availableToolsForRole(config: StoredRoleConfig): readonly string[] {
   if (roleCanUseFileMutationTools(config)) {
     return [...config.allowedTools];
   }
@@ -316,7 +259,7 @@ function availableToolsForRole(config: RoleConfig): readonly string[] {
   return config.allowedTools.filter((tool) => !FILE_MUTATION_TOOLS.has(tool));
 }
 
-function autoAllowedToolsForRole(config: RoleConfig): readonly string[] {
+function autoAllowedToolsForRole(config: StoredRoleConfig): readonly string[] {
   if (roleCanUseFileMutationTools(config)) {
     return [...config.allowedTools];
   }
@@ -324,7 +267,7 @@ function autoAllowedToolsForRole(config: RoleConfig): readonly string[] {
   return config.allowedTools.filter((tool) => tool !== "Bash" && !FILE_MUTATION_TOOLS.has(tool));
 }
 
-function disallowedToolsForRole(config: RoleConfig): readonly string[] {
+function disallowedToolsForRole(config: StoredRoleConfig): readonly string[] {
   if (roleCanUseFileMutationTools(config)) {
     return [];
   }
@@ -332,7 +275,7 @@ function disallowedToolsForRole(config: RoleConfig): readonly string[] {
   return [...FILE_MUTATION_TOOLS].filter((tool) => config.allowedTools.includes(tool));
 }
 
-function canUseTool(config: RoleConfig, toolName: string): boolean {
+function canUseTool(config: StoredRoleConfig, toolName: string): boolean {
   if (!config.allowedTools.includes(toolName)) {
     return false;
   }
@@ -340,7 +283,7 @@ function canUseTool(config: RoleConfig, toolName: string): boolean {
   return !FILE_MUTATION_TOOLS.has(toolName) || roleCanUseFileMutationTools(config);
 }
 
-function roleCanUseFileMutationTools(config: RoleConfig): boolean {
+function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
   if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
     return false;
   }

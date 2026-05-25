@@ -12,7 +12,7 @@ import type {
 import { AgentOrchestrator } from "./orchestrator.js";
 
 describe("AgentOrchestrator", () => {
-  it("returns a safe error message when the runtime fails", async () => {
+  it("returns a safe error message when the runtime fails with API key error", async () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
@@ -31,8 +31,9 @@ describe("AgentOrchestrator", () => {
 
     const response = await orchestrator.handle(testMessage("hello"));
 
-    expect(response.text).toContain("Invalid API key");
+    expect(response.text).toContain("API key is invalid or not configured");
     expect(response.text).not.toContain("sk-");
+    expect(response.text).not.toContain("ANTHROPIC");
   });
 
   it("handles /new without calling the runtime", async () => {
@@ -325,7 +326,7 @@ describe("AgentOrchestrator", () => {
     const response = await orchestrator.handle(testMessage("hello"));
 
     expect(response.text).toContain("Model call failed");
-    expect(response.text).toContain("Network timeout");
+    expect(response.text).not.toContain("Network timeout");
     expect(response.text).not.toContain("Invalid API key");
   });
 

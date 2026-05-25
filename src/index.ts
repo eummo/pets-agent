@@ -4,12 +4,13 @@
  */
 import path from "node:path";
 import "dotenv/config";
-import { ClaudeSdkAgentRuntime, REVIEWER_CONFIG, DEVELOPER_CONFIG, ADMIN_CONFIG } from "./agent/claudeSdkAgentRuntime.js";
+import { ClaudeSdkAgentRuntime } from "./agent/claudeSdkAgentRuntime.js";
 import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
 import { LlmBashPermissionDecider } from "./agent/llmBashPermissionDecider.js";
 import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig, type ResolvedLlmConfig } from "./config/llmConfig.js";
-import { FileConversationHistoryStore } from "./core/fileConversationHistoryStore.js";
-import { FileConversationSessionStore } from "./core/fileConversationSessionStore.js";
+import { FileConversationHistoryStore } from "./db/fileConversationHistoryStore.js";
+import { FileConversationSessionStore } from "./db/fileConversationSessionStore.js";
+import { DEFAULT_ROLE_CONFIGS } from "./core/defaultRoles.js";
 import { AgentOrchestrator } from "./core/orchestrator.js";
 import type { AgentRuntime, AgentRuntimeFactory } from "./core/ports.js";
 import { createSqliteConnection } from "./db/sqliteConnection.js";
@@ -45,9 +46,7 @@ export async function main(): Promise<void> {
   // Seed default roles if table is empty
   await seedDefaultRoles(roleConfigStore);
 
-  await configureSdkEnvironment();
-
-  const resolvedLlmConfig = await loadResolvedLlmConfig();
+  const resolvedLlmConfig = await loadAndApplyLlmConfig();
   const agentRuntimes = await createAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig);
 
   // Build intent detection service
@@ -93,6 +92,7 @@ export async function main(): Promise<void> {
     feedbackStore,
     authorization,
     progressBroker,
+    enableDevRoutes: process.env["NODE_ENV"] !== "production",
     logger: true
   });
 
@@ -106,7 +106,7 @@ export async function main(): Promise<void> {
   console.info(`database: ${dbPath}`);
 }
 
-async function configureSdkEnvironment(): Promise<void> {
+async function loadAndApplyLlmConfig(): Promise<ResolvedLlmConfig | undefined> {
   try {
     const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
     const llmConfig = await loadLlmConfig(llmConfigPath);
@@ -117,18 +117,11 @@ async function configureSdkEnvironment(): Promise<void> {
 
     const summary = summarizeLlmConfig(resolved);
     console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
+
+    return resolved;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`SDK env configuration skipped: ${message}`);
-  }
-}
-
-async function loadResolvedLlmConfig(): Promise<ResolvedLlmConfig | undefined> {
-  try {
-    const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
-    const llmConfig = await loadLlmConfig(llmConfigPath);
-    return resolveLlmConfig(llmConfig);
-  } catch {
+    console.warn(`LLM configuration skipped: ${message}`);
     return undefined;
   }
 }
@@ -162,26 +155,16 @@ async function createAgentRuntimes(
 
   // Fallback: use hardcoded defaults
   if (resolvedLlmConfig !== undefined) {
-    return {
-      reviewer: new ClaudeSdkAgentRuntime({
-        roleConfig: REVIEWER_CONFIG,
+    const runtimes: Record<string, AgentRuntime> = {};
+    for (const config of DEFAULT_ROLE_CONFIGS) {
+      runtimes[config.name] = new ClaudeSdkAgentRuntime({
+        roleConfig: config,
         rawLogger: llmRawLogger,
-        model: resolvedLlmConfig.modelId,
+        model: config.model ?? resolvedLlmConfig.modelId,
         ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
-      }),
-      developer: new ClaudeSdkAgentRuntime({
-        roleConfig: DEVELOPER_CONFIG,
-        rawLogger: llmRawLogger,
-        model: resolvedLlmConfig.modelId,
-        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
-      }),
-      admin: new ClaudeSdkAgentRuntime({
-        roleConfig: ADMIN_CONFIG,
-        rawLogger: llmRawLogger,
-        model: resolvedLlmConfig.modelId,
-        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
-      }),
-    };
+      });
+    }
+    return runtimes;
   }
 
   console.warn("using echo runtime because real LLM runtime is not configured");

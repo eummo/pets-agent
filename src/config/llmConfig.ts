@@ -2,10 +2,13 @@ import { readFile } from "node:fs/promises";
 import type { Model } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
+const DEFAULT_MAX_TOKENS = 256;
+
 const llmConfigSchema = z.object({
   baseUrl: z.string().url(),
   apiKeyEnv: z.string().min(1),
-  modelId: z.string().min(1)
+  modelId: z.string().min(1),
+  maxTokens: z.number().int().positive().optional(),
 });
 
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
@@ -51,6 +54,6 @@ export function buildPiModel(config: ResolvedLlmConfig): Model<"anthropic-messag
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
-    maxTokens: 256,
+    maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
 }

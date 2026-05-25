@@ -9,6 +9,7 @@ import type {
   StoredRoleConfig,
   UserRole
 } from "../core/ports.js";
+import { FILE_MUTATION_TOOLS } from "../core/ports.js";
 
 export type RoleProvider = {
   getRole(userId: string): string;
@@ -88,10 +89,9 @@ function normalizeRoleName(role: string): UserRole {
 }
 
 function configAllowsMutation(config: StoredRoleConfig): boolean {
-  const mutatingTools = new Set(["Edit", "MultiEdit", "NotebookEdit", "Write"]);
   if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
     return false;
   }
 
-  return config.allowedTools.some((tool) => mutatingTools.has(tool));
+  return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
 }

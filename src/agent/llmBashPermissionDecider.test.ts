@@ -5,10 +5,10 @@ import {
   fauxText,
   fauxThinking,
 } from "@earendil-works/pi-ai";
-import type { RoleConfig } from "./claudeSdkAgentRuntime.js";
+import type { StoredRoleConfig } from "../core/ports.js";
 import { LlmBashPermissionDecider } from "./llmBashPermissionDecider.js";
 
-const roleConfig: RoleConfig = {
+const roleConfig: StoredRoleConfig = {
   name: "reviewer",
   allowedTools: ["Read", "Bash"],
   permissionMode: "dontAsk",

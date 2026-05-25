@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
+import { withRetry } from "../config/retry.js";
 import type { IntentDetectionService, UserIntent, UserRole } from "../core/ports.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
@@ -36,20 +37,22 @@ export class LlmIntentDetectionService implements IntentDetectionService {
 
   public async detectIntent(userMessage: string, role: UserRole): Promise<UserIntent> {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), INTENT_TIMEOUT_MS);
+      const response = await withRetry(async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), INTENT_TIMEOUT_MS);
 
-      const response = await complete(this.model, {
-        systemPrompt: INTENT_SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: `User role: ${role}\nUser message: ${userMessage}`,
-          timestamp: Date.now(),
-        }],
-      }, {
-        apiKey: this.apiKey,
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
+        return complete(this.model, {
+          systemPrompt: INTENT_SYSTEM_PROMPT,
+          messages: [{
+            role: "user",
+            content: `User role: ${role}\nUser message: ${userMessage}`,
+            timestamp: Date.now(),
+          }],
+        }, {
+          apiKey: this.apiKey,
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeout));
+      });
 
       if (response.stopReason === "error") {
         return { type: "query" };

@@ -2,9 +2,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStreamEvent } from "../core/ports.js";
+import type { AgentStreamEvent, StoredRoleConfig } from "../core/ports.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
-import { ClaudeSdkAgentRuntime, type RoleConfig } from "./claudeSdkAgentRuntime.js";
+import { ClaudeSdkAgentRuntime } from "./claudeSdkAgentRuntime.js";
 
 const sdkMocks = vi.hoisted(() => ({
   query: vi.fn()
@@ -14,7 +14,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: sdkMocks.query
 }));
 
-const roleConfig: RoleConfig = {
+const roleConfig: StoredRoleConfig = {
   name: "tester",
   allowedTools: ["Read", "Grep"],
   permissionMode: "dontAsk",
@@ -319,16 +319,19 @@ describe("ClaudeSdkAgentRuntime", () => {
         data: { toolUseId: "tool-1", toolName: "Read" }
       })
     ]);
-    expect(rawEvents).toEqual([
-      {
-        type: "llm.response",
-        runtime: "claude-sdk-tester",
-        userId: "user-1",
-        workspacePath: "D:/workspace",
-        sessionId: "session-2",
-        extractedText: "final answer"
-      }
-    ]);
+    expect(rawEvents).toHaveLength(1);
+    const rawEvent = rawEvents[0];
+    expect(rawEvent).toMatchObject({
+      type: "llm.response",
+      runtime: "claude-sdk-tester",
+      userId: "user-1",
+      workspacePath: "D:/workspace",
+      sessionId: "session-2",
+      extractedText: "final answer",
+    });
+    if (rawEvent !== undefined) {
+      expect(typeof rawEvent["durationMs"]).toBe("number");
+    }
   });
 
   it("reports an error instead of forwarding unauthorized mutating tool events", async () => {

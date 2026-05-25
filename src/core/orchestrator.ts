@@ -1,4 +1,3 @@
-import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import type {
   AgentRequest,
   AgentRuntime,
@@ -7,11 +6,13 @@ import type {
   AuthorizationAction,
   AuthorizationService,
   ConversationHistoryStore,
+  ConversationLogger,
   ConversationSessionKey,
   ConversationSessionStore,
   FeedbackStore,
   InboundMessage,
   IntentDetectionService,
+  KnowledgeWorkspace,
   KnowledgeWorkspaceResolver,
   MessageHandler,
   OutboundMessage,
@@ -27,17 +28,21 @@ export type OrchestratorDependencies = {
   readonly runtimeFactory?: AgentRuntimeFactory;
   readonly sessionStore?: ConversationSessionStore;
   readonly historyStore?: ConversationHistoryStore;
-  readonly conversationLogger?: JsonlLogger;
+  readonly conversationLogger?: ConversationLogger;
   readonly progressReporter?: ProgressReporter;
   readonly intentDetection?: IntentDetectionService | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
 };
 
 export class AgentOrchestrator implements MessageHandler {
-  private readonly runtimeCache: Record<string, AgentRuntime>;
+  private readonly runtimeCache: Map<string, AgentRuntime>;
+  private readonly runtimeCacheOrder: string[];
+  private readonly maxCacheSize: number;
 
   public constructor(private readonly dependencies: OrchestratorDependencies) {
-    this.runtimeCache = { ...dependencies.agentRuntimes };
+    this.runtimeCache = new Map(Object.entries(dependencies.agentRuntimes));
+    this.runtimeCacheOrder = Object.keys(dependencies.agentRuntimes);
+    this.maxCacheSize = 16;
   }
 
   public async handle(message: InboundMessage): Promise<OutboundMessage> {
@@ -47,9 +52,7 @@ export class AgentOrchestrator implements MessageHandler {
       return commandResponse;
     }
 
-    const workspaces = await this.dependencies.workspaceResolver.resolve(message);
-    const workspace = workspaces[0];
-
+    const workspace = await this.resolveWorkspace(message);
     if (workspace === undefined) {
       const response = { text: "No matching knowledge base or source repository was found." };
       await this.logConversation(message, response.text);
@@ -70,11 +73,36 @@ export class AgentOrchestrator implements MessageHandler {
     }
 
     const role = await this.dependencies.authorization.roleFor(message.user);
+    const intentCheck = await this.checkIntentAuthorization(message, workspace, role);
+    if (intentCheck !== undefined) {
+      return intentCheck;
+    }
+
+    const runtime = await this.resolveRuntime(role);
+    if (runtime === undefined) {
+      const response = { text: `No runtime configured for role: ${role}` };
+      await this.logConversation(message, response.text, workspace.path);
+      return response;
+    }
+
+    return this.executeRuntime(message, workspace.path, role, runtime);
+  }
+
+  private async resolveWorkspace(message: InboundMessage) {
+    const workspaces = await this.dependencies.workspaceResolver.resolve(message);
+    return workspaces[0];
+  }
+
+  private async checkIntentAuthorization(
+    message: InboundMessage,
+    workspace: { readonly path: string },
+    role: UserRole,
+  ): Promise<OutboundMessage | undefined> {
     const intent = await this.detectIntent(message.text, role);
     const requiredAction = actionForIntent(intent);
 
     if (requiredAction !== undefined) {
-      const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace);
+      const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace as KnowledgeWorkspace);
       if (!intentDecision.allowed) {
         await this.saveFeedback(message, workspace.path, intent, role);
         const response = { text: responseForDeniedIntent(intent) };
@@ -83,33 +111,38 @@ export class AgentOrchestrator implements MessageHandler {
       }
     }
 
-    let runtime = this.runtimeCache[role];
+    return undefined;
+  }
+
+  private async resolveRuntime(role: string): Promise<AgentRuntime | undefined> {
+    let runtime = this.runtimeCache.get(role);
     if (runtime === undefined && this.dependencies.runtimeFactory !== undefined) {
       const created = await this.dependencies.runtimeFactory.createRuntime(role);
       if (created !== undefined) {
-        this.runtimeCache[role] = created;
+        this.cacheRuntime(role, created);
         runtime = created;
       }
     }
-    if (runtime === undefined) {
-      const response = { text: `No runtime configured for role: ${role}` };
-      await this.logConversation(message, response.text, workspace.path);
-      return response;
-    }
+    return runtime;
+  }
 
-    const sessionKey = this.createSessionKey(message, workspace.path);
+  private async executeRuntime(
+    message: InboundMessage,
+    workspacePath: string,
+    role: string,
+    runtime: AgentRuntime,
+  ): Promise<OutboundMessage> {
+    const sessionKey = this.createSessionKey(message, workspacePath);
     const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
 
     const request: AgentRequest = {
       user: message.user,
       text: message.text,
-      workspacePath: workspace.path,
+      workspacePath,
       progress: (event) => this.publishProgress(message, event),
       stream: message.stream ?? ((event) => this.publishStreamEvent(message, event)),
+      ...(sessionId !== undefined ? { sessionId } : {}),
     };
-    if (sessionId !== undefined) {
-      (request as { sessionId?: string }).sessionId = sessionId;
-    }
 
     try {
       const response = await runtime.run(request);
@@ -121,16 +154,17 @@ export class AgentOrchestrator implements MessageHandler {
         { role: "user", content: message.text },
         { role: "assistant", content: response.text },
       ]);
-      await this.logConversation(message, response.text, workspace.path);
+      await this.logConversation(message, response.text, workspacePath);
 
       return {
         text: response.text,
         ...(response.sessionId !== undefined ? { sessionId: response.sessionId } : {}),
       };
     } catch (error) {
-      const errorText = `Model call failed: ${formatRuntimeError(error)}`;
-      await this.logConversation(message, errorText, workspace.path);
-      return { text: errorText };
+      const safeMessage = formatSafeRuntimeError(error);
+      const internalDetail = formatInternalError(error);
+      await this.logConversation(message, `Model call failed: ${internalDetail}`, workspacePath);
+      return { text: safeMessage };
     }
   }
 
@@ -148,6 +182,17 @@ export class AgentOrchestrator implements MessageHandler {
     }
 
     return undefined;
+  }
+
+  private cacheRuntime(role: string, runtime: AgentRuntime): void {
+    this.runtimeCache.set(role, runtime);
+    this.runtimeCacheOrder.push(role);
+    while (this.runtimeCacheOrder.length > this.maxCacheSize) {
+      const oldest = this.runtimeCacheOrder.shift();
+      if (oldest !== undefined) {
+        this.runtimeCache.delete(oldest);
+      }
+    }
   }
 
   private isNewConversationCommand(message: InboundMessage): boolean {
@@ -193,7 +238,7 @@ export class AgentOrchestrator implements MessageHandler {
 
     if (sessionId !== undefined) {
       const role = await this.dependencies.authorization.roleFor(message.user);
-      const runtime = this.runtimeCache[role];
+      const runtime = this.runtimeCache.get(role);
       if (runtime !== undefined) {
         await runtime.disposeSession(sessionId);
       }
@@ -262,13 +307,21 @@ function responseForDeniedIntent(intent: UserIntent): string {
   return "我已识别到这是修改请求，但你当前是文档助手权限，只能查看知识库，不能修改文件。您的请求已记录，管理员将尽快审核处理。";
 }
 
-function formatRuntimeError(error: unknown): string {
+function formatSafeRuntimeError(error: unknown): string {
   if (!(error instanceof Error)) {
-    return "Unknown error.";
+    return "Model call failed due to an unexpected error. Please try again later.";
   }
 
   if (error.message.includes("invalid api key")) {
-    return "Invalid API key. Check ANTHROPIC_API_KEY for the configured Anthropic-compatible endpoint.";
+    return "Model call failed: API key is invalid or not configured. Contact an administrator.";
+  }
+
+  return "Model call failed. The service encountered an error processing your request. Please try again later.";
+}
+
+function formatInternalError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
   }
 
   return error.message.split("\n")[0] ?? "Unknown error.";

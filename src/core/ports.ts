@@ -141,6 +141,13 @@ export type StoredRoleConfig = {
   readonly capabilities?: readonly RoleCapability[];
 };
 
+export const FILE_MUTATION_TOOLS: ReadonlySet<string> = new Set([
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+  "Write",
+]);
+
 export type RoleConfigStore = {
   getAll(): Promise<readonly StoredRoleConfig[]>;
   getByName(name: string): Promise<StoredRoleConfig | undefined>;
@@ -182,4 +189,10 @@ export type FeedbackStore = {
   save(entry: FeedbackEntry): Promise<number>;
   updateStatus(id: number, status: FeedbackStatus): Promise<boolean>;
   getAll(): Promise<readonly FeedbackEntry[]>;
+};
+
+// ── Conversation Logger ──────────────────────────────────────────────────────
+
+export type ConversationLogger = {
+  write(event: Record<string, unknown>): Promise<void>;
 };

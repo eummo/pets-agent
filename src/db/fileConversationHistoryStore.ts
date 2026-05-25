@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "./ports.js";
-import { isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
+import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/ports.js";
+import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredHistory = {
   readonly messages: readonly AgentConversationMessage[];
@@ -25,6 +25,7 @@ export type FileConversationHistoryStoreOptions = {
 export class FileConversationHistoryStore implements ConversationHistoryStore {
   private readonly filePath: string;
   private readonly maxMessages: number;
+  private readonly mutex = new FileMutex();
 
   public constructor(filePathInput: string, options: FileConversationHistoryStoreOptions = {}) {
     this.filePath = path.resolve(filePathInput);
@@ -44,49 +45,64 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
       return;
     }
 
-    const file = await this.readStore();
-    const histories = { ...(file.histories ?? {}) };
-    const keyText = serializeSessionKey(key);
-    const now = new Date().toISOString();
-    const previous = histories[keyText];
-    histories[keyText] = {
-      messages: [...(previous?.messages ?? []), ...messages].slice(-this.maxMessages),
-      createdAt: previous?.createdAt ?? now,
-      updatedAt: now
-    };
-    await this.writeStore(withExistingArchives({ histories }, file));
+    const release = await this.mutex.acquire(this.filePath);
+    try {
+      const file = await this.readStore();
+      const histories = { ...(file.histories ?? {}) };
+      const keyText = serializeSessionKey(key);
+      const now = new Date().toISOString();
+      const previous = histories[keyText];
+      histories[keyText] = {
+        messages: [...(previous?.messages ?? []), ...messages].slice(-this.maxMessages),
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now
+      };
+      await this.writeStore(withExistingArchives({ histories }, file));
+    } finally {
+      release();
+    }
   }
 
   public async delete(key: ConversationSessionKey): Promise<void> {
-    const file = await this.readStore();
-    const keyText = serializeSessionKey(key);
-    const histories = Object.fromEntries(
-      Object.entries(file.histories ?? {}).filter(([storedKey]) => storedKey !== keyText)
-    );
-    await this.writeStore(withExistingArchives({ histories }, file));
+    const release = await this.mutex.acquire(this.filePath);
+    try {
+      const file = await this.readStore();
+      const keyText = serializeSessionKey(key);
+      const histories = Object.fromEntries(
+        Object.entries(file.histories ?? {}).filter(([storedKey]) => storedKey !== keyText)
+      );
+      await this.writeStore(withExistingArchives({ histories }, file));
+    } finally {
+      release();
+    }
   }
 
   public async archive(key: ConversationSessionKey): Promise<void> {
-    const file = await this.readStore();
-    const keyText = serializeSessionKey(key);
-    const current = file.histories?.[keyText];
+    const release = await this.mutex.acquire(this.filePath);
+    try {
+      const file = await this.readStore();
+      const keyText = serializeSessionKey(key);
+      const current = file.histories?.[keyText];
 
-    if (current === undefined || current.messages.length === 0) {
-      return;
-    }
-
-    const histories = Object.fromEntries(
-      Object.entries(file.histories ?? {}).filter(([storedKey]) => storedKey !== keyText)
-    );
-    const archives = { ...(file.archives ?? {}) };
-    archives[keyText] = [
-      ...(archives[keyText] ?? []),
-      {
-        ...current,
-        archivedAt: new Date().toISOString()
+      if (current === undefined || current.messages.length === 0) {
+        return;
       }
-    ];
-    await this.writeStore({ histories, archives });
+
+      const histories = Object.fromEntries(
+        Object.entries(file.histories ?? {}).filter(([storedKey]) => storedKey !== keyText)
+      );
+      const archives = { ...(file.archives ?? {}) };
+      archives[keyText] = [
+        ...(archives[keyText] ?? []),
+        {
+          ...current,
+          archivedAt: new Date().toISOString()
+        }
+      ];
+      await this.writeStore({ histories, archives });
+    } finally {
+      release();
+    }
   }
 
   private async readStore(): Promise<HistoryStoreFile> {
