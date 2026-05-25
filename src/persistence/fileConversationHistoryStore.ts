@@ -63,6 +63,36 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
     }
   }
 
+  public async compact(key: ConversationSessionKey, summary: string): Promise<void> {
+    const release = await this.mutex.acquire(this.filePath);
+    try {
+      const file = await this.readStore();
+      const keyText = serializeSessionKey(key);
+      const existing = file.histories?.[keyText];
+
+      if (existing === undefined || existing.messages.length === 0) {
+        return;
+      }
+
+      const compactSummary: AgentConversationMessage = {
+        role: "assistant",
+        content: `[Previous conversation summary]\n${summary}`,
+      };
+      const recentMessages = existing.messages.slice(-2);
+      const messages = [compactSummary, ...recentMessages].slice(-this.maxMessages);
+
+      const histories = { ...(file.histories ?? {}) };
+      histories[keyText] = {
+        messages,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.writeStore(withExistingArchives({ histories }, file));
+    } finally {
+      release();
+    }
+  }
+
   public async delete(key: ConversationSessionKey): Promise<void> {
     const release = await this.mutex.acquire(this.filePath);
     try {

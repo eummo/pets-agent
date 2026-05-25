@@ -35,6 +35,8 @@ export type AgentStreamEvent =
   | { type: "tool_use_start"; toolName: string; toolUseId: string; input: Record<string, unknown> }
   | { type: "tool_use_result"; toolUseId: string; result: string; isError?: boolean }
   | { type: "thinking"; text: string }
+  | { type: "compact_start" }
+  | { type: "compact_complete"; preTokens: number; postTokens?: number; durationMs?: number }
   | { type: "completed"; sessionId: string; costUsd?: number }
   | { type: "error"; message: string };
 
@@ -48,11 +50,22 @@ export type AgentRequest = {
   readonly sessionId?: string;
   readonly progress?: AgentProgressPublisher;
   readonly stream?: AgentStreamPublisher;
+  readonly onCompact?: (summary: string) => Promise<void>;
+};
+
+export type ContextUsageReport = {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheCreationTokens?: number;
+  readonly contextWindow: number;
+  readonly usagePercent: number;
 };
 
 export type AgentResponse = {
   readonly text: string;
   readonly sessionId?: string;
+  readonly contextUsage?: ContextUsageReport;
 };
 
 export type AgentRuntime = {
@@ -99,6 +112,7 @@ export type ConversationSessionStore = {
 export type ConversationHistoryStore = {
   get(key: ConversationSessionKey): Promise<readonly AgentConversationMessage[]>;
   append(key: ConversationSessionKey, messages: readonly AgentConversationMessage[]): Promise<void>;
+  compact(key: ConversationSessionKey, summary: string): Promise<void>;
   delete(key: ConversationSessionKey): Promise<void>;
   archive(key: ConversationSessionKey): Promise<void>;
 };

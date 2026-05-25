@@ -144,6 +144,13 @@ export class AgentOrchestrator implements MessageGateway {
       workspacePath,
       progress: (event) => this.publishProgress(message, event),
       stream: message.stream ?? ((event) => this.publishStreamEvent(message, event)),
+      onCompact: async (summary) => {
+        await this.dependencies.historyStore?.compact(sessionKey, summary);
+        await this.logEvent("context.compacted", message, {
+          workspacePath,
+          summaryLength: summary.length,
+        });
+      },
       ...(sessionId !== undefined ? { sessionId } : {}),
     };
 
@@ -157,6 +164,12 @@ export class AgentOrchestrator implements MessageGateway {
         { role: "user", content: message.text },
         { role: "assistant", content: response.text },
       ]);
+      if (response.contextUsage !== undefined) {
+        await this.logEvent("context.usage", message, {
+          workspacePath,
+          ...response.contextUsage,
+        });
+      }
       await this.logConversation(message, response.text, workspacePath);
 
       return {

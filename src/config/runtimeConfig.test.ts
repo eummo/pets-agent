@@ -38,6 +38,41 @@ describe("loadRuntimeConfig", () => {
     expect(config.wechat.secret).toBe("dev-secret");
   });
 
+  it("applies context config defaults when not specified", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(filePath, JSON.stringify(validConfig()));
+
+    const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
+
+    expect(config.context).toEqual({
+      autoCompactEnabled: true,
+      autoCompactWindow: 150_000,
+      workspaceMaxChars: 8_000,
+      historyMaxMessages: 20,
+    });
+  });
+
+  it("loads custom context config values", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(filePath, JSON.stringify(validConfig({
+      context: {
+        autoCompactEnabled: false,
+        autoCompactWindow: 100_000,
+        workspaceMaxChars: 12_000,
+        historyMaxMessages: 50,
+      },
+    })));
+
+    const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
+
+    expect(config.context).toEqual({
+      autoCompactEnabled: false,
+      autoCompactWindow: 100_000,
+      workspaceMaxChars: 12_000,
+      historyMaxMessages: 50,
+    });
+  });
+
   it("applies defaults for optional fields", async () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
     await writeFile(filePath, JSON.stringify({

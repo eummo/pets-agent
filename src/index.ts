@@ -51,7 +51,7 @@ export async function main(): Promise<void> {
   const summary = summarizeLlmConfig(config.llm);
   console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
 
-  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm);
+  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.context);
 
   const intentDetection = new LlmIntentDetectionService(buildPiModel(config.llm), config.llm.apiKey);
 
@@ -66,7 +66,7 @@ export async function main(): Promise<void> {
     agentRuntimes,
     runtimeFactory,
     sessionStore: new FileConversationSessionStore(config.sessionStorePath),
-    historyStore: new FileConversationHistoryStore(config.historyStorePath),
+    historyStore: new FileConversationHistoryStore(config.historyStorePath, { maxMessages: config.context.historyMaxMessages }),
     conversationLogger,
     eventLogger: systemLogger,
     progressReporter: progressBroker,

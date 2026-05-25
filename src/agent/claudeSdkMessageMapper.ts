@@ -10,6 +10,10 @@ export function isResultMessage(msg: SDKMessage): boolean {
   return msg.type === "result";
 }
 
+export function isSystemMessage(msg: SDKMessage): boolean {
+  return msg.type === "system";
+}
+
 export function forwardAssistantMessageEvents(
   msg: Extract<SDKMessage, { type: "assistant" }>,
   request: AgentRequest,
@@ -81,4 +85,50 @@ export function forwardStreamEvent(event: Record<string, unknown>, request: Agen
       request.stream?.({ type: "thinking", text: delta["thinking"] });
     }
   }
+}
+
+export type CompactBoundaryData = {
+  readonly trigger: "manual" | "auto";
+  readonly preTokens: number;
+  readonly postTokens?: number;
+  readonly durationMs?: number;
+};
+
+export function forwardSystemMessageEvents(
+  msg: SDKMessage,
+  request: AgentRequest,
+): CompactBoundaryData | undefined {
+  const data = msg as unknown as Record<string, unknown>;
+  const subtype = data["subtype"] as string | undefined;
+
+  if (subtype === "status") {
+    const status = data["status"] as string | undefined;
+    if (status === "compacting") {
+      request.stream?.({ type: "compact_start" });
+    }
+    return undefined;
+  }
+
+  if (subtype === "compact_boundary") {
+    const metadata = data["compact_metadata"] as Record<string, unknown> | undefined;
+    if (metadata === undefined) return undefined;
+
+    const compactData: CompactBoundaryData = {
+      trigger: metadata["trigger"] as "manual" | "auto",
+      preTokens: metadata["pre_tokens"] as number,
+      ...(metadata["post_tokens"] !== undefined ? { postTokens: metadata["post_tokens"] as number } : {}),
+      ...(metadata["duration_ms"] !== undefined ? { durationMs: metadata["duration_ms"] as number } : {}),
+    };
+
+    request.stream?.({
+      type: "compact_complete",
+      preTokens: compactData.preTokens,
+      ...(compactData.postTokens !== undefined ? { postTokens: compactData.postTokens } : {}),
+      ...(compactData.durationMs !== undefined ? { durationMs: compactData.durationMs } : {}),
+    });
+
+    return compactData;
+  }
+
+  return undefined;
 }

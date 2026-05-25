@@ -5,6 +5,8 @@ export function progressEventForAgentStreamEvent(event: AgentStreamEvent): Agent
     : event.type === "tool_use_start" ? "agent.tool_use_start"
     : event.type === "tool_use_result" ? "agent.tool_use_result"
     : event.type === "thinking" ? "agent.thinking"
+    : event.type === "compact_start" ? "agent.compact_start"
+    : event.type === "compact_complete" ? "agent.compact_complete"
     : event.type === "completed" ? "agent.completed"
     : "agent.error";
 

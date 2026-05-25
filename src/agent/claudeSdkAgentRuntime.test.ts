@@ -57,7 +57,11 @@ describe("ClaudeSdkAgentRuntime", () => {
       canUseTool: expect.any(Function),
       maxTurns: 3,
       model: "model-1",
-      resume: "session-1"
+      resume: "session-1",
+      settings: {
+        autoCompactEnabled: true,
+        autoCompactWindow: 150_000,
+      },
     };
 
     expect(runtime.name).toBe("claude-sdk-tester");
@@ -407,6 +411,213 @@ describe("ClaudeSdkAgentRuntime", () => {
     const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
 
     await expect(runtime.disposeSession()).resolves.toBeUndefined();
+  });
+
+  it("passes auto-compaction settings to the SDK from context config", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "done"
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig,
+      contextConfig: {
+        autoCompactEnabled: true,
+        autoCompactWindow: 100_000,
+        workspaceMaxChars: 6_000,
+        historyMaxMessages: 30,
+      },
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.options["settings"]).toEqual({
+      autoCompactEnabled: true,
+      autoCompactWindow: 100_000,
+    });
+  });
+
+  it("omits auto-compaction settings when disabled", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "done"
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig,
+      contextConfig: {
+        autoCompactEnabled: false,
+        autoCompactWindow: 100_000,
+        workspaceMaxChars: 6_000,
+        historyMaxMessages: 30,
+      },
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.options["settings"]).toBeUndefined();
+  });
+
+  it("forwards compact_start and compact_complete stream events from system messages", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages(
+        {
+          type: "system",
+          subtype: "status",
+          status: "compacting",
+        },
+        {
+          type: "system",
+          subtype: "compact_boundary",
+          compact_metadata: {
+            trigger: "auto",
+            pre_tokens: 180_000,
+            post_tokens: 45_000,
+            duration_ms: 1200,
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          session_id: "session-compact",
+          result: "answer after compaction",
+        }
+      )
+    );
+    const streamEvents: AgentStreamEvent[] = [];
+    const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
+
+    const response = await runtime.run({
+      user: { id: "user-1" },
+      text: "Continue",
+      workspacePath: "D:/workspace",
+      stream: (event) => streamEvents.push(event),
+    });
+
+    expect(response.text).toBe("answer after compaction");
+    expect(streamEvents).toEqual([
+      { type: "compact_start" },
+      {
+        type: "compact_complete",
+        preTokens: 180_000,
+        postTokens: 45_000,
+        durationMs: 1200,
+      },
+    ]);
+  });
+
+  it("logs compact boundary events to the raw logger", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages(
+        {
+          type: "system",
+          subtype: "compact_boundary",
+          compact_metadata: {
+            trigger: "auto",
+            pre_tokens: 160_000,
+            duration_ms: 800,
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          session_id: "session-2",
+          result: "done",
+        }
+      )
+    );
+    const rawEvents: Record<string, unknown>[] = [];
+    const rawLogger: JsonlLogger = {
+      filePath: "test.jsonl",
+      write(event) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      },
+    };
+    const runtime = new ClaudeSdkAgentRuntime({ roleConfig, rawLogger });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Continue",
+      workspacePath: "D:/workspace",
+    });
+
+    const compactLog = rawEvents.find((e) => e["type"] === "llm.compact");
+    expect(compactLog).toMatchObject({
+      type: "llm.compact",
+      runtime: "claude-sdk-tester",
+      userId: "user-1",
+      workspacePath: "D:/workspace",
+      trigger: "auto",
+      preTokens: 160_000,
+      durationMs: 800,
+    });
+  });
+
+  it("extracts context usage from the SDK result and returns it in the response", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        session_id: "session-usage",
+        result: "answer",
+        usage: {
+          input_tokens: 120_000,
+          output_tokens: 500,
+          cache_creation_input_tokens: 30_000,
+          cache_read_input_tokens: 80_000,
+        },
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
+
+    const response = await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    expect(response.contextUsage).toEqual({
+      inputTokens: 120_000,
+      outputTokens: 500,
+      cacheCreationTokens: 30_000,
+      cacheReadTokens: 80_000,
+      contextWindow: 150_000,
+      usagePercent: 80,
+    });
+  });
+
+  it("omits context usage when the SDK result has no usage field", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "answer",
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
+
+    const response = await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    expect(response.contextUsage).toBeUndefined();
   });
 });
 
