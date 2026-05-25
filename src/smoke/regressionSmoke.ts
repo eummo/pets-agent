@@ -271,7 +271,7 @@ async function assertPiAiComplete(): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("Missing LLM API key environment variable")) {
-      throw new Error(`pi-ai smoke: ${message}`);
+      throw new Error(`pi-ai smoke: ${message}`, { cause: error });
     }
     throw error;
   }
