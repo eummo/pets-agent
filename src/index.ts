@@ -49,10 +49,7 @@ export async function main(): Promise<void> {
   const resolvedLlmConfig = await loadAndApplyLlmConfig();
   const agentRuntimes = await createAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig);
 
-  // Build intent detection service
-  const intentDetection = resolvedLlmConfig !== undefined
-    ? new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey)
-    : undefined;
+  const intentDetection = new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey);
 
   const authorization = new StaticAuthorizationService(devRoleStore, roleConfigStore);
 
@@ -96,24 +93,18 @@ export async function main(): Promise<void> {
   console.info(`database: ${runtimeConfig.dbPath}`);
 }
 
-async function loadAndApplyLlmConfig(): Promise<ResolvedLlmConfig | undefined> {
-  try {
-    const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
-    const llmConfig = await loadLlmConfig(llmConfigPath);
-    const resolved = resolveLlmConfig(llmConfig);
+async function loadAndApplyLlmConfig(): Promise<ResolvedLlmConfig> {
+  const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
+  const llmConfig = await loadLlmConfig(llmConfigPath);
+  const resolved = resolveLlmConfig(llmConfig);
 
-    process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
-    process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
+  process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
+  process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
 
-    const summary = summarizeLlmConfig(resolved);
-    console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
+  const summary = summarizeLlmConfig(resolved);
+  console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
 
-    return resolved;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`LLM configuration skipped: ${message}`);
-    return undefined;
-  }
+  return resolved;
 }
 
 await main();

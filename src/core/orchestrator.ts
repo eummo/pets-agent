@@ -21,7 +21,6 @@ import type {
   UserIntent,
   UserRole
 } from "./ports.js";
-import { fallbackIntentFor } from "./intentHeuristics.js";
 
 export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
@@ -33,7 +32,7 @@ export type OrchestratorDependencies = {
   readonly conversationLogger?: ConversationLogger;
   readonly eventLogger?: ConversationLogger;
   readonly progressReporter?: ProgressReporter;
-  readonly intentDetection?: IntentDetectionService | undefined;
+  readonly intentDetection: IntentDetectionService;
   readonly feedbackStore?: FeedbackStore | undefined;
 };
 
@@ -224,9 +223,6 @@ export class AgentOrchestrator implements MessageHandler {
   }
 
   private async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
-    if (this.dependencies.intentDetection === undefined) {
-      return fallbackIntentFor(userMessage);
-    }
     return this.dependencies.intentDetection.detectIntent(userMessage, role, history);
   }
 

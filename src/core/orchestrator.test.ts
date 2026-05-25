@@ -7,15 +7,24 @@ import type {
   FeedbackEntry,
   FeedbackStore,
   IntentDetectionService,
-  KnowledgeWorkspaceResolver
+  KnowledgeWorkspaceResolver,
+  UserIntent
 } from "./ports.js";
 import { AgentOrchestrator } from "./orchestrator.js";
+import { fallbackIntentFor } from "./intentHeuristics.js";
+
+const stubIntentDetection: IntentDetectionService = {
+  detectIntent(): Promise<UserIntent> {
+    return Promise.resolve({ type: "query" });
+  }
+};
 
 describe("AgentOrchestrator", () => {
   it("returns a safe error message when the runtime fails with API key error", async () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {
         reviewer: {
           name: "failing",
@@ -41,6 +50,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {
         reviewer: {
           name: "runtime",
@@ -67,6 +77,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {
         reviewer: {
           name: "reviewer",
@@ -103,6 +114,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       eventLogger: {
         write(event) {
           events.push(event);
@@ -175,6 +187,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: developerAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {
         reviewer: {
           name: "reviewer",
@@ -251,13 +264,19 @@ describe("AgentOrchestrator", () => {
     ]);
   });
 
-  it("uses deterministic intent fallback when no classifier is configured", async () => {
+  it("uses deterministic intent fallback via fallbackIntentFor for mutate detection", async () => {
     let runtimeCalled = false;
     const feedbackStore = new MemoryFeedbackStore();
+    const intentDetection: IntentDetectionService = {
+      detectIntent(userMessage: string) {
+        return Promise.resolve(fallbackIntentFor(userMessage));
+      }
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       feedbackStore,
+      intentDetection,
       agentRuntimes: {
         reviewer: {
           name: "reviewer",
@@ -284,12 +303,18 @@ describe("AgentOrchestrator", () => {
     ]);
   });
 
-  it("uses deterministic knowledge-base fallback when no classifier is configured", async () => {
+  it("uses deterministic knowledge-base fallback via fallbackIntentFor for update_kb detection", async () => {
     const feedbackStore = new MemoryFeedbackStore();
+    const intentDetection: IntentDetectionService = {
+      detectIntent(userMessage: string) {
+        return Promise.resolve(fallbackIntentFor(userMessage));
+      }
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       feedbackStore,
+      intentDetection,
       agentRuntimes: {
         reviewer: {
           name: "reviewer",
@@ -330,6 +355,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: customAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {
         "custom-reader": {
           name: "custom-reader",
@@ -356,6 +382,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       sessionStore: store,
       agentRuntimes: {
         reviewer: {
@@ -383,6 +410,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       historyStore,
       agentRuntimes: {
         reviewer: {
@@ -415,6 +443,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       sessionStore: store,
       historyStore,
       agentRuntimes: {
@@ -495,6 +524,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {
         reviewer: {
           name: "failing",
@@ -531,6 +561,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {},
       runtimeFactory: {
         createRuntime(role: string) {
@@ -572,6 +603,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {},
       runtimeFactory: {
         cacheKeyForRole(role: string) {
@@ -616,6 +648,7 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
+      intentDetection: stubIntentDetection,
       agentRuntimes: {},
       runtimeFactory: {
         createRuntime() {

@@ -2,17 +2,31 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
+  AgentRequest,
+  AgentResponse,
+  AgentRuntime,
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationService,
   ChannelUser,
   FeedbackEntry,
   FeedbackStore,
+  UserIntent,
 } from "../core/ports.js";
 import { AgentOrchestrator } from "../core/orchestrator.js";
-import { EchoAgentRuntime } from "../agent/echoAgentRuntime.js";
 import { StaticWorkspaceResolver } from "../repos/staticWorkspaceResolver.js";
 import { createServer } from "../server/createServer.js";
+import { fallbackIntentFor } from "../core/intentHeuristics.js";
+
+const stubRuntime: AgentRuntime = {
+  name: "stub",
+  run(request: AgentRequest): Promise<AgentResponse> {
+    return Promise.resolve({ text: `stub: ${request.text}` });
+  },
+  disposeSession(): Promise<void> {
+    return Promise.resolve();
+  },
+};
 
 async function main(): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "pets-agent-deterministic-smoke-"));
@@ -22,8 +36,13 @@ async function main(): Promise<void> {
     workspaceResolver: new StaticWorkspaceResolver({ knowledgeBasePath: path.join(root, "knowledge-base") }),
     authorization,
     feedbackStore,
+    intentDetection: {
+      detectIntent(userMessage: string): Promise<UserIntent> {
+        return Promise.resolve(fallbackIntentFor(userMessage));
+      }
+    },
     agentRuntimes: {
-      reviewer: new EchoAgentRuntime(),
+      reviewer: stubRuntime,
     },
   });
   const server = createServer({
