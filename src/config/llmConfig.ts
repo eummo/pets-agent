@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
 import type { Model } from "@earendil-works/pi-ai";
-import { z } from "zod";
 
 const DEFAULT_MAX_TOKENS = 256;
 
@@ -11,24 +9,9 @@ export type LlmConfig = {
   readonly maxTokens?: number | undefined;
 };
 
-// Compile-time check: schema output must satisfy LlmConfig.
-// If you add/remove/rename a field in the schema without updating LlmConfig,
-// TypeScript will error here — catching mismatches before they reach VSCode or runtime.
-const llmConfigSchema = z.object({
-  baseUrl: z.url(),
-  apiKeyEnv: z.string().min(1),
-  modelId: z.string().min(1),
-  maxTokens: z.number().int().positive().optional(),
-}) satisfies z.ZodType<LlmConfig>;
-
 export type ResolvedLlmConfig = LlmConfig & {
   readonly apiKey: string;
 };
-
-export async function loadLlmConfig(path: string): Promise<LlmConfig> {
-  const raw = await readFile(path, "utf8");
-  return llmConfigSchema.parse(JSON.parse(raw) as unknown);
-}
 
 export function resolveLlmConfig(config: LlmConfig, env: NodeJS.ProcessEnv = process.env): ResolvedLlmConfig {
   const apiKey = env[config.apiKeyEnv];

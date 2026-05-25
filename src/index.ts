@@ -12,7 +12,7 @@
 import path from "node:path";
 import "dotenv/config";
 import { setupAgentRuntimes } from "./agent/createAgentRuntimes.js";
-import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
+import { buildPiModel, summarizeLlmConfig } from "./config/llmConfig.js";
 import { loadRuntimeConfig } from "./config/runtimeConfig.js";
 import { FileConversationHistoryStore } from "./db/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./db/fileConversationSessionStore.js";
@@ -29,47 +29,42 @@ import { SseProgressBroker } from "./server/sseProgressBroker.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
 
 export async function main(): Promise<void> {
-  // Load runtime configuration, create loggers, and initialize all services
-  const runtimeConfig = loadRuntimeConfig();
-  const conversationLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "conversation.jsonl"));
-  const llmRawLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "llm-raw.jsonl"));
-  const systemLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "system.jsonl"));
+  const config = await loadRuntimeConfig();
+  const conversationLogger = createJsonlLogger(path.join(config.logDir, "conversation.jsonl"));
+  const llmRawLogger = createJsonlLogger(path.join(config.logDir, "llm-raw.jsonl"));
+  const systemLogger = createJsonlLogger(path.join(config.logDir, "system.jsonl"));
   const progressBroker = new SseProgressBroker();
 
   // Initialize SQLite and stores
-  const db = createSqliteConnection(runtimeConfig.dbPath);
+  const db = createSqliteConnection(config.dbPath);
   const roleConfigStore = new SqliteRoleConfigStore(db);
   const feedbackStore = new SqliteFeedbackStore(db);
 
   // Seed default roles if table is empty
   await seedDefaultRoles(roleConfigStore);
 
-  const resolvedLlmConfig = await (async () => {
-    const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
-    const llmConfig = await loadLlmConfig(llmConfigPath);
-    const resolved = resolveLlmConfig(llmConfig);
-    process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
-    process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
-    const summary = summarizeLlmConfig(resolved);
-    console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
-    return resolved;
-  })();
-  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig);
+  // Configure Anthropic SDK env vars from resolved LLM config
+  process.env["ANTHROPIC_API_KEY"] ??= config.llm.apiKey;
+  process.env["ANTHROPIC_BASE_URL"] ??= config.llm.baseUrl;
+  const summary = summarizeLlmConfig(config.llm);
+  console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
 
-  const intentDetection = new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey);
+  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm);
+
+  const intentDetection = new LlmIntentDetectionService(buildPiModel(config.llm), config.llm.apiKey);
 
   const authorization = new StaticAuthorizationService(roleConfigStore);
 
   const orchestrator = new AgentOrchestrator({
     workspaceResolver: new StaticWorkspaceResolver({
-      knowledgeBasePath: runtimeConfig.knowledgeBasePath,
+      knowledgeBasePath: config.knowledgeBasePath,
       logger: systemLogger,
     }),
     authorization,
     agentRuntimes,
     runtimeFactory,
-    sessionStore: new FileConversationSessionStore(runtimeConfig.sessionStorePath),
-    historyStore: new FileConversationHistoryStore(runtimeConfig.historyStorePath),
+    sessionStore: new FileConversationSessionStore(config.sessionStorePath),
+    historyStore: new FileConversationHistoryStore(config.historyStorePath),
     conversationLogger,
     eventLogger: systemLogger,
     progressReporter: progressBroker,
@@ -78,23 +73,23 @@ export async function main(): Promise<void> {
   });
   const server = createServer({
     messageHandler: orchestrator,
-    wechatToken: runtimeConfig.wechatToken,
+    wechatToken: config.wechat.token,
     roleConfigStore,
     feedbackStore,
     authorization,
     progressBroker,
-    enableDevRoutes: runtimeConfig.enableDevRoutes,
+    enableDevRoutes: config.enableDevRoutes,
     logger: true
   });
 
-  await server.listen({ port: runtimeConfig.port, host: "0.0.0.0" });
-  console.info(`pets-agent listening on http://localhost:${runtimeConfig.port}`);
+  await server.listen({ port: config.port, host: config.host });
+  console.info(`pets-agent listening on http://${config.host}:${config.port}`);
   console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
   console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
   console.info(`admin runtime: ${agentRuntimes["admin"]?.name ?? "not configured"}`);
   console.info(`conversation log: ${conversationLogger.filePath}`);
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
-  console.info(`database: ${runtimeConfig.dbPath}`);
+  console.info(`database: ${config.dbPath}`);
 }
 
 await main();

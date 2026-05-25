@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
 import "dotenv/config";
+import { loadRuntimeConfig } from "../config/runtimeConfig.js";
 
 type SseEvent = {
   readonly type: string;
@@ -17,11 +18,11 @@ type ChatResult = {
   readonly toolCalls: readonly string[];
 };
 
-const baseUrl = process.env["SMOKE_BASE_URL"] ?? "http://127.0.0.1:3000";
-const conversationLogPath =
-  process.env["CONVERSATION_LOG_PATH"] ?? path.resolve(".harness", "logs", "conversation.jsonl");
-const llmRawLogPath = process.env["LLM_RAW_LOG_PATH"] ?? path.resolve(".harness", "logs", "llm-raw.jsonl");
-const dbPath = process.env["DB_PATH"] ?? path.resolve(".harness", "state", "agent.db");
+const config = await loadRuntimeConfig();
+const baseUrl = process.env["SMOKE_BASE_URL"] ?? `http://127.0.0.1:${config.port}`;
+const conversationLogPath = path.resolve(config.logDir, "conversation.jsonl");
+const llmRawLogPath = path.resolve(config.logDir, "llm-raw.jsonl");
+const dbPath = config.dbPath;
 const firstCaseText = "What is the current project for?";
 const resetCaseText = "What is the current project after reset?";
 
@@ -250,32 +251,9 @@ function assertFeedbackRecorded(userId: string, text: string, intentType: string
 
 async function assertPiAiComplete(): Promise<void> {
   const { complete } = await import("@earendil-works/pi-ai");
-  const { loadLlmConfig, resolveLlmConfig, buildPiModel } = await import("../config/llmConfig.js");
+  const { buildPiModel } = await import("../config/llmConfig.js");
 
-  const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
-
-  let llmConfig: Awaited<ReturnType<typeof loadLlmConfig>>;
-  try {
-    llmConfig = await loadLlmConfig(llmConfigPath);
-  } catch (error) {
-    if (isFileNotFoundError(error)) {
-      console.info("[skip] pi-ai-complete (no LLM config)");
-      return;
-    }
-    throw error;
-  }
-
-  let resolved: ReturnType<typeof resolveLlmConfig>;
-  try {
-    resolved = resolveLlmConfig(llmConfig);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Missing LLM API key environment variable")) {
-      throw new Error(`pi-ai smoke: ${message}`, { cause: error });
-    }
-    throw error;
-  }
-
+  const resolved = config.llm;
   const model = buildPiModel(resolved);
 
   const response = await complete(model, {
@@ -331,12 +309,6 @@ function assertFeedbackTimestampLocal(userId: string, caseName: string): void {
   } finally {
     db.close();
   }
-}
-
-function isFileNotFoundError(error: unknown): boolean {
-  return error instanceof Error
-    && "code" in error
-    && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 await main();
