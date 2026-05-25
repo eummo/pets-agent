@@ -1,5 +1,5 @@
-import path from "node:path";
-import type { ConversationSessionKey } from "../core/ports.js";
+﻿import path from "node:path";
+import type { ConversationSessionKey } from "../core/contracts.js";
 
 export function serializeSessionKey(key: ConversationSessionKey): string {
   return JSON.stringify([key.channel, key.userId, path.resolve(key.workspacePath), key.chatId ?? ""]);
@@ -43,3 +43,4 @@ export class FileMutex {
     return this.locks.size;
   }
 }
+

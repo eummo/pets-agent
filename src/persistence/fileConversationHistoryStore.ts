@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/ports.js";
+import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/contracts.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredHistory = {
@@ -56,6 +56,36 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
         messages: [...(previous?.messages ?? []), ...messages].slice(-this.maxMessages),
         createdAt: previous?.createdAt ?? now,
         updatedAt: now
+      };
+      await this.writeStore(withExistingArchives({ histories }, file));
+    } finally {
+      release();
+    }
+  }
+
+  public async compact(key: ConversationSessionKey, summary: string): Promise<void> {
+    const release = await this.mutex.acquire(this.filePath);
+    try {
+      const file = await this.readStore();
+      const keyText = serializeSessionKey(key);
+      const existing = file.histories?.[keyText];
+
+      if (existing === undefined || existing.messages.length === 0) {
+        return;
+      }
+
+      const compactSummary: AgentConversationMessage = {
+        role: "assistant",
+        content: `[Previous conversation summary]\n${summary}`,
+      };
+      const recentMessages = existing.messages.slice(-2);
+      const messages = [compactSummary, ...recentMessages].slice(-this.maxMessages);
+
+      const histories = { ...(file.histories ?? {}) };
+      histories[keyText] = {
+        messages,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
       };
       await this.writeStore(withExistingArchives({ histories }, file));
     } finally {
@@ -135,3 +165,4 @@ function withExistingArchives(file: HistoryStoreFile, existingFile: HistoryStore
     archives: existingFile.archives
   };
 }
+

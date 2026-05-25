@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import type {
   AuthorizationService,
   ConversationHistoryStore,
@@ -9,7 +9,7 @@ import type {
   IntentDetectionService,
   KnowledgeWorkspaceResolver,
   UserIntent
-} from "./ports.js";
+} from "./contracts.js";
 import { AgentOrchestrator } from "./orchestrator.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
 
@@ -740,6 +740,122 @@ describe("AgentOrchestrator", () => {
     expect(groupHistory).toHaveLength(2);
     expect(singleHistory).toHaveLength(2);
   });
+
+  it("calls onCompact to compact history store when SDK compresses context", async () => {
+    const historyStore = new MemoryHistoryStore();
+    const events: Record<string, unknown>[] = [];
+    const sessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
+
+    // Pre-fill history
+    await historyStore.append(sessionKey, [
+      { role: "user", content: "question 1" },
+      { role: "assistant", content: "answer 1" },
+      { role: "user", content: "question 2" },
+      { role: "assistant", content: "answer 2" },
+    ]);
+
+    let onCompactCallback: ((summary: string) => Promise<void>) | undefined;
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
+      historyStore,
+      eventLogger: {
+        write(event) {
+          events.push(event);
+          return Promise.resolve();
+        }
+      },
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run(request) {
+            onCompactCallback = request.onCompact;
+            return Promise.resolve({ text: "response after compact" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    await orchestrator.handle(testMessage("continue"));
+    expect(onCompactCallback).toBeDefined();
+
+    // Simulate SDK compacting context
+    if (onCompactCallback === undefined) throw new Error("Expected onCompact callback");
+    await onCompactCallback("User discussed orders and catalog.");
+
+    // Verify history was compacted
+    // At this point, the current turn (continue + response) has been appended after compact
+    const history = await historyStore.get(sessionKey);
+    expect(history).toEqual([
+      { role: "assistant", content: "[Previous conversation summary]\nUser discussed orders and catalog." },
+      { role: "user", content: "continue" },
+      { role: "assistant", content: "response after compact" },
+    ]);
+
+    // Verify event was logged
+    expect(events.some((e) => e["type"] === "context.compacted")).toBe(true);
+    const compactEvent = events.find((e) => e["type"] === "context.compacted");
+    expect(compactEvent).toMatchObject({
+      type: "context.compacted",
+      workspacePath: "D:/kb",
+      summaryLength: "User discussed orders and catalog.".length,
+    });
+  });
+
+  it("logs context usage event when the runtime reports token usage", async () => {
+    const events: Record<string, unknown>[] = [];
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
+      eventLogger: {
+        write(event) {
+          events.push(event);
+          return Promise.resolve();
+        }
+      },
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run() {
+            return Promise.resolve({
+              text: "response",
+              sessionId: "s-1",
+              contextUsage: {
+                inputTokens: 100_000,
+                outputTokens: 500,
+                cacheReadTokens: 60_000,
+                cacheCreationTokens: 20_000,
+                contextWindow: 150_000,
+                usagePercent: 67,
+              },
+            });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    await orchestrator.handle(testMessage("hello"));
+
+    const usageEvent = events.find((e) => e["type"] === "context.usage");
+    expect(usageEvent).toMatchObject({
+      type: "context.usage",
+      workspacePath: "D:/kb",
+      inputTokens: 100_000,
+      outputTokens: 500,
+      cacheReadTokens: 60_000,
+      cacheCreationTokens: 20_000,
+      contextWindow: 150_000,
+      usagePercent: 67,
+    });
+  });
 });
 
 const workspaceResolver: KnowledgeWorkspaceResolver = {
@@ -822,6 +938,24 @@ class MemoryHistoryStore implements ConversationHistoryStore {
     return Promise.resolve();
   }
 
+  public compact(
+    key: ConversationSessionKey,
+    summary: string,
+  ): Promise<void> {
+    const keyText = JSON.stringify(key);
+    const existing = this.histories.get(keyText);
+    if (existing === undefined || existing.length === 0) {
+      return Promise.resolve();
+    }
+    const compactSummary: { readonly role: "assistant"; readonly content: string } = {
+      role: "assistant",
+      content: `[Previous conversation summary]\n${summary}`,
+    };
+    const recentMessages = existing.slice(-2);
+    this.histories.set(keyText, [compactSummary, ...recentMessages]);
+    return Promise.resolve();
+  }
+
   public delete(key: ConversationSessionKey): Promise<void> {
     this.histories.delete(JSON.stringify(key));
     return Promise.resolve();
@@ -859,3 +993,4 @@ class MemoryFeedbackStore implements FeedbackStore {
     return Promise.resolve(this.entries);
   }
 }
+

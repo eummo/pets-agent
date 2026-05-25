@@ -1,6 +1,6 @@
-import type Database from "better-sqlite3";
+﻿import type Database from "better-sqlite3";
 import { z } from "zod";
-import type { RoleConfigStore, StoredRoleConfig } from "../core/ports.js";
+import type { RoleConfigStore, StoredRoleConfig } from "../core/contracts.js";
 
 type RoleRow = {
   readonly name: string;
@@ -87,3 +87,4 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
     return Promise.resolve(result.changes > 0);
   }
 }
+

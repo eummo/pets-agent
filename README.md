@@ -51,7 +51,7 @@ npm run dev
 src/
 ├── index.ts              入口：组装依赖、启动服务
 ├── core/                 核心层（纯业务逻辑，无外部依赖）
-│   ├── ports.ts            接口定义
+│   ├── contracts.ts        系统契约
 │   └── orchestrator.ts     编排器：路由消息到对应角色 runtime
 ├── agent/                Agent 适配层
 │   └── claudeSdkAgentRuntime.ts  基于 SDK 的双角色 runtime
@@ -59,15 +59,16 @@ src/
 │   ├── createServer.ts     Fastify 路由
 │   ├── dev-chat/           前端资源（html/css/js）
 │   └── sseProgressBroker.ts   SSE 进度推送
-├── security/             安全层（角色鉴权）
+├── auth/                 授权适配（角色与能力）
 ├── wechat/               企业微信适配
 ├── config/               配置加载
-├── repos/                工作区解析
+├── persistence/          持久化适配（SQLite 与文件存储）
+├── workspace/            工作区解析
 ├── logging/              日志
 └── harness/              开发沙箱工具
 ```
 
-依赖方向：外层依赖内层，内层不依赖外层。`core/ports.ts` 是系统契约层。
+依赖方向：外层依赖内层，内层不依赖外层。`core/contracts.ts` 是系统契约层。
 
 ## LLM 配置
 

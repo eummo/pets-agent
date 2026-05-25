@@ -6,7 +6,7 @@ This project builds a knowledge-base agent service. The assistant should answer 
 
 - Follow `docs/development-workflow.md` for every implementation change.
 - Follow `docs/typescript-development-guidelines.md` whenever writing or refactoring TypeScript. Treat it as the project coding rule for readable, extensible code.
-- Follow `docs/architecture.md` for the ports/adapters boundary.
+- Follow `docs/architecture.md` for the contracts/adapters boundary.
 - Keep provider-specific code behind adapters. The orchestration layer must not depend directly on Enterprise WeChat, Claude Code, MiniMax, GitHub, or future provider SDKs.
 
 ## Required Verification

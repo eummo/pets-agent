@@ -1,4 +1,4 @@
-import type { UserIntent } from "./ports.js";
+﻿import type { UserIntent } from "./contracts.js";
 
 const KNOWLEDGE_BASE_TERMS = [
   "documentation",
@@ -56,3 +56,4 @@ export function fallbackIntentFor(userMessage: string): UserIntent {
 function containsAnyTerm(text: string, terms: readonly string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
+

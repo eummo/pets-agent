@@ -91,4 +91,63 @@ describe("FileConversationHistoryStore", () => {
       new Set(Array.from({ length: 20 }, (_, index) => `message-${index}`))
     );
   });
+
+  it("compact replaces history with a summary and the last 2 messages", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "history-store-"));
+    const filePath = path.join(root, "history.json");
+    const store = new FileConversationHistoryStore(filePath, { maxMessages: 20 });
+    const key = { channel: "dev-browser", userId: "user-1", workspacePath: "D:/kb" };
+
+    await store.append(key, [
+      { role: "user", content: "question 1" },
+      { role: "assistant", content: "answer 1" },
+      { role: "user", content: "question 2" },
+      { role: "assistant", content: "answer 2" },
+      { role: "user", content: "question 3" },
+      { role: "assistant", content: "answer 3" },
+    ]);
+
+    await store.compact(key, "User asked about orders and catalog.");
+
+    const history = await store.get(key);
+    expect(history).toEqual([
+      { role: "assistant", content: "[Previous conversation summary]\nUser asked about orders and catalog." },
+      { role: "user", content: "question 3" },
+      { role: "assistant", content: "answer 3" },
+    ]);
+  });
+
+  it("compact does nothing when there is no existing history", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "history-store-"));
+    const filePath = path.join(root, "history.json");
+    const store = new FileConversationHistoryStore(filePath);
+    const key = { channel: "dev-browser", userId: "user-1", workspacePath: "D:/kb" };
+
+    await store.compact(key, "Nothing to compact.");
+
+    await expect(store.get(key)).resolves.toEqual([]);
+  });
+
+  it("compact respects the maxMessages limit", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "history-store-"));
+    const filePath = path.join(root, "history.json");
+    const store = new FileConversationHistoryStore(filePath, { maxMessages: 2 });
+    const key = { channel: "dev-browser", userId: "user-1", workspacePath: "D:/kb" };
+
+    await store.append(key, [
+      { role: "user", content: "question 1" },
+      { role: "assistant", content: "answer 1" },
+      { role: "user", content: "question 2" },
+      { role: "assistant", content: "answer 2" },
+    ]);
+
+    await store.compact(key, "Summary of earlier discussion.");
+
+    const history = await store.get(key);
+    // maxMessages=2, so [summary, user:question 2, assistant:answer 2].slice(-2)
+    expect(history).toEqual([
+      { role: "user", content: "question 2" },
+      { role: "assistant", content: "answer 2" },
+    ]);
+  });
 });

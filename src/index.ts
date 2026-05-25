@@ -15,19 +15,19 @@ import "dotenv/config";
 import { setupAgentRuntimes } from "./agent/createAgentRuntimes.js";
 import { buildPiModel, summarizeLlmConfig } from "./config/llmConfig.js";
 import { loadRuntimeConfig } from "./config/runtimeConfig.js";
-import { FileConversationHistoryStore } from "./db/fileConversationHistoryStore.js";
-import { FileConversationSessionStore } from "./db/fileConversationSessionStore.js";
+import { FileConversationHistoryStore } from "./persistence/fileConversationHistoryStore.js";
+import { FileConversationSessionStore } from "./persistence/fileConversationSessionStore.js";
 import { AgentOrchestrator } from "./core/orchestrator.js";
-import { createSqliteConnection } from "./db/sqliteConnection.js";
-import { SqliteFeedbackStore } from "./db/sqliteFeedbackStore.js";
-import { SqliteRoleConfigStore } from "./db/sqliteRoleConfigStore.js";
-import { seedDefaultRoles } from "./db/seedRoles.js";
+import { createSqliteConnection } from "./persistence/sqliteConnection.js";
+import { SqliteFeedbackStore } from "./persistence/sqliteFeedbackStore.js";
+import { SqliteRoleConfigStore } from "./persistence/sqliteRoleConfigStore.js";
+import { seedDefaultRoles } from "./persistence/seedRoles.js";
 import { LlmIntentDetectionService } from "./intent/llmIntentDetectionService.js";
 import { createJsonlLogger } from "./logging/jsonlLogger.js";
-import { StaticWorkspaceResolver } from "./repos/staticWorkspaceResolver.js";
+import { ConfiguredWorkspaceResolver } from "./workspace/configuredWorkspaceResolver.js";
 import { createServer } from "./server/createServer.js";
 import { SseProgressBroker } from "./server/sseProgressBroker.js";
-import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
+import { InMemoryRoleAuthorizationService } from "./auth/inMemoryRoleAuthorizationService.js";
 import { WechatSmartBotAdapter } from "./wechat/wechatSmartBotAdapter.js";
 
 export async function main(): Promise<void> {
@@ -51,14 +51,14 @@ export async function main(): Promise<void> {
   const summary = summarizeLlmConfig(config.llm);
   console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
 
-  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm);
+  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.context);
 
   const intentDetection = new LlmIntentDetectionService(buildPiModel(config.llm), config.llm.apiKey);
 
-  const authorization = new StaticAuthorizationService(roleConfigStore);
+  const authorization = new InMemoryRoleAuthorizationService(roleConfigStore);
 
   const orchestrator = new AgentOrchestrator({
-    workspaceResolver: new StaticWorkspaceResolver({
+    workspaceResolver: new ConfiguredWorkspaceResolver({
       knowledgeBasePath: config.knowledgeBasePath,
       logger: systemLogger,
     }),
@@ -66,7 +66,7 @@ export async function main(): Promise<void> {
     agentRuntimes,
     runtimeFactory,
     sessionStore: new FileConversationSessionStore(config.sessionStorePath),
-    historyStore: new FileConversationHistoryStore(config.historyStorePath),
+    historyStore: new FileConversationHistoryStore(config.historyStorePath, { maxMessages: config.context.historyMaxMessages }),
     conversationLogger,
     eventLogger: systemLogger,
     progressReporter: progressBroker,

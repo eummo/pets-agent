@@ -1,33 +1,28 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime, AgentStreamEvent, StoredRoleConfig } from "../core/ports.js";
-import { FILE_MUTATION_TOOLS } from "../core/ports.js";
+import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport, StoredRoleConfig } from "../core/contracts.js";
+import type { ContextConfig } from "../config/runtimeConfig.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
-
-// ─── Role Configuration ──────────────────────────────────────────────────────
-
-export type ToolPermissionDecider = (
-  roleConfig: StoredRoleConfig,
-  toolName: string,
-  input: Record<string, unknown>,
-) => Promise<PermissionResult>;
-
-// ─── Type Guards ─────────────────────────────────────────────────────────────
-
-function isAssistantMessage(msg: SDKMessage): boolean {
-  return msg.type === "assistant";
-}
-
-function isResultMessage(msg: SDKMessage): boolean {
-  return msg.type === "result";
-}
-
-// ─── Runtime ─────────────────────────────────────────────────────────────────
+import {
+  autoAllowedToolsForRole,
+  availableToolsForRole,
+  decideToolPermission,
+  disallowedToolsForRole,
+  type ToolPermissionDecider,
+} from "./claudeToolPolicy.js";
+import {
+  forwardAssistantMessageEvents,
+  forwardStreamEvent,
+  forwardSystemMessageEvents,
+  isAssistantMessage,
+  isResultMessage,
+  isSystemMessage,
+} from "./claudeSdkMessageMapper.js";
+import { buildWorkspacePrompt } from "./workspacePromptBuilder.js";
 
 export type ClaudeSdkAgentRuntimeOptions = {
   readonly roleConfig: StoredRoleConfig;
+  readonly contextConfig?: ContextConfig | undefined;
   readonly rawLogger?: JsonlLogger;
   readonly model?: string;
   readonly toolPermissionDecider?: ToolPermissionDecider;
@@ -36,20 +31,29 @@ export type ClaudeSdkAgentRuntimeOptions = {
 export class ClaudeSdkAgentRuntime implements AgentRuntime {
   public readonly name: string;
   private readonly roleConfig: StoredRoleConfig;
+  private readonly contextConfig: ContextConfig;
   private readonly rawLogger: JsonlLogger | undefined;
   private readonly model: string | undefined;
   private readonly toolPermissionDecider: ToolPermissionDecider | undefined;
 
+  private static readonly DEFAULT_CONTEXT_CONFIG: ContextConfig = {
+    autoCompactEnabled: true,
+    autoCompactWindow: 150_000,
+    workspaceMaxChars: 8_000,
+    historyMaxMessages: 20,
+  };
+
   public constructor(options: ClaudeSdkAgentRuntimeOptions) {
     this.name = `claude-sdk-${options.roleConfig.name}`;
     this.roleConfig = options.roleConfig;
+    this.contextConfig = options.contextConfig ?? ClaudeSdkAgentRuntime.DEFAULT_CONTEXT_CONFIG;
     this.rawLogger = options.rawLogger;
     this.model = options.model;
     this.toolPermissionDecider = options.toolPermissionDecider;
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
-    const prompt = await buildWorkspacePrompt(request);
+    const prompt = await buildWorkspacePrompt(request, this.contextConfig.workspaceMaxChars);
     const queryOptions: Record<string, unknown> = {
       cwd: request.workspacePath,
       tools: availableToolsForRole(this.roleConfig),
@@ -70,8 +74,23 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     if (request.sessionId !== undefined) {
       queryOptions["resume"] = request.sessionId;
     }
+    if (this.contextConfig.autoCompactEnabled) {
+      queryOptions["settings"] = {
+        autoCompactEnabled: true,
+        autoCompactWindow: this.contextConfig.autoCompactWindow,
+      };
+    }
+    if (request.onCompact !== undefined) {
+      queryOptions["hooks"] = {
+        PostCompact: [{
+          hooks: [async (input: Record<string, unknown>) => {
+            const summary = input["compact_summary"] as string;
+            await request.onCompact?.(summary);
+          }],
+        }],
+      };
+    }
 
-    // SDK Options type has complex union; use typed helper for compatibility
     const sdkOptions = buildSdkOptions(queryOptions);
     const startTime = Date.now();
     const stream = query({
@@ -81,12 +100,13 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
 
     let finalText = "";
     let sessionId: string | undefined;
+    let contextUsage: ContextUsageReport | undefined;
 
     for await (const message of stream) {
       if (isAssistantMessage(message)) {
         const assistantMsg = message as Extract<SDKMessage, { type: "assistant" }>;
         sessionId = assistantMsg.session_id;
-        this.processAssistantMessage(assistantMsg, request);
+        forwardAssistantMessageEvents(assistantMsg, request, this.roleConfig);
       } else if (isResultMessage(message)) {
         const resultMsg = message as Extract<SDKMessage, { type: "result" }>;
         const resultData = resultMsg as unknown as Record<string, unknown>;
@@ -94,12 +114,28 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
         const subtype = resultData["subtype"] as string | undefined;
         if (subtype === "success") {
           finalText = (resultData["result"] as string) || "";
+          contextUsage = extractContextUsage(resultData["usage"], this.contextConfig.autoCompactWindow);
         } else {
           const errors = resultData["errors"] as string[] | undefined;
           finalText = `Agent error: ${errors?.[0] ?? "Unknown error"}`;
         }
       } else if (message.type === "stream_event") {
-        this.processStreamEvent({ ...message }, request);
+        forwardStreamEvent({ ...message }, request);
+      } else if (isSystemMessage(message)) {
+        const compactData = forwardSystemMessageEvents(message, request);
+        if (compactData !== undefined) {
+          await this.rawLogger?.write({
+            type: "llm.compact",
+            runtime: this.name,
+            userId: request.user.id,
+            workspacePath: request.workspacePath,
+            sessionId: compactData.sessionId ?? sessionId,
+            trigger: compactData.trigger,
+            preTokens: compactData.preTokens,
+            ...(compactData.postTokens !== undefined ? { postTokens: compactData.postTokens } : {}),
+            ...(compactData.durationMs !== undefined ? { durationMs: compactData.durationMs } : {}),
+          });
+        }
       }
     }
 
@@ -116,185 +152,40 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     return {
       text: finalText || "Agent completed without text output.",
       ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(contextUsage !== undefined ? { contextUsage } : {}),
     };
   }
 
   public async disposeSession(): Promise<void> {
-    // SDK manages sessions internally; no explicit disposal needed
+    // SDK manages sessions internally; no explicit disposal needed.
   }
 
   private async canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
-    if (!this.roleConfig.allowedTools.includes(toolName)) {
-      return denyTool(this.roleConfig.name, toolName);
-    }
-
-    if (FILE_MUTATION_TOOLS.has(toolName) && !roleCanUseFileMutationTools(this.roleConfig)) {
-      return denyTool(this.roleConfig.name, toolName);
-    }
-
-    if (toolName === "Bash" && !roleCanUseFileMutationTools(this.roleConfig)) {
-      return this.toolPermissionDecider?.(this.roleConfig, toolName, input)
-        ?? denyTool(this.roleConfig.name, toolName);
-    }
-
-    return { behavior: "allow" };
-  }
-
-  private processAssistantMessage(
-    msg: Extract<SDKMessage, { type: "assistant" }>,
-    request: AgentRequest,
-  ): void {
-    const msgData = msg as unknown as { message?: { content?: unknown[] } };
-    const content = msgData.message?.content ?? [];
-    for (const rawBlock of content) {
-      const block = rawBlock as Record<string, unknown>;
-      const blockType = block["type"] as string;
-
-      if (blockType === "tool_use") {
-        const toolName = block["name"] as string;
-        if (!canUseTool(this.roleConfig, toolName)) {
-          const message = `Tool ${toolName} is not permitted for role ${this.roleConfig.name}.`;
-          request.stream?.({ type: "error", message });
-          void request.progress?.({
-            stage: "agent.error",
-            message,
-            data: { toolName },
-          });
-          continue;
-        }
-
-        const input = (block["input"] as Record<string, unknown> | null) ?? {};
-        const toolEvent: AgentStreamEvent = {
-          type: "tool_use_start",
-          toolName,
-          toolUseId: block["id"] as string,
-          input,
-        };
-        request.stream?.(toolEvent);
-        void request.progress?.({
-          stage: "agent.tool_use_start",
-          message: `${toolName}: ${JSON.stringify(block["input"]).slice(0, 100)}`,
-          data: { toolUseId: block["id"], toolName },
-        });
-      } else if (blockType === "tool_result") {
-        const isError = block["is_error"] === true;
-        const contentParts = block["content"] as unknown[] | undefined;
-        const resultText = (contentParts ?? [])
-          .map((p: unknown) => {
-            const part = p as Record<string, unknown>;
-            return typeof part["text"] === "string" ? part["text"] : "";
-          })
-          .join("");
-        request.stream?.({
-          type: "tool_use_result",
-          toolUseId: block["tool_use_id"] as string,
-          result: resultText,
-          ...(isError ? { isError: true } : {}),
-        });
-      }
-      // text_delta and thinking are emitted via stream_event processing;
-      // do not re-emit from assistant messages to avoid duplicates.
-    }
-  }
-
-  private processStreamEvent(event: Record<string, unknown>, request: AgentRequest): void {
-    const e = event["event"] as Record<string, unknown> | undefined;
-    if (e === undefined) return;
-
-    const eventType = e["type"] as string | undefined;
-
-    if (eventType === "content_block_delta") {
-      const delta = e["delta"] as Record<string, unknown> | undefined;
-      const deltaType = delta?.["type"] as string | undefined;
-      if (deltaType === "text_delta" && typeof delta?.["text"] === "string") {
-        request.stream?.({ type: "text_delta", text: delta["text"] });
-      } else if (deltaType === "thinking_delta" && typeof delta?.["thinking"] === "string") {
-        request.stream?.({ type: "thinking", text: delta["thinking"] });
-      }
-    }
-    // tool_use events are handled exclusively via processAssistantMessage
-    // to avoid duplicate tool cards — assistant messages carry full input and tool_result.
+    return decideToolPermission(this.roleConfig, toolName, input, this.toolPermissionDecider);
   }
 }
 
-// Helper to bridge Record<string, unknown> to SDK Options type
 function buildSdkOptions(opts: Record<string, unknown>): NonNullable<Parameters<typeof query>[0]["options"]> {
   return opts;
 }
 
-async function buildWorkspacePrompt(request: AgentRequest): Promise<string> {
-  const workspaceContext = await readWorkspaceContext(request.workspacePath);
-  if (workspaceContext === undefined) {
-    return request.text;
-  }
+function extractContextUsage(usage: unknown, contextWindow: number): ContextUsageReport | undefined {
+  if (usage === null || usage === undefined || typeof usage !== "object") return undefined;
+  const u = usage as Record<string, unknown>;
+  const inputTokens = u["input_tokens"];
+  const outputTokens = u["output_tokens"];
+  if (typeof inputTokens !== "number" || typeof outputTokens !== "number") return undefined;
 
-  return [
-    "Selected workspace context:",
-    workspaceContext,
-    "",
-    "Use the selected workspace context above as the primary source of truth.",
-    "If the user asks about the current project, architecture, or system, answer about this selected workspace.",
-    "Do not answer from the host agent implementation unless the user explicitly asks how this assistant is built.",
-    "",
-    "User request:",
-    request.text,
-  ].join("\n");
-}
+  const cacheReadTokens = u["cache_read_input_tokens"];
+  const cacheCreationTokens = u["cache_creation_input_tokens"];
+  const usagePercent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 100) : 0;
 
-async function readWorkspaceContext(workspacePath: string): Promise<string | undefined> {
-  try {
-    const content = await readFile(path.join(workspacePath, "CLAUDE.md"), "utf8");
-    const normalized = content.trim();
-    return normalized.length > 0 ? normalized.slice(0, 4_000) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function availableToolsForRole(config: StoredRoleConfig): readonly string[] {
-  if (roleCanUseFileMutationTools(config)) {
-    return [...config.allowedTools];
-  }
-
-  return config.allowedTools.filter((tool) => !FILE_MUTATION_TOOLS.has(tool));
-}
-
-function autoAllowedToolsForRole(config: StoredRoleConfig): readonly string[] {
-  if (roleCanUseFileMutationTools(config)) {
-    return [...config.allowedTools];
-  }
-
-  return config.allowedTools.filter((tool) => tool !== "Bash" && !FILE_MUTATION_TOOLS.has(tool));
-}
-
-function disallowedToolsForRole(config: StoredRoleConfig): readonly string[] {
-  if (roleCanUseFileMutationTools(config)) {
-    return [];
-  }
-
-  return [...FILE_MUTATION_TOOLS].filter((tool) => config.allowedTools.includes(tool));
-}
-
-function canUseTool(config: StoredRoleConfig, toolName: string): boolean {
-  if (!config.allowedTools.includes(toolName)) {
-    return false;
-  }
-
-  return !FILE_MUTATION_TOOLS.has(toolName) || roleCanUseFileMutationTools(config);
-}
-
-function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
-  if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
-    return false;
-  }
-
-  return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
-}
-
-function denyTool(roleName: string, toolName: string): PermissionResult {
   return {
-    behavior: "deny",
-    message: `Tool ${toolName} is not permitted for role ${roleName}.`,
-    decisionClassification: "user_reject",
+    inputTokens,
+    outputTokens,
+    ...(typeof cacheReadTokens === "number" ? { cacheReadTokens } : {}),
+    ...(typeof cacheCreationTokens === "number" ? { cacheCreationTokens } : {}),
+    contextWindow,
+    usagePercent,
   };
 }

@@ -50,7 +50,7 @@ behavior.
 
 ### 2. Message Gateway
 
-The gateway implements `MessageHandler`. It is the application orchestration layer and should stay
+The gateway implements `MessageGateway`. It is the application orchestration layer and should stay
 provider-neutral.
 
 Current implementation:
@@ -82,8 +82,8 @@ Domain services answer business questions for the gateway:
 - `RoleConfigStore`: stores role prompts, capabilities, model selection, and allowed tools.
 - session and history stores keep conversation continuity independent of the channel.
 
-Database-backed implementations belong in `src/db`. Static or development implementations may live
-in focused adapter folders such as `src/security` or `src/repos`.
+Database-backed implementations belong in `src/persistence`. Static or development implementations may live
+in focused adapter folders such as `src/auth` or `src/workspace`.
 
 ### 4. Agent Runtime Adapters
 
@@ -110,21 +110,21 @@ callbacks.
 Infrastructure modules provide storage, logging, configuration, and server lifecycle:
 
 - `src/config`: model and endpoint configuration
-- `src/db`: SQLite-backed role and feedback stores
+- `src/persistence`: SQLite-backed role and feedback stores
 - `src/logging`: JSONL logs
 - `src/harness`: local workspace fixture and smoke harness
-- `src/index.ts`: composition root that wires concrete adapters into ports
+- `src/index.ts`: composition root that wires concrete adapters into system contracts
 
 `src/index.ts` may import concrete adapters because it is the composition root. Core orchestration
-code should depend only on ports.
+code should depend only on system contracts.
 
-## Ports
+## System Contracts
 
-Stable contracts live in `src/core/ports.ts`.
+Stable system contracts live in `src/core/contracts.ts`.
 
-Important ports:
+Important contracts:
 
-- `MessageHandler`: the gateway entry point used by every channel adapter.
+- `MessageGateway`: the gateway entry point used by every channel adapter.
 - `AgentRuntime`: provider-neutral execution interface for Claude, pi-agent, Codex, or future SDKs.
 - `AgentRuntimeFactory`: creates a role-specific runtime from role configuration.
 - `AuthorizationService`: role lookup and capability checks.
@@ -140,7 +140,7 @@ Important ports:
 
 1. Create a channel adapter folder, for example `src/tui` or `src/api`.
 2. Convert the channel payload into `InboundMessage`.
-3. Call the injected `MessageHandler`.
+3. Call the injected `MessageGateway`.
 4. Convert `OutboundMessage` and stream/progress events back to the channel's response shape.
 5. Add the adapter to `src/index.ts` or a small composition module.
 
@@ -158,7 +158,7 @@ Do not import provider SDK types into `src/core`.
 
 ## Adding A New Permission Or Tool
 
-1. Add the smallest new `RoleCapability` in `src/core/ports.ts`.
+1. Add the smallest new `RoleCapability` in `src/core/contracts.ts`.
 2. Store it in role configuration through `RoleConfigStore`.
 3. Map user intent or gateway actions to the capability in `AuthorizationService`.
 4. Add focused tests for allow and deny behavior.
@@ -171,12 +171,12 @@ allowed, the gateway should return a clear denial and save the request into feed
 Dependencies point inward:
 
 ```text
-channel adapters  -> core ports
-agent adapters    -> core ports
-db adapters       -> core ports
+channel adapters  -> core contracts
+agent adapters    -> core contracts
+db adapters       -> core contracts
 composition root  -> all adapters
-core gateway      -> core ports only
+core gateway      -> core contracts only
 ```
 
 Provider-specific code stays behind adapters. The gateway decides business flow; adapters translate
-between the outside world and stable ports.
+between the outside world and stable system contracts.

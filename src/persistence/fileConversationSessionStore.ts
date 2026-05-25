@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ConversationSessionKey, ConversationSessionStore } from "../core/ports.js";
+import type { ConversationSessionKey, ConversationSessionStore } from "../core/contracts.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredSession = {
@@ -77,3 +77,4 @@ export class FileConversationSessionStore implements ConversationSessionStore {
     await rename(tempPath, this.filePath);
   }
 }
+

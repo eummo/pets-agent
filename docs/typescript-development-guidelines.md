@@ -1,7 +1,7 @@
 # TypeScript Development Guidelines
 
 Use these guidelines when adding or changing TypeScript code in this project. They complement the
-required workflow in `docs/development-workflow.md` and the ports/adapters boundary in
+required workflow in `docs/development-workflow.md` and the contracts/adapters boundary in
 `docs/architecture.md`.
 
 ## Design Priorities
@@ -14,13 +14,13 @@ required workflow in `docs/development-workflow.md` and the ports/adapters bound
 
 ## Module Boundaries
 
-- Put stable contracts in `src/core/ports.ts` or a nearby core module.
+- Put stable contracts in `src/core/contracts.ts` or a nearby core module.
 - Put provider-specific code in adapters such as `src/wechat`, `src/agent`, `src/server`, or future
   provider directories.
 - Do not import Enterprise WeChat, Claude SDK, MiniMax, GitHub, or provider SDK types into core
   orchestration code.
-- Let dependencies point inward: adapters depend on ports, but ports do not depend on adapters.
-- Prefer constructor-injected dependencies for services that coordinate multiple ports.
+- Let dependencies point inward: adapters depend on system contracts, but contracts do not depend on adapters.
+- Prefer constructor-injected dependencies for services that coordinate multiple contracts.
 
 ## Function Shape
 
@@ -43,8 +43,8 @@ required workflow in `docs/development-workflow.md` and the ports/adapters bound
 
 ## Naming
 
-- Name ports by capability: `AgentRuntime`, `AuthorizationService`, `KnowledgeWorkspaceResolver`.
-- Name adapters by implementation or transport: `ClaudeSdkAgentRuntime`, `StaticAuthorizationService`.
+- Name contracts by capability: `AgentRuntime`, `AuthorizationService`, `KnowledgeWorkspaceResolver`.
+- Name adapters by implementation or transport: `ClaudeSdkAgentRuntime`, `InMemoryRoleAuthorizationService`.
 - Name booleans as predicates: `allowed`, `isStreaming`, `hasSession`.
 - Name functions by the observable action: `resolve`, `can`, `append`, `archive`.
 - Avoid vague buckets such as `utils`, `helpers`, or `manager` unless the file is very small and
@@ -62,14 +62,14 @@ required workflow in `docs/development-workflow.md` and the ports/adapters bound
 
 - Add deterministic unit tests for parsing, routing, authorization, persistence, and formatting.
 - Add smoke regression cases for runtime/model behavior in `src/smoke/regressionSmoke.ts`.
-- Test observable behavior through ports and public functions.
+- Test observable behavior through contracts and public functions.
 - Keep tests named after the behavior they protect.
 - When a bug is discovered from logs or browser behavior, add the smallest regression that would
   have caught it.
 
 ## Review Checklist
 
-- Does the change preserve the ports/adapters boundary?
+- Does the change preserve the contracts/adapters boundary?
 - Can a reader understand the main path without jumping through several files?
 - Are provider-specific details hidden behind an adapter?
 - Are invalid states represented by types or validated at the boundary?

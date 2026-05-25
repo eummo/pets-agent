@@ -18,7 +18,7 @@ Open the browser test page:
 http://127.0.0.1:3000/
 ```
 
-## 2. Implement Behind Ports
+## 2. Implement Behind System Contracts
 
 - Message channels must stay behind `MessageChannel` / HTTP adapters.
 - LLM or coding SDKs must stay behind `AgentRuntime`.

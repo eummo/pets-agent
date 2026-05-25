@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { StaticAuthorizationService } from "./staticAuthorizationService.js";
-import type { RoleCapability, RoleConfigStore } from "../core/ports.js";
+﻿import { describe, expect, it } from "vitest";
+import { InMemoryRoleAuthorizationService } from "./inMemoryRoleAuthorizationService.js";
+import type { RoleCapability, RoleConfigStore } from "../core/contracts.js";
 
 const reviewerUser = { id: "reviewer-1" };
 const developerUser = { id: "dev-1" };
@@ -25,9 +25,9 @@ function makeRoleConfigStore(roles: Record<string, readonly RoleCapability[]>): 
   };
 }
 
-describe("StaticAuthorizationService", () => {
+describe("InMemoryRoleAuthorizationService", () => {
   it("allows read for reviewers with workspace_read capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ reviewer: ["workspace_read"] }),
     );
     const decision = await service.can(reviewerUser, "read", workspace);
@@ -36,7 +36,7 @@ describe("StaticAuthorizationService", () => {
   });
 
   it("allows suggest for reviewers with workspace_read capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ reviewer: ["workspace_read"] }),
     );
     const decision = await service.can(reviewerUser, "suggest", workspace);
@@ -45,7 +45,7 @@ describe("StaticAuthorizationService", () => {
   });
 
   it("allows mutate for developers with workspace_mutate capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ developer: ["workspace_read", "workspace_mutate"] }),
       new Map([["dev-1", "developer"]]),
     );
@@ -55,7 +55,7 @@ describe("StaticAuthorizationService", () => {
   });
 
   it("denies mutate for reviewers without workspace_mutate capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ reviewer: ["workspace_read"] }),
     );
     const decision = await service.can(reviewerUser, "mutate", workspace);
@@ -65,7 +65,7 @@ describe("StaticAuthorizationService", () => {
   });
 
   it("allows mutate for admin with workspace_mutate capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
       new Map([["admin-1", "admin"]]),
     );
@@ -75,28 +75,28 @@ describe("StaticAuthorizationService", () => {
   });
 
   it("resolves role from initial roles", async () => {
-    const service = new StaticAuthorizationService(undefined, new Map([["dev-1", "developer"]]));
+    const service = new InMemoryRoleAuthorizationService(undefined, new Map([["dev-1", "developer"]]));
 
     await expect(service.roleFor(developerUser)).resolves.toBe("developer");
     await expect(service.roleFor(reviewerUser)).resolves.toBe("reviewer");
   });
 
   it("maps viewer to reviewer", async () => {
-    const service = new StaticAuthorizationService(undefined, new Map([["viewer-1", "viewer"]]));
+    const service = new InMemoryRoleAuthorizationService(undefined, new Map([["viewer-1", "viewer"]]));
     const viewerUser = { id: "viewer-1" };
 
     await expect(service.roleFor(viewerUser)).resolves.toBe("reviewer");
   });
 
   it("maps unknown roles to reviewer", async () => {
-    const service = new StaticAuthorizationService(undefined, new Map([["custom-1", "custom-role"]]));
+    const service = new InMemoryRoleAuthorizationService(undefined, new Map([["custom-1", "custom-role"]]));
     const customUser = { id: "custom-1" };
 
     await expect(service.roleFor(customUser)).resolves.toBe("custom-role");
   });
 
   it("defaults to reviewer for unknown users", async () => {
-    const service = new StaticAuthorizationService();
+    const service = new InMemoryRoleAuthorizationService();
 
     await expect(service.roleFor({ id: "unknown" })).resolves.toBe("reviewer");
   });
@@ -104,28 +104,28 @@ describe("StaticAuthorizationService", () => {
 
 describe("setRole", () => {
   it("sets a role for a user", async () => {
-    const service = new StaticAuthorizationService();
+    const service = new InMemoryRoleAuthorizationService();
 
     service.setRole("user-1", "developer");
     await expect(service.roleFor({ id: "user-1" })).resolves.toBe("developer");
   });
 
   it("overwrites an existing role", async () => {
-    const service = new StaticAuthorizationService(undefined, new Map([["user-1", "reviewer"]]));
+    const service = new InMemoryRoleAuthorizationService(undefined, new Map([["user-1", "reviewer"]]));
 
     service.setRole("user-1", "developer");
     await expect(service.roleFor({ id: "user-1" })).resolves.toBe("developer");
   });
 
   it("stores arbitrary role strings", async () => {
-    const service = new StaticAuthorizationService();
+    const service = new InMemoryRoleAuthorizationService();
 
     service.setRole("user-1", "custom-role");
     await expect(service.roleFor({ id: "user-1" })).resolves.toBe("custom-role");
   });
 
   it("returns initial roles from the constructor map", async () => {
-    const service = new StaticAuthorizationService(undefined, new Map([["dev-1", "developer"]]));
+    const service = new InMemoryRoleAuthorizationService(undefined, new Map([["dev-1", "developer"]]));
 
     await expect(service.roleFor({ id: "dev-1" })).resolves.toBe("developer");
     await expect(service.roleFor({ id: "unknown" })).resolves.toBe("reviewer");
@@ -134,7 +134,7 @@ describe("setRole", () => {
 
 describe("hasCapability", () => {
   it("returns true when role has the capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
       new Map([["admin-1", "admin"]]),
     );
@@ -145,7 +145,7 @@ describe("hasCapability", () => {
   });
 
   it("returns false when role lacks the capability", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ developer: ["workspace_read", "workspace_mutate"] }),
       new Map([["dev-1", "developer"]]),
     );
@@ -155,7 +155,7 @@ describe("hasCapability", () => {
   });
 
   it("returns false for reviewer without feedback capabilities", async () => {
-    const service = new StaticAuthorizationService(
+    const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ reviewer: ["workspace_read"] }),
     );
 
@@ -166,7 +166,7 @@ describe("hasCapability", () => {
 
 describe("backwards compatibility (no explicit capabilities)", () => {
   it("allows mutate for custom roles that have mutating tools", async () => {
-    const service = new StaticAuthorizationService({
+    const service = new InMemoryRoleAuthorizationService({
       getAll() {
         return Promise.resolve([]);
       },
@@ -192,7 +192,7 @@ describe("backwards compatibility (no explicit capabilities)", () => {
   });
 
   it("denies mutate for custom roles without mutating tools", async () => {
-    const service = new StaticAuthorizationService({
+    const service = new InMemoryRoleAuthorizationService({
       getAll() {
         return Promise.resolve([]);
       },
@@ -218,7 +218,7 @@ describe("backwards compatibility (no explicit capabilities)", () => {
   });
 
   it("denies mutate for read-only roles that can use Bash", async () => {
-    const service = new StaticAuthorizationService({
+    const service = new InMemoryRoleAuthorizationService({
       getAll() {
         return Promise.resolve([]);
       },
@@ -244,7 +244,7 @@ describe("backwards compatibility (no explicit capabilities)", () => {
   });
 
   it("denies mutate for custom roles with mutating tools but read-only permission mode", async () => {
-    const service = new StaticAuthorizationService({
+    const service = new InMemoryRoleAuthorizationService({
       getAll() {
         return Promise.resolve([]);
       },
@@ -269,3 +269,6 @@ describe("backwards compatibility (no explicit capabilities)", () => {
     expect(decision.allowed).toBe(false);
   });
 });
+
+
+

@@ -11,6 +11,18 @@ const llmConfigSchema = z.object({
   maxTokens: z.number().int().positive().optional(),
 });
 
+const contextConfigSchema = z.object({
+  autoCompactEnabled: z.boolean().default(true),
+  autoCompactWindow: z.number().int().positive().default(150_000),
+  workspaceMaxChars: z.number().int().positive().default(8_000),
+  historyMaxMessages: z.number().int().positive().default(20),
+}).default(() => ({
+  autoCompactEnabled: true,
+  autoCompactWindow: 150_000,
+  workspaceMaxChars: 8_000,
+  historyMaxMessages: 20,
+}));
+
 const runtimeConfigSchema = z.object({
   port: z.number().int().positive().default(3000),
   host: z.string().min(1).default("0.0.0.0"),
@@ -30,6 +42,7 @@ const runtimeConfigSchema = z.object({
     maxReconnectAttempts: z.number().int().optional(),
   }).default({ botId: "dev-bot-id", secret: "dev-secret" }),
   llm: llmConfigSchema,
+  context: contextConfigSchema,
 });
 
 export type WechatConfig = {
@@ -38,6 +51,13 @@ export type WechatConfig = {
   readonly wsUrl?: string;
   readonly reconnectInterval?: number;
   readonly maxReconnectAttempts?: number;
+};
+
+export type ContextConfig = {
+  readonly autoCompactEnabled: boolean;
+  readonly autoCompactWindow: number;
+  readonly workspaceMaxChars: number;
+  readonly historyMaxMessages: number;
 };
 
 export type RuntimeConfig = {
@@ -51,6 +71,7 @@ export type RuntimeConfig = {
   readonly enableDevRoutes: boolean;
   readonly wechat: WechatConfig;
   readonly llm: ResolvedLlmConfig;
+  readonly context: ContextConfig;
 };
 
 export async function loadRuntimeConfig(

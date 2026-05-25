@@ -1,20 +1,20 @@
-/**
+﻿/**
  * WeChat Smart Bot adapter using @wecom/aibot-node-sdk (WebSocket long connection).
  *
  * This adapter replaces the previous HTTP callback (XML self-built app) approach.
  * It connects to WeChat's WebSocket server, receives messages, bridges them
- * to the MessageHandler, and streams responses back.
+ * to the MessageGateway, and streams responses back.
  *
- * Architecture: channel adapter -> core ports (same as before, just different transport)
+ * Architecture: channel adapter -> core contracts.
  */
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import type { WsFrame, TextMessage, EventMessage } from "@wecom/aibot-node-sdk";
-import type { ConversationLogger, InboundMessage, MessageHandler, OutboundMessage } from "../core/ports.js";
+import type { ConversationLogger, InboundMessage, MessageGateway, OutboundMessage } from "../core/contracts.js";
 
 export type WechatAdapterConfig = {
   readonly botId: string;
   readonly secret: string;
-  readonly messageHandler: MessageHandler;
+  readonly messageHandler: MessageGateway;
   readonly conversationLogger?: ConversationLogger;
   readonly eventLogger?: ConversationLogger;
   /**
@@ -173,3 +173,4 @@ export function stripBotMention(content: string): string {
   const mentionPattern = /^@\S+\s*/;
   return content.replace(mentionPattern, "").trim();
 }
+

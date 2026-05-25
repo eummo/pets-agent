@@ -18,10 +18,16 @@ type ChatResult = {
   readonly toolCalls: readonly string[];
 };
 
+type ProgressEvent = {
+  readonly stage?: string;
+  readonly message?: string;
+};
+
 const config = await loadRuntimeConfig();
 const baseUrl = process.env["SMOKE_BASE_URL"] ?? `http://127.0.0.1:${config.port}`;
 const conversationLogPath = path.resolve(config.logDir, "conversation.jsonl");
 const llmRawLogPath = path.resolve(config.logDir, "llm-raw.jsonl");
+const systemLogPath = path.resolve(config.logDir, "system.jsonl");
 const dbPath = config.dbPath;
 const firstCaseText = "What is the current project for?";
 const resetCaseText = "What is the current project after reset?";
@@ -49,6 +55,8 @@ const cases = [
 
 async function main(): Promise<void> {
   await assertHealthy();
+  await assertDevEventsStreamConnects();
+  await assertDevChatPathTraversalDenied();
 
   // Pi-ai smoke: verify complete() works with the configured Anthropic endpoint
   await assertPiAiComplete();
@@ -65,7 +73,7 @@ async function main(): Promise<void> {
   const feedbackText = "Please update the documentation with the latest order lifecycle.";
   const feedbackResult = await chat(feedbackText, feedbackUserId);
   assertIncludes(feedbackResult.text, ["记录"], "reviewer-update-recorded-as-feedback");
-  assertFeedbackRecorded(feedbackUserId, feedbackText, "update_kb");
+  const feedbackId = assertFeedbackRecorded(feedbackUserId, feedbackText, "update_kb");
   assertFeedbackTimestampLocal(feedbackUserId, "reviewer-update-recorded-as-feedback");
   console.info("[pass] reviewer-update-recorded-as-feedback");
 
@@ -96,6 +104,10 @@ async function main(): Promise<void> {
   }
   console.info("[pass] admin-can-view-feedback");
 
+  await updateFeedbackStatus(feedbackId, "reviewed", "smoke-admin");
+  assertFeedbackStatus(feedbackId, "reviewed", "admin-can-update-feedback-status");
+  console.info("[pass] admin-can-update-feedback-status");
+
   // Reviewer cannot access feedback
   await setRole("smoke-reviewer-no-feedback", "reviewer");
   const deniedFeedbackResponse = await fetch(`${baseUrl}/dev/feedback?userId=smoke-reviewer-no-feedback`);
@@ -113,6 +125,7 @@ async function main(): Promise<void> {
   // Verify logs
   await assertLogContains(conversationLogPath, ["conversation.turn", "smoke-user", firstCaseText]);
   await assertLogContainsAny(llmRawLogPath, ["llm.response"]);
+  await assertContextUsageLogged();
   console.info("[pass] logs-written");
 }
 
@@ -121,6 +134,41 @@ async function assertHealthy(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Health check failed: ${response.status}`);
   }
+}
+
+async function assertDevEventsStreamConnects(): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  const response = await fetch(`${baseUrl}/dev/events?userId=smoke-events-user`, {
+    signal: controller.signal,
+  });
+
+  try {
+    if (!response.ok) {
+      throw new Error(`Events stream failed: ${response.status}`);
+    }
+    if (response.body === null) {
+      throw new Error("Events stream response had no body.");
+    }
+
+    const event = await readFirstSseData<ProgressEvent>(response.body);
+    if (event.stage !== "events.connected") {
+      throw new Error(`Expected events.connected progress event, got: ${JSON.stringify(event)}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+
+  console.info("[pass] dev-events-stream-connects");
+}
+
+async function assertDevChatPathTraversalDenied(): Promise<void> {
+  const response = await fetch(`${baseUrl}/dev/chat/..%2F..%2Fpackage.json`);
+  if (response.status !== 403) {
+    throw new Error(`Expected dev static path traversal to return 403, got ${response.status}`);
+  }
+  console.info("[pass] dev-chat-path-traversal-denied");
 }
 
 async function chat(text: string, userId = "smoke-user"): Promise<ChatResult> {
@@ -183,6 +231,54 @@ async function setRole(userId: string, role: string): Promise<void> {
   }
 }
 
+async function updateFeedbackStatus(id: number, status: "reviewed" | "resolved", userId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/dev/feedback/${id}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify({
+      userId,
+      status
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Feedback status update failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+async function readFirstSseData<T>(body: ReadableStream<Uint8Array>): Promise<T> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        throw new Error("SSE stream ended before sending data.");
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const eventBoundary = buffer.indexOf("\n\n");
+      if (eventBoundary === -1) {
+        continue;
+      }
+
+      const eventText = buffer.slice(0, eventBoundary);
+      const dataLine = eventText.split("\n").find((line) => line.startsWith("data: "));
+      if (dataLine === undefined) {
+        throw new Error(`SSE event did not include a data line: ${eventText}`);
+      }
+
+      return JSON.parse(dataLine.slice(6)) as T;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
 function assertIncludes(text: string, expectedValues: readonly string[], caseName: string): void {
   const normalizedText = text.toLowerCase();
   for (const expected of expectedValues) {
@@ -219,6 +315,33 @@ async function assertLogContainsAny(filePath: string, expectedValues: readonly s
   }
 }
 
+async function assertContextUsageLogged(): Promise<void> {
+  const content = await readFile(systemLogPath, "utf8");
+  const usageEvents = content
+    .split(/\r?\n/)
+    .filter((line) => line.includes('"type":"context.usage"') && line.includes('"userId":"smoke-user"'));
+
+  if (usageEvents.length === 0) {
+    throw new Error(`Expected ${systemLogPath} to include a context.usage event for smoke-user.`);
+  }
+
+  const latest = JSON.parse(usageEvents[usageEvents.length - 1] ?? "{}") as {
+    readonly inputTokens?: unknown;
+    readonly outputTokens?: unknown;
+    readonly contextWindow?: unknown;
+    readonly usagePercent?: unknown;
+  };
+
+  if (
+    typeof latest.inputTokens !== "number"
+    || typeof latest.outputTokens !== "number"
+    || typeof latest.contextWindow !== "number"
+    || typeof latest.usagePercent !== "number"
+  ) {
+    throw new Error(`context.usage event is missing numeric token fields: ${JSON.stringify(latest)}.`);
+  }
+}
+
 async function assertNoLlmResponseForUser(userId: string): Promise<void> {
   const content = await readFile(llmRawLogPath, "utf8");
 
@@ -227,22 +350,43 @@ async function assertNoLlmResponseForUser(userId: string): Promise<void> {
   }
 }
 
-function assertFeedbackRecorded(userId: string, text: string, intentType: string): void {
+function assertFeedbackRecorded(userId: string, text: string, intentType: string): number {
   const db = new Database(dbPath, { readonly: true });
   try {
     const row = db.prepare(`
-      SELECT user_message, intent_type, status
+      SELECT id, user_message, intent_type, status
       FROM feedback
       WHERE user_id = ?
       ORDER BY id DESC
       LIMIT 1
-    `).get(userId) as { readonly user_message: string; readonly intent_type: string; readonly status: string } | undefined;
+    `).get(userId) as { readonly id: number; readonly user_message: string; readonly intent_type: string; readonly status: string } | undefined;
 
     if (row === undefined) {
       throw new Error(`Expected feedback row for ${userId}.`);
     }
     if (row.user_message !== text || row.intent_type !== intentType || row.status !== "pending") {
       throw new Error(`Unexpected feedback row: ${JSON.stringify(row)}.`);
+    }
+    return row.id;
+  } finally {
+    db.close();
+  }
+}
+
+function assertFeedbackStatus(id: number, expectedStatus: string, caseName: string): void {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const row = db.prepare(`
+      SELECT status
+      FROM feedback
+      WHERE id = ?
+    `).get(id) as { readonly status: string } | undefined;
+
+    if (row === undefined) {
+      throw new Error(`[${caseName}] Expected feedback row ${id}.`);
+    }
+    if (row.status !== expectedStatus) {
+      throw new Error(`[${caseName}] Expected feedback ${id} status ${expectedStatus}, got ${row.status}.`);
     }
   } finally {
     db.close();
