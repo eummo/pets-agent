@@ -20,7 +20,13 @@ export type OutboundMessage = {
   readonly sessionId?: string;
 };
 
-export type MessageHandler = {
+/**
+ * Unified entry point for all user-facing channels.
+ *
+ * Channel adapters convert browser, HTTP, or WeChat payloads into InboundMessage,
+ * call handle(), then translate OutboundMessage back to their own response format.
+ */
+export type MessageGateway = {
   handle(message: InboundMessage): Promise<OutboundMessage>;
 };
 

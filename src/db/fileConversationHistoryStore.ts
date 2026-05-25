@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/ports.js";
+import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/contracts.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredHistory = {
@@ -135,3 +135,4 @@ function withExistingArchives(file: HistoryStoreFile, existingFile: HistoryStore
     archives: existingFile.archives
   };
 }
+

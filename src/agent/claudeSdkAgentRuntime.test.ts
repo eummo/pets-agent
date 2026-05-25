@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+﻿import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStreamEvent, StoredRoleConfig } from "../core/ports.js";
+import type { AgentStreamEvent, StoredRoleConfig } from "../core/contracts.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { ClaudeSdkAgentRuntime } from "./claudeSdkAgentRuntime.js";
 
@@ -435,3 +435,4 @@ function firstQueryCall(): { readonly prompt: string; readonly options: Record<s
 function isCanUseTool(value: unknown): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
   return typeof value === "function";
 }
+

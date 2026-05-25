@@ -1,5 +1,5 @@
-import type { ServerResponse } from "node:http";
-import type { AgentProgressEvent, ChannelUser, ProgressReporter } from "../core/ports.js";
+﻿import type { ServerResponse } from "node:http";
+import type { AgentProgressEvent, ChannelUser, ProgressReporter } from "../core/contracts.js";
 import { writeSse } from "./sseUtils.js";
 
 type Subscriber = {
@@ -47,3 +47,4 @@ export class SseProgressBroker implements ProgressReporter {
     return Promise.resolve();
   }
 }
+

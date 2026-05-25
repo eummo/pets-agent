@@ -1,8 +1,8 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+﻿import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
-import type { AgentConversationMessage, IntentDetectionService, UserIntent, UserRole } from "../core/ports.js";
+import type { AgentConversationMessage, IntentDetectionService, UserIntent, UserRole } from "../core/contracts.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
 Given a user message, conversation history (if any), and their current role, classify the intent into exactly one of:
@@ -101,3 +101,4 @@ function buildIntentUserContent(userMessage: string, role: UserRole, history?: r
     userMessage,
   ].join("\n");
 }
+

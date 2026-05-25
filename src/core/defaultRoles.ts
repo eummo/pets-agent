@@ -1,4 +1,4 @@
-import type { StoredRoleConfig } from "./ports.js";
+﻿import type { StoredRoleConfig } from "./contracts.js";
 
 export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
   {
@@ -52,3 +52,4 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
   },
 ];
+

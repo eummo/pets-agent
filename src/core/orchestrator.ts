@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AgentConversationMessage,
   AgentRequest,
   AgentRuntime,
@@ -15,12 +15,12 @@ import type {
   IntentDetectionService,
   KnowledgeWorkspace,
   KnowledgeWorkspaceResolver,
-  MessageHandler,
+  MessageGateway,
   OutboundMessage,
   ProgressReporter,
   UserIntent,
   UserRole
-} from "./ports.js";
+} from "./contracts.js";
 
 export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
@@ -36,7 +36,7 @@ export type OrchestratorDependencies = {
   readonly feedbackStore?: FeedbackStore | undefined;
 };
 
-export class AgentOrchestrator implements MessageHandler {
+export class AgentOrchestrator implements MessageGateway {
   private readonly runtimeCache: Map<string, AgentRuntime>;
   private readonly runtimeCacheOrder: string[];
   private readonly maxCacheSize: number;
@@ -366,3 +366,4 @@ function formatInternalError(error: unknown): string {
 
   return error.message.split("\n")[0] ?? "Unknown error.";
 }
+

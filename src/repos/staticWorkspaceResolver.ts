@@ -1,11 +1,11 @@
-import { readFile, stat } from "node:fs/promises";
+﻿import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type {
   InboundMessage,
   KnowledgeWorkspace,
   KnowledgeWorkspaceResolver
-} from "../core/ports.js";
+} from "../core/contracts.js";
 
 export type StaticWorkspaceResolverOptions = {
   readonly knowledgeBasePath: string;
@@ -103,3 +103,4 @@ export class StaticWorkspaceResolver implements KnowledgeWorkspaceResolver {
 function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
+

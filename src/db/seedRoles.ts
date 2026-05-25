@@ -1,4 +1,4 @@
-import type { RoleConfigStore, StoredRoleConfig } from "../core/ports.js";
+﻿import type { RoleConfigStore, StoredRoleConfig } from "../core/contracts.js";
 import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 
 export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
@@ -53,3 +53,4 @@ function maxTurnsToRaise(existing: StoredRoleConfig, nextDefault: StoredRoleConf
 function mergeTools(left: readonly string[], right: readonly string[]): readonly string[] {
   return [...new Set([...left, ...right])];
 }
+

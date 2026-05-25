@@ -1,11 +1,11 @@
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+﻿import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import {
   registerFauxProvider,
   fauxAssistantMessage,
   fauxText,
   fauxThinking,
 } from "@earendil-works/pi-ai";
-import type { StoredRoleConfig } from "../core/ports.js";
+import type { StoredRoleConfig } from "../core/contracts.js";
 import { LlmBashPermissionDecider } from "./llmBashPermissionDecider.js";
 
 const roleConfig: StoredRoleConfig = {
@@ -86,3 +86,4 @@ describe("LlmBashPermissionDecider", () => {
     expect(result.behavior).toBe("deny");
   });
 });
+

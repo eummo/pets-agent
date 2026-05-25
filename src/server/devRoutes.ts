@@ -1,8 +1,8 @@
-import { readFile, stat } from "node:fs/promises";
+﻿import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
-import type { AgentStreamEvent, AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
+import type { AgentStreamEvent, AuthorizationService, FeedbackStore, MessageGateway, RoleConfigStore } from "../core/contracts.js";
 import type { SseProgressBroker } from "./sseProgressBroker.js";
 import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
 import { writeSse } from "./sseUtils.js";
@@ -34,7 +34,7 @@ type DevFeedbackQuery = {
 };
 
 export type DevRoutesOptions = {
-  readonly messageHandler: MessageHandler;
+  readonly messageHandler: MessageGateway;
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
@@ -278,3 +278,4 @@ function isPathOutsideDirectory(filePath: string, directoryPath: string): boolea
   const relativePath = path.relative(directoryPath, filePath);
   return relativePath.startsWith("..") || path.isAbsolute(relativePath);
 }
+

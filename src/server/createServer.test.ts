@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { AuthorizationService, FeedbackEntry, MessageHandler, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/ports.js";
+﻿import { describe, expect, it } from "vitest";
+import type { AuthorizationService, FeedbackEntry, MessageGateway, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/contracts.js";
 import { StaticAuthorizationService } from "../security/staticAuthorizationService.js";
 import { createServer } from "./createServer.js";
 
@@ -247,7 +247,7 @@ describe("feedback endpoints", () => {
   });
 });
 
-const echoHandler: MessageHandler = {
+const echoHandler: MessageGateway = {
   handle(message) {
     const result: OutboundMessage = { text: `received: ${message.text}` };
     return Promise.resolve(result);
@@ -282,3 +282,4 @@ function makeAuthorization(roleCapabilities: Record<string, readonly RoleCapabil
     },
   };
 }
+

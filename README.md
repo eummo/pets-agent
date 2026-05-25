@@ -1,4 +1,4 @@
-# Pets Agent
+﻿# Pets Agent
 
 基于 Claude Agent SDK 的角色化知识库助手服务。
 
@@ -51,7 +51,7 @@ npm run dev
 src/
 ├── index.ts              入口：组装依赖、启动服务
 ├── core/                 核心层（纯业务逻辑，无外部依赖）
-│   ├── ports.ts            接口定义
+│   ├── contracts.ts        系统契约
 │   └── orchestrator.ts     编排器：路由消息到对应角色 runtime
 ├── agent/                Agent 适配层
 │   └── claudeSdkAgentRuntime.ts  基于 SDK 的双角色 runtime
@@ -67,7 +67,7 @@ src/
 └── harness/              开发沙箱工具
 ```
 
-依赖方向：外层依赖内层，内层不依赖外层。`core/ports.ts` 是系统契约层。
+依赖方向：外层依赖内层，内层不依赖外层。`core/contracts.ts` 是系统契约层。
 
 ## LLM 配置
 
@@ -102,3 +102,4 @@ API 密钥通过环境变量提供，不写入配置文件。
 npm run check    # 类型检查、lint、单元测试、构建
 npm run smoke    # 运行时回归测试（需先 npm run dev）
 ```
+

@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
-import type { FeedbackEntry, FeedbackQuery, FeedbackStore, FeedbackStatus, UserIntent } from "../core/ports.js";
+﻿import type Database from "better-sqlite3";
+import type { FeedbackEntry, FeedbackQuery, FeedbackStore, FeedbackStatus, UserIntent } from "../core/contracts.js";
 
 type FeedbackRow = {
   readonly id: number;
@@ -111,3 +111,4 @@ function clampLimit(limit: number | undefined): number {
   }
   return Math.min(Math.max(Math.trunc(limit), 1), 500);
 }
+

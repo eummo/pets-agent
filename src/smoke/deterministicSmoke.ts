@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+﻿import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
@@ -12,7 +12,7 @@ import type {
   FeedbackEntry,
   FeedbackStore,
   UserIntent,
-} from "../core/ports.js";
+} from "../core/contracts.js";
 import { AgentOrchestrator } from "../core/orchestrator.js";
 import { StaticWorkspaceResolver } from "../repos/staticWorkspaceResolver.js";
 import { createServer } from "../server/createServer.js";
@@ -135,3 +135,4 @@ class MemoryFeedbackStore implements FeedbackStore {
 }
 
 await main();
+

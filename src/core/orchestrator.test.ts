@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import type {
   AuthorizationService,
   ConversationHistoryStore,
@@ -9,7 +9,7 @@ import type {
   IntentDetectionService,
   KnowledgeWorkspaceResolver,
   UserIntent
-} from "./ports.js";
+} from "./contracts.js";
 import { AgentOrchestrator } from "./orchestrator.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
 
@@ -859,3 +859,4 @@ class MemoryFeedbackStore implements FeedbackStore {
     return Promise.resolve(this.entries);
   }
 }
+

@@ -1,6 +1,6 @@
-import { buildPiModel, type ResolvedLlmConfig } from "../config/llmConfig.js";
+﻿import { buildPiModel, type ResolvedLlmConfig } from "../config/llmConfig.js";
 import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
-import type { AgentRuntime, AgentRuntimeFactory, RoleConfigStore } from "../core/ports.js";
+import type { AgentRuntime, AgentRuntimeFactory, RoleConfigStore } from "../core/contracts.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { ClaudeSdkAgentRuntime } from "./claudeSdkAgentRuntime.js";
 import { LlmBashPermissionDecider } from "./llmBashPermissionDecider.js";
@@ -83,3 +83,4 @@ function createToolPermissionDecider(resolvedLlmConfig: ResolvedLlmConfig) {
   const permissionModel = buildPiModel(resolvedLlmConfig);
   return new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;
 }
+

@@ -1,10 +1,10 @@
-import Fastify, { type FastifyInstance } from "fastify";
-import type { AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
+﻿import Fastify, { type FastifyInstance } from "fastify";
+import type { AuthorizationService, FeedbackStore, MessageGateway, RoleConfigStore } from "../core/contracts.js";
 import { registerDevRoutes, type DevRoutesOptions } from "./devRoutes.js";
 import type { SseProgressBroker } from "./sseProgressBroker.js";
 
 export type CreateServerOptions = {
-  readonly messageHandler: MessageHandler;
+  readonly messageHandler: MessageGateway;
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
@@ -35,3 +35,4 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
 
   return server;
 }
+

@@ -1,9 +1,9 @@
-import { readFile } from "node:fs/promises";
+﻿import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime, AgentStreamEvent, StoredRoleConfig } from "../core/ports.js";
-import { FILE_MUTATION_TOOLS } from "../core/ports.js";
+import type { AgentRequest, AgentResponse, AgentRuntime, AgentStreamEvent, StoredRoleConfig } from "../core/contracts.js";
+import { FILE_MUTATION_TOOLS } from "../core/contracts.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 // ─── Role Configuration ──────────────────────────────────────────────────────
@@ -298,3 +298,4 @@ function denyTool(roleName: string, toolName: string): PermissionResult {
     decisionClassification: "user_reject",
   };
 }
+

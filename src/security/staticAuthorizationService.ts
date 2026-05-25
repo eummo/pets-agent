@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationService,
@@ -8,8 +8,8 @@ import type {
   RoleConfigStore,
   StoredRoleConfig,
   UserRole
-} from "../core/ports.js";
-import { FILE_MUTATION_TOOLS } from "../core/ports.js";
+} from "../core/contracts.js";
+import { FILE_MUTATION_TOOLS } from "../core/contracts.js";
 
 // Maps AuthorizationAction to the required RoleCapability
 const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {
@@ -91,3 +91,4 @@ function configAllowsMutation(config: StoredRoleConfig): boolean {
 
   return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
 }
+

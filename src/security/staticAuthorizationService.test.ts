@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { StaticAuthorizationService } from "./staticAuthorizationService.js";
-import type { RoleCapability, RoleConfigStore } from "../core/ports.js";
+import type { RoleCapability, RoleConfigStore } from "../core/contracts.js";
 
 const reviewerUser = { id: "reviewer-1" };
 const developerUser = { id: "dev-1" };
@@ -269,3 +269,4 @@ describe("backwards compatibility (no explicit capabilities)", () => {
     expect(decision.allowed).toBe(false);
   });
 });
+
