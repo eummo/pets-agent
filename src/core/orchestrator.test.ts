@@ -487,6 +487,8 @@ describe("AgentOrchestrator", () => {
     expect(context).toContain("answer 6");
     // The current message that triggered the feedback should also be included
     expect(context).toContain("user: 请修改代码");
+    // The denial response should be included in the conversation context
+    expect(context).toContain("assistant: 我已识别到这是修改请求");
   });
 
   it("returns a generic error for non-API-key runtime failures", async () => {

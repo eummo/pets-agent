@@ -243,6 +243,9 @@ export class AgentOrchestrator implements MessageHandler {
     const contextParts = (history ?? []).map((m) => `${m.role}: ${m.content}`);
     // Include the current user message since it hasn't been appended to history yet
     contextParts.push(`user: ${message.text}`);
+    // Include the denial response so admin sees the full conversation
+    const denialResponse = responseForDeniedIntent(intent);
+    contextParts.push(`assistant: ${denialResponse}`);
     const conversationContext = contextParts.join("\n");
 
     await this.dependencies.feedbackStore.save({
