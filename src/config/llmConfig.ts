@@ -4,14 +4,22 @@ import { z } from "zod";
 
 const DEFAULT_MAX_TOKENS = 256;
 
+export type LlmConfig = {
+  readonly baseUrl: string;
+  readonly apiKeyEnv: string;
+  readonly modelId: string;
+  readonly maxTokens?: number | undefined;
+};
+
+// Compile-time check: schema output must satisfy LlmConfig.
+// If you add/remove/rename a field in the schema without updating LlmConfig,
+// TypeScript will error here — catching mismatches before they reach VSCode or runtime.
 const llmConfigSchema = z.object({
   baseUrl: z.url(),
   apiKeyEnv: z.string().min(1),
   modelId: z.string().min(1),
   maxTokens: z.number().int().positive().optional(),
-});
-
-export type LlmConfig = z.infer<typeof llmConfigSchema>;
+}) satisfies z.ZodType<LlmConfig>;
 
 export type ResolvedLlmConfig = LlmConfig & {
   readonly apiKey: string;
