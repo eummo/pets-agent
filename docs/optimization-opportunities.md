@@ -4,7 +4,7 @@
 
 本清单基于当前仓库静态扫描、关键路径阅读和 `npm run check` 结果整理。项目当前类型检查、lint、单元测试和构建均通过；以下内容不是已确认线上故障，而是按稳定性、性能、可维护性和扩展性排序的后续优化机会。
 
-更新说明：2026-05-25 二次检查时，工作树中已经包含一批优化改动，包括 file conversation store 从 `src/core` 迁移到 `src/db`、增加 `FileMutex`、拆分 server dev/wechat routes、增加 LLM retry、收紧 dev role/feedback 本地访问，以及将 runtime 错误响应改为更安全的用户提示。下面的清单已按当前工作树重新校准。
+更新说明：2026-05-25 二次检查时，工作树中已经包含一批优化改动，包括 file conversation store 从 `src/core` 迁移到 `src/persistence`、增加 `FileMutex`、拆分 server dev/wechat routes、增加 LLM retry、收紧 dev role/feedback 本地访问，以及将 runtime 错误响应改为更安全的用户提示。下面的清单已按当前工作树重新校准。
 
 实施状态：2026-05-25 已按建议实施顺序完成大部分优化，包括意图分类确定性兜底、runtime cache key 配置版本化、`FileMutex` 清理与并发测试、JSONL logger 写队列、workspace resolver 缓存与诊断日志、feedback 分页/索引、dev 前端错误渲染与加载更多、retry 退避、静态资源路径加固、deterministic smoke、DB role config 运行时校验、`tsconfig.test.json` 清理、pi-ai/Vitest patch 升级、composition root 拆分和 system 事件日志。Claude Agent SDK patch 升级暂缓，因为 `0.3.150` 要求 Zod 4，而当前项目仍在 Zod 3。
 
@@ -86,9 +86,9 @@
 
 证据位置：
 
-- `src/repos/staticWorkspaceResolver.ts:53` 每次匹配前调用 `loadRepositories()`。
-- `src/repos/staticWorkspaceResolver.ts:65` 每次从磁盘读取配置。
-- `src/repos/staticWorkspaceResolver.ts:67` catch 后直接返回空数组。
+- `src/workspace/configuredWorkspaceResolver.ts:53` 每次匹配前调用 `loadRepositories()`。
+- `src/workspace/configuredWorkspaceResolver.ts:65` 每次从磁盘读取配置。
+- `src/workspace/configuredWorkspaceResolver.ts:67` catch 后直接返回空数组。
 
 影响：
 
@@ -104,9 +104,9 @@
 
 证据位置：
 
-- `src/db/sqliteFeedbackStore.ts:74` 的 `getAll()` 返回所有 feedback。
-- `src/db/sqliteFeedbackStore.ts:90` 仅按 id 倒序排序。
-- `src/db/sqliteConnection.ts:16` 的 feedback 表没有按 status/user/workspace 的索引。
+- `src/persistence/sqliteFeedbackStore.ts:74` 的 `getAll()` 返回所有 feedback。
+- `src/persistence/sqliteFeedbackStore.ts:90` 仅按 id 倒序排序。
+- `src/persistence/sqliteConnection.ts:16` 的 feedback 表没有按 status/user/workspace 的索引。
 
 影响：
 
@@ -157,9 +157,9 @@
 
 证据位置：
 
-- `src/db/fileStoreUtils.ts` 新增了 `FileMutex`。
-- `src/db/fileConversationSessionStore.ts` 和 `src/db/fileConversationHistoryStore.ts` 已在写路径使用 `mutex.acquire()`。
-- 当前 `src/db/fileConversationSessionStore.test.ts`、`src/db/fileConversationHistoryStore.test.ts` 仍主要覆盖串行读写，没有覆盖并发写入。
+- `src/persistence/fileStoreUtils.ts` 新增了 `FileMutex`。
+- `src/persistence/fileConversationSessionStore.ts` 和 `src/persistence/fileConversationHistoryStore.ts` 已在写路径使用 `mutex.acquire()`。
+- 当前 `src/persistence/fileConversationSessionStore.test.ts`、`src/persistence/fileConversationHistoryStore.test.ts` 仍主要覆盖串行读写，没有覆盖并发写入。
 
 风险：
 
@@ -192,7 +192,7 @@
 
 证据位置：
 
-- `src/server/devRoutes.ts` 已把 dev 页面、role、feedback 路由拆出。
+- `src/server/devRoutes.ts` 已把 dev 页面、role、feedback 路由拆到独立模块。
 - role 和 feedback 管理接口已检查 `isLocalRequest(request.ip)`。
 - 静态资源路由仍使用 `path.join(devChatDir, relativePath)` 后做 `startsWith(devChatDir)`。
 
@@ -211,8 +211,8 @@
 
 证据位置：
 
-- `src/db/sqliteRoleConfigStore.ts:15` 解析 capabilities 后直接断言类型。
-- `src/db/sqliteRoleConfigStore.ts:19` 解析 allowedTools 后直接断言 `string[]`。
+- `src/persistence/sqliteRoleConfigStore.ts:15` 解析 capabilities 后直接断言类型。
+- `src/persistence/sqliteRoleConfigStore.ts:19` 解析 allowedTools 后直接断言 `string[]`。
 
 建议：
 

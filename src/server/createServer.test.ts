@@ -1,6 +1,6 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { AuthorizationService, FeedbackEntry, MessageGateway, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/contracts.js";
-import { StaticAuthorizationService } from "../security/staticAuthorizationService.js";
+import { InMemoryRoleAuthorizationService } from "../auth/inMemoryRoleAuthorizationService.js";
 import { createServer } from "./createServer.js";
 
 describe("createServer", () => {
@@ -61,7 +61,7 @@ describe("createServer", () => {
   });
 
   it("rejects role management from non-local clients", async () => {
-    const authorization = new StaticAuthorizationService();
+    const authorization = new InMemoryRoleAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
       authorization
@@ -81,7 +81,7 @@ describe("createServer", () => {
   });
 
   it("sets development roles from the browser", async () => {
-    const authorization = new StaticAuthorizationService();
+    const authorization = new InMemoryRoleAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
       authorization
@@ -102,7 +102,7 @@ describe("createServer", () => {
   });
 
   it("accepts reviewer role", async () => {
-    const authorization = new StaticAuthorizationService();
+    const authorization = new InMemoryRoleAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
       authorization
@@ -282,4 +282,3 @@ function makeAuthorization(roleCapabilities: Record<string, readonly RoleCapabil
     },
   };
 }
-

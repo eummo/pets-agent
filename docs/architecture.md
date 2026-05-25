@@ -1,4 +1,4 @@
-﻿# Architecture
+# Architecture
 
 This service is a layered gateway for knowledge-base and workspace agents. Users may send messages
 from TUI, HTTP APIs, browser pages, Enterprise WeChat, or future channels, but every channel must
@@ -82,8 +82,8 @@ Domain services answer business questions for the gateway:
 - `RoleConfigStore`: stores role prompts, capabilities, model selection, and allowed tools.
 - session and history stores keep conversation continuity independent of the channel.
 
-Database-backed implementations belong in `src/db`. Static or development implementations may live
-in focused adapter folders such as `src/security` or `src/repos`.
+Database-backed implementations belong in `src/persistence`. Static or development implementations may live
+in focused adapter folders such as `src/auth` or `src/workspace`.
 
 ### 4. Agent Runtime Adapters
 
@@ -110,7 +110,7 @@ callbacks.
 Infrastructure modules provide storage, logging, configuration, and server lifecycle:
 
 - `src/config`: model and endpoint configuration
-- `src/db`: SQLite-backed role and feedback stores
+- `src/persistence`: SQLite-backed role and feedback stores
 - `src/logging`: JSONL logs
 - `src/harness`: local workspace fixture and smoke harness
 - `src/index.ts`: composition root that wires concrete adapters into system contracts
@@ -180,4 +180,3 @@ core gateway      -> core contracts only
 
 Provider-specific code stays behind adapters. The gateway decides business flow; adapters translate
 between the outside world and stable system contracts.
-

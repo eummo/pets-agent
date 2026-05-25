@@ -7,7 +7,7 @@ import type {
   KnowledgeWorkspaceResolver
 } from "../core/contracts.js";
 
-export type StaticWorkspaceResolverOptions = {
+export type ConfiguredWorkspaceResolverOptions = {
   readonly knowledgeBasePath: string;
   readonly repositoriesConfigPath?: string;
   readonly logger?: { write(event: Record<string, unknown>): Promise<void> };
@@ -25,11 +25,11 @@ const repositoriesConfigSchema = z.object({
 
 type RepositoryConfig = z.infer<typeof repositoriesConfigSchema>["repositories"][number];
 
-export class StaticWorkspaceResolver implements KnowledgeWorkspaceResolver {
+export class ConfiguredWorkspaceResolver implements KnowledgeWorkspaceResolver {
   private cachedRepositories: readonly RepositoryConfig[] | undefined;
   private cachedMtimeMs: number | undefined;
 
-  public constructor(private readonly options: StaticWorkspaceResolverOptions) {}
+  public constructor(private readonly options: ConfiguredWorkspaceResolverOptions) {}
 
   public async resolve(message: InboundMessage): Promise<readonly KnowledgeWorkspace[]> {
     const repository = await this.findMatchingRepository(message.text);
@@ -103,4 +103,5 @@ export class StaticWorkspaceResolver implements KnowledgeWorkspaceResolver {
 function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
+
 

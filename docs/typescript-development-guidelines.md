@@ -1,4 +1,4 @@
-﻿# TypeScript Development Guidelines
+# TypeScript Development Guidelines
 
 Use these guidelines when adding or changing TypeScript code in this project. They complement the
 required workflow in `docs/development-workflow.md` and the contracts/adapters boundary in
@@ -44,7 +44,7 @@ required workflow in `docs/development-workflow.md` and the contracts/adapters b
 ## Naming
 
 - Name contracts by capability: `AgentRuntime`, `AuthorizationService`, `KnowledgeWorkspaceResolver`.
-- Name adapters by implementation or transport: `ClaudeSdkAgentRuntime`, `StaticAuthorizationService`.
+- Name adapters by implementation or transport: `ClaudeSdkAgentRuntime`, `InMemoryRoleAuthorizationService`.
 - Name booleans as predicates: `allowed`, `isStreaming`, `hasSession`.
 - Name functions by the observable action: `resolve`, `can`, `append`, `archive`.
 - Avoid vague buckets such as `utils`, `helpers`, or `manager` unless the file is very small and
@@ -76,4 +76,3 @@ required workflow in `docs/development-workflow.md` and the contracts/adapters b
 - Are errors safe for users and logs safe for secrets?
 - Is there a focused unit or smoke regression for changed behavior?
 - Do `npm run check` and, for runtime behavior, `npm run smoke` pass?
-

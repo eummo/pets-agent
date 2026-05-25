@@ -3,7 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import type { StoredRoleConfig } from "../core/contracts.js";
-import type { ToolPermissionDecider } from "./claudeSdkAgentRuntime.js";
+import type { ToolPermissionDecider } from "./claudeToolPolicy.js";
 
 const BASH_PERMISSION_SYSTEM_PROMPT = `You are a Bash command permission classifier.
 Decide whether a Bash command is read-only inspection.

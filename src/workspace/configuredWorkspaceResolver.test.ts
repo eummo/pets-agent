@@ -1,10 +1,10 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+﻿import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { StaticWorkspaceResolver } from "./staticWorkspaceResolver.js";
+import { ConfiguredWorkspaceResolver } from "./configuredWorkspaceResolver.js";
 
-describe("StaticWorkspaceResolver", () => {
+describe("ConfiguredWorkspaceResolver", () => {
   it("routes repository aliases to source repository workspaces", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "pets-agent-repos-"));
     const repositoriesConfigPath = path.join(root, "repos.json");
@@ -21,7 +21,7 @@ describe("StaticWorkspaceResolver", () => {
       })
     );
 
-    const resolver = new StaticWorkspaceResolver({
+    const resolver = new ConfiguredWorkspaceResolver({
       knowledgeBasePath: path.join(root, "knowledge-base"),
       repositoriesConfigPath
     });
@@ -48,7 +48,7 @@ describe("StaticWorkspaceResolver", () => {
     const repositoriesConfigPath = path.join(root, "repos.json");
     await writeRepositoriesConfig(repositoriesConfigPath, "order-service", ["订单系统"]);
 
-    const resolver = new StaticWorkspaceResolver({
+    const resolver = new ConfiguredWorkspaceResolver({
       knowledgeBasePath: path.join(root, "knowledge-base"),
       repositoriesConfigPath
     });
@@ -71,7 +71,7 @@ describe("StaticWorkspaceResolver", () => {
     const events: Record<string, unknown>[] = [];
     await writeFile(repositoriesConfigPath, "{ invalid json", "utf8");
 
-    const resolver = new StaticWorkspaceResolver({
+    const resolver = new ConfiguredWorkspaceResolver({
       knowledgeBasePath: path.join(root, "knowledge-base"),
       repositoriesConfigPath,
       logger: {
@@ -115,7 +115,7 @@ async function writeRepositoriesConfig(
   );
 }
 
-function resolveText(resolver: StaticWorkspaceResolver, text: string) {
+function resolveText(resolver: ConfiguredWorkspaceResolver, text: string) {
   return resolver.resolve({
     id: "1",
     channel: "test",
@@ -124,3 +124,5 @@ function resolveText(resolver: StaticWorkspaceResolver, text: string) {
     receivedAt: new Date()
   });
 }
+
+

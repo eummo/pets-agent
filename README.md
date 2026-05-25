@@ -1,4 +1,4 @@
-﻿# Pets Agent
+# Pets Agent
 
 基于 Claude Agent SDK 的角色化知识库助手服务。
 
@@ -59,10 +59,11 @@ src/
 │   ├── createServer.ts     Fastify 路由
 │   ├── dev-chat/           前端资源（html/css/js）
 │   └── sseProgressBroker.ts   SSE 进度推送
-├── security/             安全层（角色鉴权）
+├── auth/                 授权适配（角色与能力）
 ├── wechat/               企业微信适配
 ├── config/               配置加载
-├── repos/                工作区解析
+├── persistence/          持久化适配（SQLite 与文件存储）
+├── workspace/            工作区解析
 ├── logging/              日志
 └── harness/              开发沙箱工具
 ```
@@ -102,4 +103,3 @@ API 密钥通过环境变量提供，不写入配置文件。
 npm run check    # 类型检查、lint、单元测试、构建
 npm run smoke    # 运行时回归测试（需先 npm run dev）
 ```
-

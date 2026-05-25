@@ -4,7 +4,6 @@
   AgentRuntime,
   AgentRuntimeFactory,
   AgentStreamEvent,
-  AuthorizationAction,
   AuthorizationService,
   ConversationHistoryStore,
   ConversationLogger,
@@ -21,6 +20,11 @@
   UserIntent,
   UserRole
 } from "./contracts.js";
+import { handleCommandWithoutWorkspace, isNewConversationCommand } from "./conversationCommands.js";
+import { actionForIntent, responseForDeniedIntent } from "./intentAuthorization.js";
+import { RuntimeCache } from "./runtimeCache.js";
+import { formatInternalError, formatSafeRuntimeError } from "./runtimeErrorFormatter.js";
+import { progressEventForAgentStreamEvent } from "./streamProgressMapper.js";
 
 export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
@@ -37,18 +41,14 @@ export type OrchestratorDependencies = {
 };
 
 export class AgentOrchestrator implements MessageGateway {
-  private readonly runtimeCache: Map<string, AgentRuntime>;
-  private readonly runtimeCacheOrder: string[];
-  private readonly maxCacheSize: number;
+  private readonly runtimeCache: RuntimeCache;
 
   public constructor(private readonly dependencies: OrchestratorDependencies) {
-    this.runtimeCache = new Map(Object.entries(dependencies.agentRuntimes));
-    this.runtimeCacheOrder = Object.keys(dependencies.agentRuntimes);
-    this.maxCacheSize = 16;
+    this.runtimeCache = new RuntimeCache(dependencies.agentRuntimes, dependencies.runtimeFactory);
   }
 
   public async handle(message: InboundMessage): Promise<OutboundMessage> {
-    const commandResponse = this.handleCommandWithoutWorkspace(message);
+    const commandResponse = handleCommandWithoutWorkspace(message);
     if (commandResponse !== undefined) {
       await this.logConversation(message, commandResponse.text);
       return commandResponse;
@@ -62,7 +62,7 @@ export class AgentOrchestrator implements MessageGateway {
     }
     await this.logEvent("workspace.resolved", message, { workspaceId: workspace.id, workspaceKind: workspace.kind, workspacePath: workspace.path });
 
-    if (this.isNewConversationCommand(message)) {
+    if (isNewConversationCommand(message)) {
       const response = await this.startNewConversation(message, workspace.path);
       await this.logConversation(message, response.text, workspace.path);
       return response;
@@ -126,19 +126,7 @@ export class AgentOrchestrator implements MessageGateway {
   }
 
   private async resolveRuntime(role: string): Promise<AgentRuntime | undefined> {
-    const cacheKey = await this.runtimeCacheKeyForRole(role);
-    let runtime = this.runtimeCache.get(cacheKey);
-    if (runtime === undefined && this.dependencies.runtimeFactory !== undefined) {
-      const created = await this.dependencies.runtimeFactory.createRuntime(role);
-      if (created !== undefined) {
-        this.cacheRuntime(cacheKey, created);
-        runtime = created;
-      }
-    }
-    if (runtime === undefined && this.dependencies.runtimeFactory === undefined) {
-      runtime = this.runtimeCache.get(role);
-    }
-    return runtime;
+    return this.runtimeCache.resolve(role);
   }
 
   private async executeRuntime(
@@ -183,45 +171,6 @@ export class AgentOrchestrator implements MessageGateway {
     }
   }
 
-  private handleCommandWithoutWorkspace(message: InboundMessage): OutboundMessage | undefined {
-    const normalizedText = message.text.trim().toLowerCase();
-
-    if (normalizedText === "/help") {
-      return {
-        text: [
-          "Available commands:",
-          "/new - start a fresh conversation",
-          "/help - show this help message"
-        ].join("\n")
-      };
-    }
-
-    return undefined;
-  }
-
-  private cacheRuntime(role: string, runtime: AgentRuntime): void {
-    this.runtimeCache.set(role, runtime);
-    this.runtimeCacheOrder.push(role);
-    while (this.runtimeCacheOrder.length > this.maxCacheSize) {
-      const oldest = this.runtimeCacheOrder.shift();
-      if (oldest !== undefined) {
-        this.runtimeCache.delete(oldest);
-      }
-    }
-  }
-
-  private async runtimeCacheKeyForRole(role: string): Promise<string> {
-    if (this.dependencies.runtimeFactory?.cacheKeyForRole === undefined) {
-      return role;
-    }
-
-    return await this.dependencies.runtimeFactory.cacheKeyForRole(role) ?? role;
-  }
-
-  private isNewConversationCommand(message: InboundMessage): boolean {
-    return message.text.trim().toLowerCase() === "/new";
-  }
-
   private async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
     return this.dependencies.intentDetection.detectIntent(userMessage, role, history);
   }
@@ -263,7 +212,7 @@ export class AgentOrchestrator implements MessageGateway {
 
     if (sessionId !== undefined) {
       const role = await this.dependencies.authorization.roleFor(message.user);
-      const runtime = this.runtimeCache.get(role);
+      const runtime = this.runtimeCache.getCachedByRole(role);
       if (runtime !== undefined) {
         await runtime.disposeSession(sessionId);
       }
@@ -320,50 +269,7 @@ export class AgentOrchestrator implements MessageGateway {
   }
 
   private publishStreamEvent(message: InboundMessage, event: AgentStreamEvent): void {
-    const stage = event.type === "text_delta" ? "agent.text_delta"
-      : event.type === "tool_use_start" ? "agent.tool_use_start"
-      : event.type === "tool_use_result" ? "agent.tool_use_result"
-      : event.type === "thinking" ? "agent.thinking"
-      : event.type === "completed" ? "agent.completed"
-      : "agent.error";
-
-    void this.publishProgress(message, {
-      stage,
-      message: stage,
-      data: event,
-    });
+    void this.publishProgress(message, progressEventForAgentStreamEvent(event));
   }
-}
-
-function actionForIntent(intent: UserIntent): AuthorizationAction | undefined {
-  return intent.type === "mutate" || intent.type === "update_kb" ? "mutate" : undefined;
-}
-
-function responseForDeniedIntent(intent: UserIntent): string {
-  if (intent.type === "update_kb") {
-    return "感谢您的反馈！我已记录您希望更新知识库的请求。当前文档助手权限仅支持查看知识库，不支持修改内容。您的请求已保存，管理员将尽快审核处理。";
-  }
-
-  return "我已识别到这是修改请求，但你当前是文档助手权限，只能查看知识库，不能修改文件。您的请求已记录，管理员将尽快审核处理。";
-}
-
-function formatSafeRuntimeError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "Model call failed due to an unexpected error. Please try again later.";
-  }
-
-  if (error.message.includes("invalid api key")) {
-    return "Model call failed: API key is invalid or not configured. Contact an administrator.";
-  }
-
-  return "Model call failed. The service encountered an error processing your request. Please try again later.";
-}
-
-function formatInternalError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-
-  return error.message.split("\n")[0] ?? "Unknown error.";
 }
 
