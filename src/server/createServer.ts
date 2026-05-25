@@ -16,6 +16,7 @@ export type CreateServerOptions = {
 };
 
 export function createServer(options: CreateServerOptions): FastifyInstance {
+  const enableDevRoutes = options.enableDevRoutes !== false;
   const server = Fastify({ logger: options.logger ?? false });
 
   server.addContentTypeParser(
@@ -31,7 +32,7 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
     service: "pets-agent"
   }));
 
-  if (options.enableDevRoutes !== false) {
+  if (enableDevRoutes) {
     const devOptions: DevRoutesOptions = {
       messageHandler: options.messageHandler,
       roleConfigStore: options.roleConfigStore,

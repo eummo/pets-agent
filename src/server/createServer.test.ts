@@ -201,6 +201,18 @@ describe("createServer", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("<![CDATA[Only text messages are supported for now. Received: image.]]>");
   });
+
+  it("disables dev routes when enableDevRoutes is false", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token",
+      enableDevRoutes: false
+    });
+
+    const response = await server.inject({ method: "GET", url: "/" });
+
+    expect(response.statusCode).toBe(404);
+  });
 });
 
 describe("feedback endpoints", () => {
