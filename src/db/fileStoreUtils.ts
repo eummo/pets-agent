@@ -2,7 +2,7 @@ import path from "node:path";
 import type { ConversationSessionKey } from "../core/ports.js";
 
 export function serializeSessionKey(key: ConversationSessionKey): string {
-  return JSON.stringify([key.channel, key.userId, path.resolve(key.workspacePath)]);
+  return JSON.stringify([key.channel, key.userId, path.resolve(key.workspacePath), key.chatId ?? ""]);
 }
 
 export function isFileNotFound(error: unknown): boolean {

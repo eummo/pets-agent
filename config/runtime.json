@@ -8,7 +8,10 @@
   "historyStorePath": ".harness/state/history.json",
   "enableDevRoutes": true,
   "wechat": {
-    "token": "dev-token"
+    "botId": "dev-bot-id",
+    "secret": "dev-secret",
+    "botIdEnv": "WECOM_BOT_ID",
+    "secretEnv": "WECOM_BOT_SECRET"
   },
   "llm": {
     "baseUrl": "https://api.minimaxi.com/anthropic",

@@ -14,7 +14,7 @@ function validConfig(overrides: Record<string, unknown> = {}): Record<string, un
     sessionStorePath: ".harness/state/sessions.json",
     historyStorePath: ".harness/state/history.json",
     enableDevRoutes: true,
-    wechat: { token: "dev-token" },
+    wechat: { botId: "dev-bot-id", secret: "dev-secret" },
     llm: {
       baseUrl: "https://api.example.com",
       apiKeyEnv: "TEST_API_KEY",
@@ -34,7 +34,8 @@ describe("loadRuntimeConfig", () => {
     expect(config.port).toBe(3000);
     expect(config.host).toBe("0.0.0.0");
     expect(config.llm.apiKey).toBe("secret-key");
-    expect(config.wechat.token).toBe("dev-token");
+    expect(config.wechat.botId).toBe("dev-bot-id");
+    expect(config.wechat.secret).toBe("dev-secret");
   });
 
   it("applies defaults for optional fields", async () => {
@@ -52,7 +53,8 @@ describe("loadRuntimeConfig", () => {
     expect(config.port).toBe(3000);
     expect(config.host).toBe("0.0.0.0");
     expect(config.enableDevRoutes).toBe(true);
-    expect(config.wechat.token).toBe("dev-token");
+    expect(config.wechat.botId).toBe("dev-bot-id");
+    expect(config.wechat.secret).toBe("dev-secret");
   });
 
   it("reports missing config file with path", async () => {

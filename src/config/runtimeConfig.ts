@@ -21,10 +21,24 @@ const runtimeConfigSchema = z.object({
   historyStorePath: z.string().min(1).default(".harness/state/history.json"),
   enableDevRoutes: z.boolean().default(true),
   wechat: z.object({
-    token: z.string().min(1).default("dev-token"),
-  }).default({ token: "dev-token" }),
+    botId: z.string().min(1).default("dev-bot-id"),
+    secret: z.string().min(1).default("dev-secret"),
+    botIdEnv: z.string().min(1).optional(),
+    secretEnv: z.string().min(1).optional(),
+    wsUrl: z.string().min(1).optional(),
+    reconnectInterval: z.number().int().positive().optional(),
+    maxReconnectAttempts: z.number().int().optional(),
+  }).default({ botId: "dev-bot-id", secret: "dev-secret" }),
   llm: llmConfigSchema,
 });
+
+export type WechatConfig = {
+  readonly botId: string;
+  readonly secret: string;
+  readonly wsUrl?: string;
+  readonly reconnectInterval?: number;
+  readonly maxReconnectAttempts?: number;
+};
 
 export type RuntimeConfig = {
   readonly port: number;
@@ -35,9 +49,7 @@ export type RuntimeConfig = {
   readonly sessionStorePath: string;
   readonly historyStorePath: string;
   readonly enableDevRoutes: boolean;
-  readonly wechat: {
-    readonly token: string;
-  };
+  readonly wechat: WechatConfig;
   readonly llm: ResolvedLlmConfig;
 };
 
@@ -66,5 +78,22 @@ export async function loadRuntimeConfig(
   }
 
   const resolvedLlm = resolveLlmConfig(parsed.data.llm, env);
-  return { ...parsed.data, llm: resolvedLlm };
+  const wechat: WechatConfig = {
+    botId: resolveEnvOrDirect(parsed.data.wechat.botId, parsed.data.wechat.botIdEnv, env),
+    secret: resolveEnvOrDirect(parsed.data.wechat.secret, parsed.data.wechat.secretEnv, env),
+    ...(parsed.data.wechat.wsUrl !== undefined ? { wsUrl: parsed.data.wechat.wsUrl } : {}),
+    ...(parsed.data.wechat.reconnectInterval !== undefined ? { reconnectInterval: parsed.data.wechat.reconnectInterval } : {}),
+    ...(parsed.data.wechat.maxReconnectAttempts !== undefined ? { maxReconnectAttempts: parsed.data.wechat.maxReconnectAttempts } : {}),
+  };
+  return { ...parsed.data, llm: resolvedLlm, wechat };
+}
+
+function resolveEnvOrDirect(directValue: string, envName: string | undefined, env: NodeJS.ProcessEnv): string {
+  if (envName !== undefined) {
+    const envValue = env[envName];
+    if (envValue !== undefined && envValue.length > 0) {
+      return envValue;
+    }
+  }
+  return directValue;
 }

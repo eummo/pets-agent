@@ -280,7 +280,8 @@ export class AgentOrchestrator implements MessageHandler {
     return {
       channel: message.channel,
       userId: message.user.id,
-      workspacePath
+      workspacePath,
+      ...(message.chatId !== undefined ? { chatId: message.chatId } : {}),
     };
   }
 

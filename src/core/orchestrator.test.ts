@@ -661,6 +661,85 @@ describe("AgentOrchestrator", () => {
 
     expect(response.text).toContain("No runtime configured for role: admin");
   });
+
+  it("isolates sessions by chatId for group chats", async () => {
+    const store = new MemorySessionStore();
+    const historyStore = new MemoryHistoryStore();
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
+      sessionStore: store,
+      historyStore,
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run(request) {
+            return Promise.resolve({ text: "response", sessionId: request.sessionId ?? "s-new" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    // Same user, different group chats = different sessions
+    await orchestrator.handle(testMessage("hello", "user-1", "1", "group-A"));
+    await orchestrator.handle(testMessage("hello", "user-1", "2", "group-B"));
+
+    const sessionKeyA: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb", chatId: "group-A" };
+    const sessionKeyB: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb", chatId: "group-B" };
+
+    await expect(store.get(sessionKeyA)).resolves.toBe("s-new");
+    await expect(store.get(sessionKeyB)).resolves.toBe("s-new");
+
+    // Verify they are stored as separate entries
+    const historyA = await historyStore.get(sessionKeyA);
+    const historyB = await historyStore.get(sessionKeyB);
+    expect(historyA).toHaveLength(2);
+    expect(historyB).toHaveLength(2);
+  });
+
+  it("isolates group chat session from single chat session for the same user", async () => {
+    const store = new MemorySessionStore();
+    const historyStore = new MemoryHistoryStore();
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      intentDetection: stubIntentDetection,
+      sessionStore: store,
+      historyStore,
+      agentRuntimes: {
+        reviewer: {
+          name: "runtime",
+          run() {
+            return Promise.resolve({ text: "response", sessionId: "s-1" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    // User in group chat
+    await orchestrator.handle(testMessage("group msg", "user-1", "1", "group-X"));
+    // Same user in single chat (no chatId)
+    await orchestrator.handle(testMessage("single msg", "user-1", "2"));
+
+    const groupKey: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb", chatId: "group-X" };
+    const singleKey: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
+
+    await expect(store.get(groupKey)).resolves.toBe("s-1");
+    await expect(store.get(singleKey)).resolves.toBe("s-1");
+
+    // Both sessions exist independently
+    const groupHistory = await historyStore.get(groupKey);
+    const singleHistory = await historyStore.get(singleKey);
+    expect(groupHistory).toHaveLength(2);
+    expect(singleHistory).toHaveLength(2);
+  });
 });
 
 const workspaceResolver: KnowledgeWorkspaceResolver = {
@@ -697,13 +776,14 @@ const developerAuthorization: AuthorizationService = {
   }
 };
 
-function testMessage(text: string, userId = "user-1", id = "1") {
+function testMessage(text: string, userId = "user-1", id = "1", chatId?: string) {
   return {
     id,
     channel: "test",
     user: { id: userId },
     text,
-    receivedAt: new Date()
+    receivedAt: new Date(),
+    ...(chatId !== undefined ? { chatId } : {}),
   };
 }
 

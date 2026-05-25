@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AuthorizationService, FeedbackEntry, MessageHandler, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/ports.js";
 import { StaticAuthorizationService } from "../security/staticAuthorizationService.js";
-import { createWechatSignature } from "../wechat/signature.js";
 import { createServer } from "./createServer.js";
 
 describe("createServer", () => {
   it("serves health checks", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token"
     });
 
     const response = await server.inject({ method: "GET", url: "/health" });
@@ -20,7 +18,6 @@ describe("createServer", () => {
   it("serves the development chat page", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token"
     });
 
     const response = await server.inject({ method: "GET", url: "/" });
@@ -34,7 +31,6 @@ describe("createServer", () => {
   it("rejects path traversal attempts for development chat assets", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token"
     });
 
     const response = await server.inject({ method: "GET", url: "/dev/chat/..%2F..%2Fpackage.json" });
@@ -45,7 +41,6 @@ describe("createServer", () => {
   it("routes browser chat messages via SSE streaming", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token"
     });
 
     const response = await server.inject({
@@ -69,7 +64,6 @@ describe("createServer", () => {
     const authorization = new StaticAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       authorization
     });
 
@@ -90,7 +84,6 @@ describe("createServer", () => {
     const authorization = new StaticAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       authorization
     });
 
@@ -112,7 +105,6 @@ describe("createServer", () => {
     const authorization = new StaticAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       authorization
     });
 
@@ -130,82 +122,9 @@ describe("createServer", () => {
     await expect(authorization.roleFor({ id: "browser-user" })).resolves.toBe("reviewer");
   });
 
-  it("verifies WeChat callback requests", async () => {
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = createWechatSignature("token", timestamp, "nonce");
-    const server = createServer({
-      messageHandler: echoHandler,
-      wechatToken: "token"
-    });
-
-    const response = await server.inject({
-      method: "GET",
-      url: `/wechat/callback?signature=${signature}&timestamp=${timestamp}&nonce=nonce&echostr=ok`
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toBe("ok");
-  });
-
-  it("routes WeChat text messages to the message handler", async () => {
-    const server = createServer({
-      messageHandler: echoHandler,
-      wechatToken: "token"
-    });
-
-    const response = await server.inject({
-      method: "POST",
-      url: "/wechat/callback",
-      headers: {
-        "content-type": "application/xml"
-      },
-      payload: [
-        "<xml>",
-        "<ToUserName><![CDATA[agent]]></ToUserName>",
-        "<FromUserName><![CDATA[user-1]]></FromUserName>",
-        "<CreateTime>1700000000</CreateTime>",
-        "<MsgType><![CDATA[text]]></MsgType>",
-        "<Content><![CDATA[hello]]></Content>",
-        "<MsgId>42</MsgId>",
-        "</xml>"
-      ].join("")
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("<![CDATA[received: hello]]>");
-  });
-
-  it("returns a friendly reply for unsupported WeChat message types", async () => {
-    const server = createServer({
-      messageHandler: echoHandler,
-      wechatToken: "token"
-    });
-
-    const response = await server.inject({
-      method: "POST",
-      url: "/wechat/callback",
-      headers: {
-        "content-type": "application/xml"
-      },
-      payload: [
-        "<xml>",
-        "<ToUserName><![CDATA[agent]]></ToUserName>",
-        "<FromUserName><![CDATA[user-1]]></FromUserName>",
-        "<CreateTime>1700000000</CreateTime>",
-        "<MsgType><![CDATA[image]]></MsgType>",
-        "<MsgId>43</MsgId>",
-        "</xml>"
-      ].join("")
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("<![CDATA[Only text messages are supported for now. Received: image.]]>");
-  });
-
   it("disables dev routes when enableDevRoutes is false", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       enableDevRoutes: false
     });
 
@@ -219,7 +138,6 @@ describe("feedback endpoints", () => {
   it("returns 501 when feedback store is not configured", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
     });
 
     const response = await server.inject({
@@ -233,7 +151,6 @@ describe("feedback endpoints", () => {
   it("returns 403 when user lacks feedback_view capability", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "reviewer-1": ["workspace_read"] }),
     });
@@ -249,7 +166,6 @@ describe("feedback endpoints", () => {
   it("returns feedback list for user with feedback_view capability", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
     });
@@ -268,7 +184,6 @@ describe("feedback endpoints", () => {
   it("rejects feedback access from non-local clients", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
     });
@@ -285,7 +200,6 @@ describe("feedback endpoints", () => {
   it("returns 403 when updating feedback without feedback_manage capability", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "dev-1": ["workspace_read", "workspace_mutate", "feedback_view"] }),
     });
@@ -302,7 +216,6 @@ describe("feedback endpoints", () => {
   it("updates feedback status with feedback_manage capability", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
     });
@@ -320,7 +233,6 @@ describe("feedback endpoints", () => {
   it("returns 404 when updating missing feedback", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      wechatToken: "token",
       feedbackStore: makeFeedbackStore({ existingIds: [1] }),
       authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
     });

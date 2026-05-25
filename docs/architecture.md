@@ -37,7 +37,7 @@ Channel adapters own transport details and nothing else. They parse inbound payl
 Current examples:
 
 - HTTP and browser dev page routes in `src/server/createServer.ts`
-- Enterprise WeChat XML parsing and replies in `src/wechat`
+- Enterprise WeChat smart bot adapter (WebSocket long connection) in `src/wechat/wechatSmartBotAdapter.ts`
 
 Future examples:
 
@@ -132,7 +132,9 @@ Important ports:
 - `KnowledgeWorkspaceResolver`: workspace or knowledge-base selection.
 - `FeedbackStore`: denied intent capture.
 - `RoleConfigStore`: role, prompt, capability, tool, and model configuration.
-- `ConversationSessionStore` and `ConversationHistoryStore`: channel-independent conversation state.
+- `ConversationSessionStore` and `ConversationHistoryStore`: channel-independent conversation state,
+  keyed by `(channel, userId, workspacePath, chatId?)`. The optional `chatId` isolates group chats
+  from each other and from single chats within the same channel.
 
 ## Adding A New Channel
 

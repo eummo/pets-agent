@@ -8,6 +8,7 @@
  * - Intent detection: Routes incoming requests to appropriate intents using LLM
  * - Stores: Persist sessions, conversation history, role configs, and feedback
  * - Server: HTTP/WebSocket server handling incoming messages and progress updates
+ * - WeChat adapter: WebSocket long connection to Enterprise WeChat smart bot
  */
 import path from "node:path";
 import "dotenv/config";
@@ -27,6 +28,7 @@ import { StaticWorkspaceResolver } from "./repos/staticWorkspaceResolver.js";
 import { createServer } from "./server/createServer.js";
 import { SseProgressBroker } from "./server/sseProgressBroker.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
+import { WechatSmartBotAdapter } from "./wechat/wechatSmartBotAdapter.js";
 
 export async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -71,9 +73,10 @@ export async function main(): Promise<void> {
     intentDetection,
     feedbackStore,
   });
+
+  // Start HTTP server for dev browser and health checks
   const server = createServer({
     messageHandler: orchestrator,
-    wechatToken: config.wechat.token,
     roleConfigStore,
     feedbackStore,
     authorization,
@@ -90,6 +93,30 @@ export async function main(): Promise<void> {
   console.info(`conversation log: ${conversationLogger.filePath}`);
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
   console.info(`database: ${config.dbPath}`);
+
+  // Start WeChat smart bot adapter (WebSocket long connection)
+  const wechatAdapter = new WechatSmartBotAdapter({
+    botId: config.wechat.botId,
+    secret: config.wechat.secret,
+    messageHandler: orchestrator,
+    conversationLogger,
+    eventLogger: systemLogger,
+    ...(config.wechat.wsUrl !== undefined ? { wsUrl: config.wechat.wsUrl } : {}),
+    ...(config.wechat.reconnectInterval !== undefined ? { reconnectInterval: config.wechat.reconnectInterval } : {}),
+    ...(config.wechat.maxReconnectAttempts !== undefined ? { maxReconnectAttempts: config.wechat.maxReconnectAttempts } : {}),
+  });
+  wechatAdapter.connect();
+  console.info(`WeChat smart bot connected: botId=${config.wechat.botId}`);
+
+  // Graceful shutdown
+  const shutdown = (): void => {
+    console.info("Shutting down...");
+    wechatAdapter.disconnect();
+    void server.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 await main();

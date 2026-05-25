@@ -2,11 +2,9 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
 import { registerDevRoutes, type DevRoutesOptions } from "./devRoutes.js";
 import type { SseProgressBroker } from "./sseProgressBroker.js";
-import { registerWechatRoutes, type WechatRoutesOptions } from "./wechatRoutes.js";
 
 export type CreateServerOptions = {
   readonly messageHandler: MessageHandler;
-  readonly wechatToken: string;
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
@@ -18,14 +16,6 @@ export type CreateServerOptions = {
 export function createServer(options: CreateServerOptions): FastifyInstance {
   const enableDevRoutes = options.enableDevRoutes !== false;
   const server = Fastify({ logger: options.logger ?? false });
-
-  server.addContentTypeParser(
-    ["application/xml", "text/xml", "text/plain"],
-    { parseAs: "string" },
-    (_request, payload, done) => {
-      done(null, payload);
-    }
-  );
 
   server.get("/health", () => ({
     ok: true,
@@ -42,12 +32,6 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
     };
     registerDevRoutes(server, devOptions);
   }
-
-  const wechatOptions: WechatRoutesOptions = {
-    messageHandler: options.messageHandler,
-    wechatToken: options.wechatToken,
-  };
-  registerWechatRoutes(server, wechatOptions);
 
   return server;
 }

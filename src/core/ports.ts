@@ -12,6 +12,7 @@ export type InboundMessage = {
   readonly text: string;
   readonly receivedAt: Date;
   readonly stream?: AgentStreamPublisher;
+  readonly chatId?: string;
 };
 
 export type OutboundMessage = {
@@ -80,6 +81,7 @@ export type ConversationSessionKey = {
   readonly channel: string;
   readonly userId: string;
   readonly workspacePath: string;
+  readonly chatId?: string;
 };
 
 export type ConversationSessionStore = {

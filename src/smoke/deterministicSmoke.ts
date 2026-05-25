@@ -47,7 +47,6 @@ async function main(): Promise<void> {
   });
   const server = createServer({
     messageHandler: orchestrator,
-    wechatToken: "token",
     feedbackStore,
     authorization,
   });
