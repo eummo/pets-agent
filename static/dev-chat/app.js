@@ -6,6 +6,8 @@ const input = document.querySelector("#message-input");
 const button = document.querySelector("#send-button");
 const feedbackList = document.querySelector("#feedback-list");
 const refreshFeedback = document.querySelector("#refresh-feedback");
+const feedbackPageSize = 20;
+let feedbackOffset = 0;
 
 // ── Tab switching ──
 const tabs = document.querySelectorAll(".tab");
@@ -237,27 +239,97 @@ function updateFeedbackTabVisibility() {
 
 async function loadFeedback() {
   if (!feedbackList) return;
-  feedbackList.innerHTML = '<div class="feedback-loading">加载中...</div>';
+  feedbackOffset = 0;
+  setFeedbackMessage("feedback-loading", "加载中...");
   try {
-    const response = await fetch("/dev/feedback?userId=" + encodeURIComponent(userIdEl.value));
+    await fetchFeedbackPage(false);
+  } catch (error) {
+    setFeedbackMessage("feedback-error", "加载失败: " + (error instanceof Error ? error.message : String(error)));
+  }
+}
+
+async function fetchFeedbackPage(append) {
+  const response = await fetch(
+    "/dev/feedback?userId=" + encodeURIComponent(userIdEl.value)
+      + "&limit=" + feedbackPageSize
+      + "&offset=" + feedbackOffset
+  );
     if (!response.ok) {
       const body = await response.json();
-      feedbackList.innerHTML = '<div class="feedback-error">' + (body.error || "无法加载反馈") + '</div>';
+    setFeedbackMessage("feedback-error", body.error || "无法加载反馈");
       return;
     }
     const data = await response.json();
     const entries = data.feedback || [];
-    if (entries.length === 0) {
-      feedbackList.innerHTML = '<div class="feedback-empty">暂无反馈记录</div>';
+  if (entries.length === 0 && !append) {
+    setFeedbackMessage("feedback-empty", "暂无反馈记录");
       return;
     }
-    feedbackList.innerHTML = "";
-    for (const entry of entries) {
-      feedbackList.append(createFeedbackCard(entry));
-    }
-  } catch (error) {
-    feedbackList.innerHTML = '<div class="feedback-error">加载失败: ' + (error instanceof Error ? error.message : String(error)) + '</div>';
+  removeLoadMoreButton();
+  if (!append) {
+    feedbackList.replaceChildren();
   }
+  for (const entry of entries) {
+    feedbackList.append(createFeedbackCard(entry));
+  }
+  feedbackOffset += entries.length;
+  if (entries.length === feedbackPageSize) {
+    feedbackList.append(createLoadMoreButton());
+  }
+}
+
+function setFeedbackMessage(className, text) {
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  feedbackList.replaceChildren(el);
+}
+
+function createLoadMoreButton() {
+  const button = document.createElement("button");
+  button.className = "feedback-btn";
+  button.type = "button";
+  button.dataset.feedbackLoadMore = "true";
+  button.textContent = "加载更多";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await fetchFeedbackPage(true);
+    } catch (error) {
+      addSystemMessage("加载更多反馈失败: " + (error instanceof Error ? error.message : String(error)));
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
+function removeLoadMoreButton() {
+  const existing = feedbackList.querySelector('[data-feedback-load-more="true"]');
+  existing?.remove();
+}
+
+function parseConversationContext(text) {
+  const messages = [];
+  const lines = text.split("\n");
+  let currentRole = null;
+  let currentContent = [];
+
+  for (const line of lines) {
+    if (line.startsWith("user: ") || line.startsWith("assistant: ")) {
+      if (currentRole !== null) {
+        messages.push({ role: currentRole, content: currentContent.join("\n") });
+      }
+      currentRole = line.startsWith("user:") ? "user" : "assistant";
+      currentContent = [line.slice(line.indexOf(": ") + 2)];
+    } else if (currentRole !== null) {
+      currentContent.push(line);
+    }
+  }
+  if (currentRole !== null) {
+    messages.push({ role: currentRole, content: currentContent.join("\n") });
+  }
+
+  return messages;
 }
 
 function createFeedbackCard(entry) {
@@ -294,11 +366,28 @@ function createFeedbackCard(entry) {
     const contextEl = document.createElement("details");
     contextEl.className = "feedback-context";
     const summary = document.createElement("summary");
-    summary.textContent = "对话上下文";
+    const contextLines = entry.conversationContext.split("\n");
+    const messageCount = contextLines.filter((line) => line.startsWith("user:") || line.startsWith("assistant:")).length;
+    summary.textContent = "完整对话上下文 (" + messageCount + " 条消息)";
     contextEl.append(summary);
-    const pre = document.createElement("pre");
-    pre.textContent = entry.conversationContext;
-    contextEl.append(pre);
+
+    // Parse conversation into structured messages for better readability
+    const messages = parseConversationContext(entry.conversationContext);
+    const container = document.createElement("div");
+    container.className = "feedback-context-messages";
+    for (const msg of messages) {
+      const msgEl = document.createElement("div");
+      msgEl.className = "feedback-context-msg feedback-context-msg-" + msg.role;
+      const roleLabel = document.createElement("span");
+      roleLabel.className = "feedback-context-role";
+      roleLabel.textContent = msg.role === "user" ? "用户" : "助手";
+      const contentEl = document.createElement("div");
+      contentEl.className = "feedback-context-content";
+      contentEl.textContent = msg.content;
+      msgEl.append(roleLabel, contentEl);
+      container.append(msgEl);
+    }
+    contextEl.append(container);
     card.append(contextEl);
   }
 

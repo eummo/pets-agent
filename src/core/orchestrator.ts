@@ -1,4 +1,5 @@
 import type {
+  AgentConversationMessage,
   AgentRequest,
   AgentRuntime,
   AgentRuntimeFactory,
@@ -20,6 +21,7 @@ import type {
   UserIntent,
   UserRole
 } from "./ports.js";
+import { fallbackIntentFor } from "./intentHeuristics.js";
 
 export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
@@ -29,6 +31,7 @@ export type OrchestratorDependencies = {
   readonly sessionStore?: ConversationSessionStore;
   readonly historyStore?: ConversationHistoryStore;
   readonly conversationLogger?: ConversationLogger;
+  readonly eventLogger?: ConversationLogger;
   readonly progressReporter?: ProgressReporter;
   readonly intentDetection?: IntentDetectionService | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
@@ -58,6 +61,7 @@ export class AgentOrchestrator implements MessageHandler {
       await this.logConversation(message, response.text);
       return response;
     }
+    await this.logEvent("workspace.resolved", message, { workspaceId: workspace.id, workspaceKind: workspace.kind, workspacePath: workspace.path });
 
     if (this.isNewConversationCommand(message)) {
       const response = await this.startNewConversation(message, workspace.path);
@@ -73,6 +77,7 @@ export class AgentOrchestrator implements MessageHandler {
     }
 
     const role = await this.dependencies.authorization.roleFor(message.user);
+    await this.logEvent("role.resolved", message, { role });
     const intentCheck = await this.checkIntentAuthorization(message, workspace, role);
     if (intentCheck !== undefined) {
       return intentCheck;
@@ -84,6 +89,7 @@ export class AgentOrchestrator implements MessageHandler {
       await this.logConversation(message, response.text, workspace.path);
       return response;
     }
+    await this.logEvent("runtime.selected", message, { role, runtime: runtime.name });
 
     return this.executeRuntime(message, workspace.path, role, runtime);
   }
@@ -98,13 +104,19 @@ export class AgentOrchestrator implements MessageHandler {
     workspace: { readonly path: string },
     role: UserRole,
   ): Promise<OutboundMessage | undefined> {
-    const intent = await this.detectIntent(message.text, role);
+    const sessionKey = this.createSessionKey(message, workspace.path);
+    const history = await this.dependencies.historyStore?.get(sessionKey);
+    const recentHistory = history?.slice(-4);
+
+    const intent = await this.detectIntent(message.text, role, recentHistory);
+    await this.logEvent("intent.classified", message, { role, intentType: intent.type, workspacePath: workspace.path });
     const requiredAction = actionForIntent(intent);
 
     if (requiredAction !== undefined) {
       const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace as KnowledgeWorkspace);
       if (!intentDecision.allowed) {
         await this.saveFeedback(message, workspace.path, intent, role);
+        await this.logEvent("permission.denied", message, { role, action: requiredAction, intentType: intent.type, workspacePath: workspace.path });
         const response = { text: responseForDeniedIntent(intent) };
         await this.logConversation(message, response.text, workspace.path);
         return response;
@@ -115,13 +127,17 @@ export class AgentOrchestrator implements MessageHandler {
   }
 
   private async resolveRuntime(role: string): Promise<AgentRuntime | undefined> {
-    let runtime = this.runtimeCache.get(role);
+    const cacheKey = await this.runtimeCacheKeyForRole(role);
+    let runtime = this.runtimeCache.get(cacheKey);
     if (runtime === undefined && this.dependencies.runtimeFactory !== undefined) {
       const created = await this.dependencies.runtimeFactory.createRuntime(role);
       if (created !== undefined) {
-        this.cacheRuntime(role, created);
+        this.cacheRuntime(cacheKey, created);
         runtime = created;
       }
+    }
+    if (runtime === undefined && this.dependencies.runtimeFactory === undefined) {
+      runtime = this.runtimeCache.get(role);
     }
     return runtime;
   }
@@ -195,15 +211,23 @@ export class AgentOrchestrator implements MessageHandler {
     }
   }
 
+  private async runtimeCacheKeyForRole(role: string): Promise<string> {
+    if (this.dependencies.runtimeFactory?.cacheKeyForRole === undefined) {
+      return role;
+    }
+
+    return await this.dependencies.runtimeFactory.cacheKeyForRole(role) ?? role;
+  }
+
   private isNewConversationCommand(message: InboundMessage): boolean {
     return message.text.trim().toLowerCase() === "/new";
   }
 
-  private async detectIntent(userMessage: string, role: UserRole): Promise<UserIntent> {
+  private async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
     if (this.dependencies.intentDetection === undefined) {
-      return { type: "query" };
+      return fallbackIntentFor(userMessage);
     }
-    return this.dependencies.intentDetection.detectIntent(userMessage, role);
+    return this.dependencies.intentDetection.detectIntent(userMessage, role, history);
   }
 
   private async saveFeedback(
@@ -216,7 +240,9 @@ export class AgentOrchestrator implements MessageHandler {
 
     const sessionKey = this.createSessionKey(message, workspacePath);
     const history = await this.dependencies.historyStore?.get(sessionKey);
-    const contextParts = (history ?? []).slice(-4).map((m) => `${m.role}: ${m.content}`);
+    const contextParts = (history ?? []).map((m) => `${m.role}: ${m.content}`);
+    // Include the current user message since it hasn't been appended to history yet
+    contextParts.push(`user: ${message.text}`);
     const conversationContext = contextParts.join("\n");
 
     await this.dependencies.feedbackStore.save({
@@ -272,6 +298,20 @@ export class AgentOrchestrator implements MessageHandler {
       input: message.text,
       output,
       workspacePath
+    });
+  }
+
+  private async logEvent(
+    type: string,
+    message: InboundMessage,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    await this.dependencies.eventLogger?.write({
+      type,
+      channel: message.channel,
+      messageId: message.id,
+      userId: message.user.id,
+      ...data,
     });
   }
 

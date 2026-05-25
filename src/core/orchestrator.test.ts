@@ -98,6 +98,77 @@ describe("AgentOrchestrator", () => {
     expect(developerCalled).toBe(false);
   });
 
+  it("writes internal event logs for workspace, role, intent, and runtime selection", async () => {
+    const events: Record<string, unknown>[] = [];
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      eventLogger: {
+        write(event) {
+          events.push(event);
+          return Promise.resolve();
+        }
+      },
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            return Promise.resolve({ text: "reviewer response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    await orchestrator.handle(testMessage("hello"));
+
+    expect(events.map((event) => event["type"])).toEqual([
+      "workspace.resolved",
+      "role.resolved",
+      "intent.classified",
+      "runtime.selected",
+    ]);
+  });
+
+  it("writes internal event logs when permission is denied", async () => {
+    const events: Record<string, unknown>[] = [];
+    const feedbackStore = new MemoryFeedbackStore();
+    const intentDetection: IntentDetectionService = {
+      detectIntent() {
+        return Promise.resolve({ type: "mutate" });
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      feedbackStore,
+      intentDetection,
+      eventLogger: {
+        write(event) {
+          events.push(event);
+          return Promise.resolve();
+        }
+      },
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            return Promise.resolve({ text: "runtime" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    await orchestrator.handle(testMessage("modify files"));
+
+    expect(events.map((event) => event["type"])).toContain("permission.denied");
+  });
+
   it("uses developer runtime for developer users", async () => {
     let reviewerCalled = false;
     let developerCalled = false;
@@ -176,6 +247,69 @@ describe("AgentOrchestrator", () => {
         roleName: "reviewer",
         userMessage: "请帮我更新知识库",
         status: "pending",
+      })
+    ]);
+  });
+
+  it("uses deterministic intent fallback when no classifier is configured", async () => {
+    let runtimeCalled = false;
+    const feedbackStore = new MemoryFeedbackStore();
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      feedbackStore,
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            runtimeCalled = true;
+            return Promise.resolve({ text: "runtime response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("请修改订单系统", "user-1", "message-1"));
+
+    expect(response.text).toContain("修改请求");
+    expect(runtimeCalled).toBe(false);
+    expect(feedbackStore.entries).toEqual([
+      expect.objectContaining({
+        intentType: "mutate",
+        userMessage: "请修改订单系统",
+      })
+    ]);
+  });
+
+  it("uses deterministic knowledge-base fallback when no classifier is configured", async () => {
+    const feedbackStore = new MemoryFeedbackStore();
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      feedbackStore,
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            return Promise.resolve({ text: "runtime response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("请更新知识库里的订单流程", "user-1", "message-1"));
+
+    expect(response.text).toContain("感谢您的反馈");
+    expect(feedbackStore.entries).toEqual([
+      expect.objectContaining({
+        intentType: "update_kb",
+        userMessage: "请更新知识库里的订单流程",
       })
     ]);
   });
@@ -306,6 +440,55 @@ describe("AgentOrchestrator", () => {
     expect(historyStore.archivedMessages).toEqual([[{ role: "user", content: "hello" }]]);
   });
 
+  it("saves full conversation context in feedback, not just the last 4 messages", async () => {
+    const historyStore = new MemoryHistoryStore();
+    const sessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
+    // Simulate 6 prior turns (12 messages: 6 user + 6 assistant)
+    for (let i = 1; i <= 6; i++) {
+      await historyStore.append(sessionKey, [
+        { role: "user", content: `question ${i}` },
+        { role: "assistant", content: `answer ${i}` },
+      ]);
+    }
+
+    const feedbackStore = new MemoryFeedbackStore();
+    const intentDetection: IntentDetectionService = {
+      detectIntent() {
+        return Promise.resolve({ type: "mutate" });
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      historyStore,
+      feedbackStore,
+      intentDetection,
+      agentRuntimes: {
+        reviewer: {
+          name: "reviewer",
+          run() {
+            return Promise.resolve({ text: "runtime response" });
+          },
+          disposeSession() {
+            return Promise.resolve();
+          }
+        }
+      }
+    });
+
+    await orchestrator.handle(testMessage("请修改代码", "user-1", "msg-7"));
+
+    expect(feedbackStore.entries).toHaveLength(1);
+    const context = feedbackStore.entries[0]?.conversationContext ?? "";
+    // All 6 prior turns should be present, not just the last 2
+    expect(context).toContain("question 1");
+    expect(context).toContain("answer 1");
+    expect(context).toContain("question 6");
+    expect(context).toContain("answer 6");
+    // The current message that triggered the feedback should also be included
+    expect(context).toContain("user: 请修改代码");
+  });
+
   it("returns a generic error for non-API-key runtime failures", async () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -368,6 +551,52 @@ describe("AgentOrchestrator", () => {
 
     expect(factoryCalled).toBe(true);
     expect(response.text).toBe("admin response");
+  });
+
+  it("recreates factory runtime when the runtime cache key changes", async () => {
+    let version = "v1";
+    let createCount = 0;
+    const adminAuthorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve("admin");
+      },
+      can() {
+        return Promise.resolve({ allowed: true });
+      },
+      hasCapability() {
+        return Promise.resolve(true);
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: adminAuthorization,
+      agentRuntimes: {},
+      runtimeFactory: {
+        cacheKeyForRole(role: string) {
+          return Promise.resolve(`${role}:${version}`);
+        },
+        createRuntime() {
+          createCount += 1;
+          const runtimeVersion = version;
+          return Promise.resolve({
+            name: `admin-${runtimeVersion}`,
+            run() {
+              return Promise.resolve({ text: runtimeVersion });
+            },
+            disposeSession() {
+              return Promise.resolve();
+            }
+          });
+        }
+      }
+    });
+
+    await expect(orchestrator.handle(testMessage("hello", "admin-1", "1"))).resolves.toEqual({ text: "v1" });
+    await expect(orchestrator.handle(testMessage("hello again", "admin-1", "2"))).resolves.toEqual({ text: "v1" });
+    version = "v2";
+    await expect(orchestrator.handle(testMessage("after update", "admin-1", "3"))).resolves.toEqual({ text: "v2" });
+
+    expect(createCount).toBe(2);
   });
 
   it("returns no-runtime error when factory is absent or returns undefined", async () => {
