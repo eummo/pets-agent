@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import type { AgentStreamEvent, AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
-import type { DevProgressBroker } from "./progressBroker.js";
+import type { SseProgressBroker } from "./sseProgressBroker.js";
 import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
 import { writeSse } from "./sseUtils.js";
 
@@ -38,7 +38,7 @@ export type DevRoutesOptions = {
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
-  readonly progressBroker?: DevProgressBroker | undefined;
+  readonly progressBroker?: SseProgressBroker | undefined;
 };
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");

@@ -64,6 +64,21 @@ export function createAgentRuntimeFactory(
   };
 }
 
+export type AgentRuntimeSetup = {
+  readonly agentRuntimes: Record<string, AgentRuntime>;
+  readonly runtimeFactory: AgentRuntimeFactory;
+};
+
+export async function setupAgentRuntimes(
+  llmRawLogger: JsonlLogger,
+  roleConfigStore: RoleConfigStore,
+  resolvedLlmConfig: ResolvedLlmConfig,
+): Promise<AgentRuntimeSetup> {
+  const agentRuntimes = await createAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig);
+  const runtimeFactory = createAgentRuntimeFactory(llmRawLogger, roleConfigStore, resolvedLlmConfig);
+  return { agentRuntimes, runtimeFactory };
+}
+
 function createToolPermissionDecider(resolvedLlmConfig: ResolvedLlmConfig) {
   const permissionModel = buildPiModel(resolvedLlmConfig);
   return new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;

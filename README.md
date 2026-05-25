@@ -58,7 +58,7 @@ src/
 ├── server/               传输层（HTTP/SSE）
 │   ├── createServer.ts     Fastify 路由
 │   ├── dev-chat/           前端资源（html/css/js）
-│   └── progressBroker.ts   SSE 进度推送
+│   └── sseProgressBroker.ts   SSE 进度推送
 ├── security/             安全层（角色鉴权）
 ├── wechat/               企业微信适配
 ├── config/               配置加载

@@ -11,8 +11,8 @@
  */
 import path from "node:path";
 import "dotenv/config";
-import { createAgentRuntimeFactory, createAgentRuntimes } from "./agent/createAgentRuntimes.js";
-import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig, type ResolvedLlmConfig } from "./config/llmConfig.js";
+import { setupAgentRuntimes } from "./agent/createAgentRuntimes.js";
+import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig } from "./config/llmConfig.js";
 import { loadRuntimeConfig } from "./config/runtimeConfig.js";
 import { FileConversationHistoryStore } from "./db/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./db/fileConversationSessionStore.js";
@@ -25,7 +25,7 @@ import { LlmIntentDetectionService } from "./intent/llmIntentDetectionService.js
 import { createJsonlLogger } from "./logging/jsonlLogger.js";
 import { StaticWorkspaceResolver } from "./repos/staticWorkspaceResolver.js";
 import { createServer } from "./server/createServer.js";
-import { DevProgressBroker } from "./server/progressBroker.js";
+import { SseProgressBroker } from "./server/sseProgressBroker.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
 
 export async function main(): Promise<void> {
@@ -34,7 +34,7 @@ export async function main(): Promise<void> {
   const conversationLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "conversation.jsonl"));
   const llmRawLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "llm-raw.jsonl"));
   const systemLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "system.jsonl"));
-  const progressBroker = new DevProgressBroker();
+  const progressBroker = new SseProgressBroker();
 
   // Initialize SQLite and stores
   const db = createSqliteConnection(runtimeConfig.dbPath);
@@ -44,14 +44,21 @@ export async function main(): Promise<void> {
   // Seed default roles if table is empty
   await seedDefaultRoles(roleConfigStore);
 
-  const resolvedLlmConfig = await loadAndApplyLlmConfig();
-  const agentRuntimes = await createAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig);
+  const resolvedLlmConfig = await (async () => {
+    const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
+    const llmConfig = await loadLlmConfig(llmConfigPath);
+    const resolved = resolveLlmConfig(llmConfig);
+    process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
+    process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
+    const summary = summarizeLlmConfig(resolved);
+    console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
+    return resolved;
+  })();
+  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig);
 
   const intentDetection = new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey);
 
   const authorization = new StaticAuthorizationService(roleConfigStore);
-
-  const runtimeFactory = createAgentRuntimeFactory(llmRawLogger, roleConfigStore, resolvedLlmConfig);
 
   const orchestrator = new AgentOrchestrator({
     workspaceResolver: new StaticWorkspaceResolver({
@@ -88,20 +95,6 @@ export async function main(): Promise<void> {
   console.info(`conversation log: ${conversationLogger.filePath}`);
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
   console.info(`database: ${runtimeConfig.dbPath}`);
-}
-
-async function loadAndApplyLlmConfig(): Promise<ResolvedLlmConfig> {
-  const llmConfigPath = process.env["LLM_CONFIG_PATH"] ?? path.resolve("config", "llm.json");
-  const llmConfig = await loadLlmConfig(llmConfigPath);
-  const resolved = resolveLlmConfig(llmConfig);
-
-  process.env["ANTHROPIC_API_KEY"] ??= resolved.apiKey;
-  process.env["ANTHROPIC_BASE_URL"] ??= resolved.baseUrl;
-
-  const summary = summarizeLlmConfig(resolved);
-  console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
-
-  return resolved;
 }
 
 await main();

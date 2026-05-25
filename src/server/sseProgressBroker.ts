@@ -7,7 +7,7 @@ type Subscriber = {
   readonly response: ServerResponse;
 };
 
-export class DevProgressBroker implements ProgressReporter {
+export class SseProgressBroker implements ProgressReporter {
   private readonly subscribers = new Map<string, Map<string, Subscriber>>();
 
   public subscribe(userId: string, response: ServerResponse): () => void {

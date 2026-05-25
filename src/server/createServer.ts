@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
 import { registerDevRoutes, type DevRoutesOptions } from "./devRoutes.js";
-import type { DevProgressBroker } from "./progressBroker.js";
+import type { SseProgressBroker } from "./sseProgressBroker.js";
 import { registerWechatRoutes, type WechatRoutesOptions } from "./wechatRoutes.js";
 
 export type CreateServerOptions = {
@@ -10,7 +10,7 @@ export type CreateServerOptions = {
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
-  readonly progressBroker?: DevProgressBroker | undefined;
+  readonly progressBroker?: SseProgressBroker | undefined;
   readonly logger?: boolean;
   readonly enableDevRoutes?: boolean;
 };

@@ -1,10 +1,10 @@
 import type { ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
-import { DevProgressBroker } from "./progressBroker.js";
+import { SseProgressBroker } from "./sseProgressBroker.js";
 
-describe("DevProgressBroker", () => {
+describe("SseProgressBroker", () => {
   it("sends a connected event when a user subscribes", () => {
-    const broker = new DevProgressBroker();
+    const broker = new SseProgressBroker();
     const response = createWritableResponse();
 
     broker.subscribe("user-1", response);
@@ -15,7 +15,7 @@ describe("DevProgressBroker", () => {
   });
 
   it("publishes progress events only to subscribers for the target user", async () => {
-    const broker = new DevProgressBroker();
+    const broker = new SseProgressBroker();
     const targetResponse = createWritableResponse();
     const otherResponse = createWritableResponse();
 
@@ -37,7 +37,7 @@ describe("DevProgressBroker", () => {
   });
 
   it("stops publishing after the unsubscribe callback is called", async () => {
-    const broker = new DevProgressBroker();
+    const broker = new SseProgressBroker();
     const response = createWritableResponse();
     const unsubscribe = broker.subscribe("user-1", response);
 
@@ -48,7 +48,7 @@ describe("DevProgressBroker", () => {
   });
 
   it("resolves publishing when there are no subscribers", async () => {
-    const broker = new DevProgressBroker();
+    const broker = new SseProgressBroker();
 
     await expect(
       broker.publish({ id: "user-1" }, { stage: "agent.completed", message: "Done" })
