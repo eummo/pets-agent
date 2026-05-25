@@ -36,6 +36,12 @@ const FEEDBACK_METADATA_COLUMNS = [
   { name: "role_name", definition: "TEXT" },
 ] as const;
 
+const CREATE_INDEX_MIGRATIONS = [
+  "CREATE INDEX IF NOT EXISTS idx_feedback_status_id ON feedback(status, id DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_feedback_user_id_id ON feedback(user_id, id DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_feedback_workspace_path_id ON feedback(workspace_path, id DESC)",
+] as const;
+
 export function createSqliteConnection(dbPath: string): Database.Database {
   mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -50,6 +56,9 @@ export function createSqliteConnection(dbPath: string): Database.Database {
     }
     migrateRolesMetadataColumns(db);
     migrateFeedbackMetadataColumns(db);
+    for (const sql of CREATE_INDEX_MIGRATIONS) {
+      db.exec(sql);
+    }
   });
   runMigrations();
 

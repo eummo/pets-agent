@@ -55,6 +55,7 @@ export type AgentRuntime = {
 };
 
 export type AgentRuntimeFactory = {
+  cacheKeyForRole?(role: string): Promise<string | undefined>;
   createRuntime(role: string): Promise<AgentRuntime | undefined>;
 };
 
@@ -139,6 +140,7 @@ export type StoredRoleConfig = {
   readonly maxTurns?: number;
   readonly model?: string;
   readonly capabilities?: readonly RoleCapability[];
+  readonly updatedAt?: string;
 };
 
 export const FILE_MUTATION_TOOLS: ReadonlySet<string> = new Set([
@@ -163,7 +165,7 @@ export type UserIntent =
   | { readonly type: "update_kb" };
 
 export type IntentDetectionService = {
-  detectIntent(userMessage: string, role: UserRole): Promise<UserIntent>;
+  detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent>;
 };
 
 // ── Feedback Store ───────────────────────────────────────────────────────────
@@ -185,10 +187,16 @@ export type FeedbackEntry = {
   readonly updatedAt?: string;
 };
 
+export type FeedbackQuery = {
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly status?: FeedbackStatus;
+};
+
 export type FeedbackStore = {
   save(entry: FeedbackEntry): Promise<number>;
   updateStatus(id: number, status: FeedbackStatus): Promise<boolean>;
-  getAll(): Promise<readonly FeedbackEntry[]>;
+  getAll(query?: FeedbackQuery): Promise<readonly FeedbackEntry[]>;
 };
 
 // ── Conversation Logger ──────────────────────────────────────────────────────

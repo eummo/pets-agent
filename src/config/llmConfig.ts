@@ -5,7 +5,7 @@ import { z } from "zod";
 const DEFAULT_MAX_TOKENS = 256;
 
 const llmConfigSchema = z.object({
-  baseUrl: z.string().url(),
+  baseUrl: z.url(),
   apiKeyEnv: z.string().min(1),
   modelId: z.string().min(1),
   maxTokens: z.number().int().positive().optional(),

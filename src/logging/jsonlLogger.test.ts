@@ -86,4 +86,24 @@ describe("createJsonlLogger", () => {
     expect(lines[0]).toContain('"message":"first"');
     expect(lines[1]).toContain('"message":"second"');
   });
+
+  it("serializes concurrent writes", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pets-agent-log-"));
+    const logger = createJsonlLogger(path.join(dir, "events.jsonl"));
+
+    await Promise.all(
+      Array.from({ length: 25 }, (_, index) => logger.write({ message: `event-${index}` }))
+    );
+
+    const content = await readFile(logger.filePath, "utf8");
+    const lines = content.trim().split("\n");
+
+    expect(lines).toHaveLength(25);
+    for (const line of lines) {
+      expect(() => JSON.parse(line) as unknown).not.toThrow();
+    }
+    expect(new Set(lines.map((line) => (JSON.parse(line) as { message: string }).message))).toEqual(
+      new Set(Array.from({ length: 25 }, (_, index) => `event-${index}`))
+    );
+  });
 });

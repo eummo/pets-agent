@@ -72,4 +72,23 @@ describe("FileConversationHistoryStore", () => {
     await store.append(key, [{ role: "user", content: "new question" }]);
     await expect(store.get(key)).resolves.toEqual([{ role: "user", content: "new question" }]);
   });
+
+  it("keeps all concurrent appends for the same history", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "history-store-"));
+    const filePath = path.join(root, "history.json");
+    const store = new FileConversationHistoryStore(filePath, { maxMessages: 50 });
+    const key = { channel: "dev-browser", userId: "user-1", workspacePath: "D:/kb" };
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        store.append(key, [{ role: "user", content: `message-${index}` }])
+      )
+    );
+
+    const history = await store.get(key);
+    expect(history).toHaveLength(20);
+    expect(new Set(history.map((message) => message.content))).toEqual(
+      new Set(Array.from({ length: 20 }, (_, index) => `message-${index}`))
+    );
+  });
 });

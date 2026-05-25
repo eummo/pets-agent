@@ -13,6 +13,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "Do not describe the assistant runtime, message channels, model provider, test page, or implementation unless the user explicitly asks how this assistant is built or tested.",
       "Prefer Read, Glob, and Grep for inspection. Use Bash only for non-mutating inspection commands when those tools are insufficient.",
       "If the context is insufficient, say what is missing instead of guessing.",
+      "If the user asks you to modify, update, or add content and you cannot do so (because you are a read-only assistant), clearly explain that you only have read access, and suggest they contact an administrator or switch to a developer/admin role. Do not fabricate content to fill in missing information.",
     ].join("\n"),
     allowedTools: ["Read", "Glob", "Grep", "Bash"],
     permissionMode: "dontAsk",

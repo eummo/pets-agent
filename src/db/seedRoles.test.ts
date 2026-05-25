@@ -40,12 +40,12 @@ describe("seedDefaultRoles", () => {
 
     await seedDefaultRoles(store);
 
-    await expect(store.getByName("reviewer")).resolves.toEqual({
+    await expect(store.getByName("reviewer")).resolves.toEqual(expect.objectContaining({
       name: "reviewer",
       systemPrompt: "Custom reviewer prompt",
       allowedTools: ["Read", "Glob", "Grep", "Bash"],
       permissionMode: "dontAsk",
       maxTurns: REVIEWER_DEFAULT.maxTurns,
-    });
+    }));
   });
 });

@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { FeedbackEntry, FeedbackStore, FeedbackStatus, UserIntent } from "../core/ports.js";
+import type { FeedbackEntry, FeedbackQuery, FeedbackStore, FeedbackStatus, UserIntent } from "../core/ports.js";
 
 type FeedbackRow = {
   readonly id: number;
@@ -71,7 +71,14 @@ export class SqliteFeedbackStore implements FeedbackStore {
     return Promise.resolve(result.changes > 0);
   }
 
-  public getAll(): Promise<readonly FeedbackEntry[]> {
+  public getAll(query: FeedbackQuery = {}): Promise<readonly FeedbackEntry[]> {
+    const limit = clampLimit(query.limit);
+    const offset = Math.max(0, query.offset ?? 0);
+    const statusFilter = query.status;
+    const whereClause = statusFilter === undefined ? "" : "WHERE status = ?";
+    const params = statusFilter === undefined
+      ? [limit, offset]
+      : [statusFilter, limit, offset];
     const rows = this.db.prepare(`
       SELECT
         id,
@@ -87,8 +94,20 @@ export class SqliteFeedbackStore implements FeedbackStore {
         created_at,
         updated_at
       FROM feedback
+      ${whereClause}
       ORDER BY id DESC
-    `).all() as FeedbackRow[];
+      LIMIT ? OFFSET ?
+    `).all(...params) as FeedbackRow[];
     return Promise.resolve(rows.map(rowToEntry));
   }
+}
+
+function clampLimit(limit: number | undefined): number {
+  if (limit === undefined) {
+    return 100;
+  }
+  if (!Number.isFinite(limit)) {
+    return 100;
+  }
+  return Math.min(Math.max(Math.trunc(limit), 1), 500);
 }

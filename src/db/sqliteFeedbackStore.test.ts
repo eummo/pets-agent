@@ -92,4 +92,31 @@ describe("SqliteFeedbackStore", () => {
     const all = await store.getAll();
     expect(all[0]?.status).toBe("resolved");
   });
+
+  it("supports pagination and status filtering", async () => {
+    await store.save({
+      userId: "user1",
+      userMessage: "First",
+      conversationContext: "",
+      status: "pending",
+    });
+    await store.save({
+      userId: "user2",
+      userMessage: "Second",
+      conversationContext: "",
+      status: "reviewed",
+    });
+    await store.save({
+      userId: "user3",
+      userMessage: "Third",
+      conversationContext: "",
+      status: "pending",
+    });
+
+    const firstPendingPage = await store.getAll({ status: "pending", limit: 1 });
+    const secondPendingPage = await store.getAll({ status: "pending", limit: 1, offset: 1 });
+
+    expect(firstPendingPage.map((entry) => entry.userMessage)).toEqual(["Third"]);
+    expect(secondPendingPage.map((entry) => entry.userMessage)).toEqual(["First"]);
+  });
 });

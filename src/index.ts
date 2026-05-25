@@ -11,21 +11,18 @@
  */
 import path from "node:path";
 import "dotenv/config";
-import { ClaudeSdkAgentRuntime } from "./agent/claudeSdkAgentRuntime.js";
-import { EchoAgentRuntime } from "./agent/echoAgentRuntime.js";
-import { LlmBashPermissionDecider } from "./agent/llmBashPermissionDecider.js";
+import { createAgentRuntimeFactory, createAgentRuntimes } from "./agent/createAgentRuntimes.js";
 import { buildPiModel, loadLlmConfig, resolveLlmConfig, summarizeLlmConfig, type ResolvedLlmConfig } from "./config/llmConfig.js";
+import { loadRuntimeConfig } from "./config/runtimeConfig.js";
 import { FileConversationHistoryStore } from "./db/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./db/fileConversationSessionStore.js";
-import { DEFAULT_ROLE_CONFIGS } from "./core/defaultRoles.js";
 import { AgentOrchestrator } from "./core/orchestrator.js";
-import type { AgentRuntime, AgentRuntimeFactory } from "./core/ports.js";
 import { createSqliteConnection } from "./db/sqliteConnection.js";
 import { SqliteFeedbackStore } from "./db/sqliteFeedbackStore.js";
 import { SqliteRoleConfigStore } from "./db/sqliteRoleConfigStore.js";
 import { seedDefaultRoles } from "./db/seedRoles.js";
 import { LlmIntentDetectionService } from "./intent/llmIntentDetectionService.js";
-import { createJsonlLogger, type JsonlLogger } from "./logging/jsonlLogger.js";
+import { createJsonlLogger } from "./logging/jsonlLogger.js";
 import { StaticWorkspaceResolver } from "./repos/staticWorkspaceResolver.js";
 import { createServer } from "./server/createServer.js";
 import { DevProgressBroker } from "./server/progressBroker.js";
@@ -33,20 +30,16 @@ import { createDevRoleStore } from "./security/devRoleStore.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
 
 export async function main(): Promise<void> {
-  const port = Number.parseInt(process.env["PORT"] ?? "3000", 10);
-  const knowledgeBasePath = process.env["KNOWLEDGE_BASE_PATH"] ?? ".harness/knowledge-base";
-  const wechatToken = process.env["WECHAT_TOKEN"] ?? "dev-token";
-  const logDir = process.env["LOG_DIR"] ?? path.resolve(".harness", "logs");
-  const sessionStorePath = process.env["SESSION_STORE_PATH"] ?? path.resolve(".harness", "state", "sessions.json");
-  const historyStorePath = process.env["HISTORY_STORE_PATH"] ?? path.resolve(".harness", "state", "history.json");
-  const dbPath = process.env["DB_PATH"] ?? path.resolve(".harness", "state", "agent.db");
-  const conversationLogger = createJsonlLogger(path.join(logDir, "conversation.jsonl"));
-  const llmRawLogger = createJsonlLogger(path.join(logDir, "llm-raw.jsonl"));
+  // Load runtime configuration, create loggers, and initialize all services
+  const runtimeConfig = loadRuntimeConfig();
+  const conversationLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "conversation.jsonl"));
+  const llmRawLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "llm-raw.jsonl"));
+  const systemLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "system.jsonl"));
   const devRoleStore = createDevRoleStore();
   const progressBroker = new DevProgressBroker();
 
   // Initialize SQLite and stores
-  const db = createSqliteConnection(dbPath);
+  const db = createSqliteConnection(runtimeConfig.dbPath);
   const roleConfigStore = new SqliteRoleConfigStore(db);
   const feedbackStore = new SqliteFeedbackStore(db);
 
@@ -63,54 +56,44 @@ export async function main(): Promise<void> {
 
   const authorization = new StaticAuthorizationService(devRoleStore, roleConfigStore);
 
-  const runtimeFactory: AgentRuntimeFactory = {
-    async createRuntime(role: string): Promise<AgentRuntime | undefined> {
-      if (resolvedLlmConfig === undefined) return undefined;
-      const config = await roleConfigStore.getByName(role);
-      if (config === undefined) return undefined;
-      const permissionModel = buildPiModel(resolvedLlmConfig);
-      const toolPermissionDecider = new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;
-      return new ClaudeSdkAgentRuntime({
-        roleConfig: config,
-        rawLogger: llmRawLogger,
-        model: config.model ?? resolvedLlmConfig.modelId,
-        toolPermissionDecider,
-      });
-    },
-  };
+  const runtimeFactory = createAgentRuntimeFactory(llmRawLogger, roleConfigStore, resolvedLlmConfig);
 
   const orchestrator = new AgentOrchestrator({
-    workspaceResolver: new StaticWorkspaceResolver({ knowledgeBasePath }),
+    workspaceResolver: new StaticWorkspaceResolver({
+      knowledgeBasePath: runtimeConfig.knowledgeBasePath,
+      logger: systemLogger,
+    }),
     authorization,
     agentRuntimes,
     runtimeFactory,
-    sessionStore: new FileConversationSessionStore(sessionStorePath),
-    historyStore: new FileConversationHistoryStore(historyStorePath),
+    sessionStore: new FileConversationSessionStore(runtimeConfig.sessionStorePath),
+    historyStore: new FileConversationHistoryStore(runtimeConfig.historyStorePath),
     conversationLogger,
+    eventLogger: systemLogger,
     progressReporter: progressBroker,
     intentDetection,
     feedbackStore,
   });
   const server = createServer({
     messageHandler: orchestrator,
-    wechatToken,
+    wechatToken: runtimeConfig.wechatToken,
     devRoleStore,
     roleConfigStore,
     feedbackStore,
     authorization,
     progressBroker,
-    enableDevRoutes: process.env["NODE_ENV"] !== "production",
+    enableDevRoutes: runtimeConfig.enableDevRoutes,
     logger: true
   });
 
-  await server.listen({ port, host: "0.0.0.0" });
-  console.info(`pets-agent listening on http://localhost:${port}`);
+  await server.listen({ port: runtimeConfig.port, host: "0.0.0.0" });
+  console.info(`pets-agent listening on http://localhost:${runtimeConfig.port}`);
   console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
   console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
   console.info(`admin runtime: ${agentRuntimes["admin"]?.name ?? "not configured"}`);
   console.info(`conversation log: ${conversationLogger.filePath}`);
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
-  console.info(`database: ${dbPath}`);
+  console.info(`database: ${runtimeConfig.dbPath}`);
 }
 
 async function loadAndApplyLlmConfig(): Promise<ResolvedLlmConfig | undefined> {
@@ -131,55 +114,6 @@ async function loadAndApplyLlmConfig(): Promise<ResolvedLlmConfig | undefined> {
     console.warn(`LLM configuration skipped: ${message}`);
     return undefined;
   }
-}
-
-async function createAgentRuntimes(
-  llmRawLogger: JsonlLogger,
-  roleConfigStore: SqliteRoleConfigStore,
-  resolvedLlmConfig: ResolvedLlmConfig | undefined,
-): Promise<Record<string, AgentRuntime>> {
-  // Read role configs from DB
-  const roleConfigs = await roleConfigStore.getAll();
-  const permissionModel = resolvedLlmConfig === undefined
-    ? undefined
-    : buildPiModel(resolvedLlmConfig);
-  const toolPermissionDecider = resolvedLlmConfig === undefined || permissionModel === undefined
-    ? undefined
-    : new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;
-
-  if (roleConfigs.length > 0 && resolvedLlmConfig !== undefined) {
-    const runtimes: Record<string, AgentRuntime> = {};
-    for (const config of roleConfigs) {
-      runtimes[config.name] = new ClaudeSdkAgentRuntime({
-        roleConfig: config,
-        rawLogger: llmRawLogger,
-        model: config.model ?? resolvedLlmConfig.modelId,
-        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
-      });
-    }
-    return runtimes;
-  }
-
-  // Fallback: use hardcoded defaults
-  if (resolvedLlmConfig !== undefined) {
-    const runtimes: Record<string, AgentRuntime> = {};
-    for (const config of DEFAULT_ROLE_CONFIGS) {
-      runtimes[config.name] = new ClaudeSdkAgentRuntime({
-        roleConfig: config,
-        rawLogger: llmRawLogger,
-        model: config.model ?? resolvedLlmConfig.modelId,
-        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {}),
-      });
-    }
-    return runtimes;
-  }
-
-  console.warn("using echo runtime because real LLM runtime is not configured");
-  return {
-    reviewer: new EchoAgentRuntime(),
-    developer: new EchoAgentRuntime(),
-    admin: new EchoAgentRuntime(),
-  };
 }
 
 await main();

@@ -31,6 +31,17 @@ describe("createServer", () => {
     expect(response.body).toContain("Claude Agent SDK");
   });
 
+  it("rejects path traversal attempts for development chat assets", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      wechatToken: "token"
+    });
+
+    const response = await server.inject({ method: "GET", url: "/dev/chat/..%2F..%2Fpackage.json" });
+
+    expect(response.statusCode).toBe(403);
+  });
+
   it("routes browser chat messages via SSE streaming", async () => {
     const server = createServer({
       messageHandler: echoHandler,

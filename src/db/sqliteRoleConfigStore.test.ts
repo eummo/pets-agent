@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createSqliteConnection } from "./sqliteConnection.js";
 import { SqliteRoleConfigStore } from "./sqliteRoleConfigStore.js";
 import type { StoredRoleConfig } from "../core/ports.js";
+import type Database from "better-sqlite3";
 
 describe("SqliteRoleConfigStore", () => {
   let store: SqliteRoleConfigStore;
+  let db: Database.Database;
 
   beforeEach(() => {
-    const db = createSqliteConnection(":memory:");
+    db = createSqliteConnection(":memory:");
     store = new SqliteRoleConfigStore(db);
   });
 
@@ -33,7 +35,8 @@ describe("SqliteRoleConfigStore", () => {
     await store.upsert(config);
 
     const retrieved = await store.getByName("reviewer");
-    expect(retrieved).toEqual(config);
+    expect(retrieved).toEqual(expect.objectContaining(config));
+    expect(retrieved?.updatedAt).toBeTruthy();
   });
 
   it("upsert updates an existing role", async () => {
@@ -146,5 +149,17 @@ describe("SqliteRoleConfigStore", () => {
 
     const retrieved = await store.getByName("basic");
     expect(retrieved?.capabilities).toBeUndefined();
+  });
+
+  it("rejects invalid stored JSON shapes", async () => {
+    await store.upsert({
+      name: "broken",
+      systemPrompt: "Broken prompt",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+    });
+    db.prepare("UPDATE roles SET allowed_tools = ? WHERE name = ?").run(JSON.stringify([123]), "broken");
+
+    await expect(store.getByName("broken")).rejects.toThrow();
   });
 });

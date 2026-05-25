@@ -19,10 +19,27 @@ export class FileMutex {
     const previous = this.locks.get(key);
     let resolve!: Release;
     const next = new Promise<void>((r) => { resolve = r; });
-    this.locks.set(key, previous ? previous.then(() => next) : next);
+    const queued = previous ? previous.then(() => next) : next;
+    this.locks.set(key, queued);
     if (previous !== undefined) {
       await previous;
     }
-    return resolve;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      resolve();
+      void queued.finally(() => {
+        if (this.locks.get(key) === queued) {
+          this.locks.delete(key);
+        }
+      });
+    };
+  }
+
+  public activeLockCount(): number {
+    return this.locks.size;
   }
 }

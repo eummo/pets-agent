@@ -29,6 +29,9 @@ type DevFeedbackBody = {
 
 type DevFeedbackQuery = {
   readonly userId?: string;
+  readonly limit?: string;
+  readonly offset?: string;
+  readonly status?: string;
 };
 
 export type DevRoutesOptions = {
@@ -63,10 +66,10 @@ export function registerDevRoutes(server: FastifyInstance, options: DevRoutesOpt
   // Serve dev-chat static assets: /dev/chat/style.css, /dev/chat/app.js, etc.
   server.get("/dev/chat/*", async (request, reply) => {
     const relativePath = (request.params as Record<string, string>)["*"] ?? "";
-    const filePath = path.join(devChatDir, relativePath);
+    const filePath = path.resolve(devChatDir, relativePath);
 
     // Prevent path traversal
-    if (!filePath.startsWith(devChatDir)) {
+    if (isPathOutsideDirectory(filePath, devChatDir)) {
       return reply.status(403).send("Forbidden");
     }
 
@@ -201,7 +204,7 @@ export function registerDevRoutes(server: FastifyInstance, options: DevRoutesOpt
       return reply.status(403).send({ error: "Insufficient permissions to view feedback." });
     }
 
-    const entries = await options.feedbackStore.getAll();
+    const entries = await options.feedbackStore.getAll(feedbackQueryFrom(request.query));
     return { feedback: entries };
   });
 
@@ -236,4 +239,40 @@ export function registerDevRoutes(server: FastifyInstance, options: DevRoutesOpt
 
     return { id, status };
   });
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseNonNegativeInteger(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function parseFeedbackStatus(value: string | undefined): "pending" | "reviewed" | "resolved" | undefined {
+  return value === "pending" || value === "reviewed" || value === "resolved" ? value : undefined;
+}
+
+function feedbackQueryFrom(query: DevFeedbackQuery) {
+  const limit = parsePositiveInteger(query.limit);
+  const offset = parseNonNegativeInteger(query.offset);
+  const status = parseFeedbackStatus(query.status);
+  return {
+    ...(limit !== undefined ? { limit } : {}),
+    ...(offset !== undefined ? { offset } : {}),
+    ...(status !== undefined ? { status } : {}),
+  };
+}
+
+function isPathOutsideDirectory(filePath: string, directoryPath: string): boolean {
+  const relativePath = path.relative(directoryPath, filePath);
+  return relativePath.startsWith("..") || path.isAbsolute(relativePath);
 }

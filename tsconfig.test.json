@@ -5,5 +5,5 @@
     "skipLibCheck": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src/tasks/agent-manager.test.ts", "src/memory/injector.test.ts"]
+  "include": ["src/**/*.test.ts"]
 }

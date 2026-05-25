@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type {
@@ -10,6 +10,7 @@ import type {
 export type StaticWorkspaceResolverOptions = {
   readonly knowledgeBasePath: string;
   readonly repositoriesConfigPath?: string;
+  readonly logger?: { write(event: Record<string, unknown>): Promise<void> };
 };
 
 const repositoriesConfigSchema = z.object({
@@ -25,6 +26,9 @@ const repositoriesConfigSchema = z.object({
 type RepositoryConfig = z.infer<typeof repositoriesConfigSchema>["repositories"][number];
 
 export class StaticWorkspaceResolver implements KnowledgeWorkspaceResolver {
+  private cachedRepositories: readonly RepositoryConfig[] | undefined;
+  private cachedMtimeMs: number | undefined;
+
   public constructor(private readonly options: StaticWorkspaceResolverOptions) {}
 
   public async resolve(message: InboundMessage): Promise<readonly KnowledgeWorkspace[]> {
@@ -61,10 +65,32 @@ export class StaticWorkspaceResolver implements KnowledgeWorkspaceResolver {
   }
 
   private async loadRepositories(): Promise<readonly RepositoryConfig[]> {
+    const configPath = this.repositoriesConfigPath();
+    const fileStat = await stat(configPath).catch(() => undefined);
+    if (fileStat === undefined) {
+      this.cachedRepositories = [];
+      this.cachedMtimeMs = undefined;
+      return [];
+    }
+
+    if (this.cachedRepositories !== undefined && this.cachedMtimeMs === fileStat.mtimeMs) {
+      return this.cachedRepositories;
+    }
+
     try {
-      const content = await readFile(this.repositoriesConfigPath(), "utf8");
-      return repositoriesConfigSchema.parse(JSON.parse(content)).repositories;
-    } catch {
+      const content = await readFile(configPath, "utf8");
+      const repositories = repositoriesConfigSchema.parse(JSON.parse(content)).repositories;
+      this.cachedRepositories = repositories;
+      this.cachedMtimeMs = fileStat.mtimeMs;
+      return repositories;
+    } catch (error) {
+      await this.options.logger?.write({
+        type: "workspace.repositories_config_error",
+        configPath,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      this.cachedRepositories = [];
+      this.cachedMtimeMs = fileStat.mtimeMs;
       return [];
     }
   }

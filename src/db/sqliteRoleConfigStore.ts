@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { z } from "zod";
 import type { RoleConfigStore, StoredRoleConfig } from "../core/ports.js";
 
 type RoleRow = {
@@ -9,18 +10,34 @@ type RoleRow = {
   readonly max_turns: number | null;
   readonly model: string | null;
   readonly capabilities: string | null;
+  readonly updated_at: string;
 };
 
+const roleCapabilitySchema = z.enum([
+  "workspace_read",
+  "workspace_mutate",
+  "feedback_view",
+  "feedback_manage",
+  "roles_manage",
+]);
+
+const permissionModeSchema = z.enum(["auto", "dontAsk", "acceptEdits", "bypassPermissions"]);
+const allowedToolsSchema = z.array(z.string().min(1));
+const capabilitiesSchema = z.array(roleCapabilitySchema);
+
 function rowToConfig(row: RoleRow): StoredRoleConfig {
-  const capabilities = row.capabilities !== null ? JSON.parse(row.capabilities) as StoredRoleConfig["capabilities"] : undefined;
+  const capabilities = row.capabilities !== null
+    ? capabilitiesSchema.parse(JSON.parse(row.capabilities))
+    : undefined;
   return {
     name: row.name,
     systemPrompt: row.system_prompt,
-    allowedTools: JSON.parse(row.allowed_tools) as string[],
-    permissionMode: row.permission_mode as StoredRoleConfig["permissionMode"],
+    allowedTools: allowedToolsSchema.parse(JSON.parse(row.allowed_tools)),
+    permissionMode: permissionModeSchema.parse(row.permission_mode),
     ...(row.max_turns !== null && { maxTurns: row.max_turns }),
     ...(row.model !== null && { model: row.model }),
     ...(capabilities !== undefined && { capabilities }),
+    updatedAt: row.updated_at,
   };
 }
 
@@ -28,19 +45,23 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
   public constructor(private readonly db: Database.Database) {}
 
   public getAll(): Promise<readonly StoredRoleConfig[]> {
-    const rows = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities FROM roles ORDER BY name").all() as RoleRow[];
-    return Promise.resolve(rows.map(rowToConfig));
+    return Promise.resolve().then(() => {
+      const rows = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, updated_at FROM roles ORDER BY name").all() as RoleRow[];
+      return rows.map(rowToConfig);
+    });
   }
 
   public getByName(name: string): Promise<StoredRoleConfig | undefined> {
-    const row = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities FROM roles WHERE name = ?").get(name) as RoleRow | undefined;
-    return Promise.resolve(row === undefined ? undefined : rowToConfig(row));
+    return Promise.resolve().then(() => {
+      const row = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, updated_at FROM roles WHERE name = ?").get(name) as RoleRow | undefined;
+      return row === undefined ? undefined : rowToConfig(row);
+    });
   }
 
   public upsert(config: StoredRoleConfig): Promise<void> {
     this.db.prepare(`
       INSERT INTO roles (name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(name) DO UPDATE SET
         system_prompt = excluded.system_prompt,
         allowed_tools = excluded.allowed_tools,
@@ -48,7 +69,7 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
         max_turns = excluded.max_turns,
         model = excluded.model,
         capabilities = excluded.capabilities,
-        updated_at = datetime('now')
+        updated_at = datetime('now', 'localtime')
     `).run(
       config.name,
       config.systemPrompt,

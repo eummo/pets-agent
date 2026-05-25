@@ -6,6 +6,8 @@
 
 更新说明：2026-05-25 二次检查时，工作树中已经包含一批优化改动，包括 file conversation store 从 `src/core` 迁移到 `src/db`、增加 `FileMutex`、拆分 server dev/wechat routes、增加 LLM retry、收紧 dev role/feedback 本地访问，以及将 runtime 错误响应改为更安全的用户提示。下面的清单已按当前工作树重新校准。
 
+实施状态：2026-05-25 已按建议实施顺序完成大部分优化，包括意图分类确定性兜底、runtime cache key 配置版本化、`FileMutex` 清理与并发测试、JSONL logger 写队列、workspace resolver 缓存与诊断日志、feedback 分页/索引、dev 前端错误渲染与加载更多、retry 退避、静态资源路径加固、deterministic smoke、DB role config 运行时校验、`tsconfig.test.json` 清理、pi-ai/Vitest patch 升级、composition root 拆分和 system 事件日志。Claude Agent SDK patch 升级暂缓，因为 `0.3.150` 要求 Zod 4，而当前项目仍在 Zod 3。
+
 ## 摘要
 
 | 优先级 | 数量 | 主要方向 |
@@ -14,11 +16,11 @@
 | P1 | 8 | 文件锁完善、日志吞吐、工作区解析缓存、SQLite 查询边界、前端安全、retry 策略、静态资源路径、smoke 稳定性 |
 | P2 | 5 | 类型校验、配置清理、依赖升级、代码组织收尾和可观测性增强 |
 
-建议优先处理前三项：
+最新剩余优先处理项：
 
-1. 为意图分类失败增加确定性保守兜底，避免分类服务超时后把明显修改请求当成普通查询。
-2. 让角色配置变更能使 runtime 缓存失效，避免后台更新角色配置后仍使用旧工具和模型权限。
-3. 补齐新增 `FileMutex` 的并发测试和锁释放清理，确认最近的文件写入优化不会留下长期内存增长或跨进程误判。
+1. 单独规划 Zod 4 + Claude Agent SDK patch 升级。
+2. 继续评估 ESLint 10、TypeScript 6、Zod 4 等大版本升级。
+3. 若后续进入多进程部署，将 session/history file store 迁移到 SQLite 或增加跨进程文件锁。
 
 ## P0 优化项
 
@@ -302,13 +304,14 @@ npm run check
 
 - TypeScript typecheck 通过。
 - ESLint 通过。
-- Vitest 20 个测试文件、136 个测试通过。
+- Vitest 21 个测试文件、153 个测试通过。
 - 生产构建通过。
 
-未运行：
+已运行：
 
 ```bash
 npm run smoke
+npm run smoke:deterministic
 ```
 
-原因：`npm run smoke` 需要本地服务先运行，并会触发真实模型回归；本次只新增文档，没有启动服务或调用模型。后续实施 P0/P1 中涉及运行时行为的优化时，应按 `docs/development-workflow.md` 先启动 harness/dev server，再运行 smoke。
+结果：真实模型 smoke 和 deterministic smoke 均通过。真实 smoke 前已执行 `npm run harness -- --reset` 并启动本地 dev server；验证后已停止临时服务。

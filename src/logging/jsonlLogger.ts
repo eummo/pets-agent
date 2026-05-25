@@ -8,15 +8,23 @@ export type JsonlLogger = {
 
 export function createJsonlLogger(filePathInput: string): JsonlLogger {
   const filePath = path.resolve(filePathInput);
+  const directoryReady = mkdir(path.dirname(filePath), { recursive: true });
+  let writeQueue: Promise<void> = Promise.resolve();
 
   return {
     filePath,
     async write(event) {
-      await mkdir(path.dirname(filePath), { recursive: true });
-      await writeFile(filePath, `${JSON.stringify(withTimestamp(redactRecord(event)))}\n`, {
-        flag: "a",
-        encoding: "utf8"
-      });
+      const line = `${JSON.stringify(withTimestamp(redactRecord(event)))}\n`;
+      const writeOperation = async (): Promise<void> => {
+        await directoryReady;
+        await writeFile(filePath, line, {
+          flag: "a",
+          encoding: "utf8"
+        });
+      };
+      const nextWrite = writeQueue.catch(() => undefined).then(writeOperation);
+      writeQueue = nextWrite.catch(() => undefined);
+      await nextWrite;
     }
   };
 }
