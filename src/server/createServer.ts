@@ -1,6 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
-import type { DevRoleStore } from "../security/devRoleStore.js";
 import { registerDevRoutes, type DevRoutesOptions } from "./devRoutes.js";
 import type { DevProgressBroker } from "./progressBroker.js";
 import { registerWechatRoutes, type WechatRoutesOptions } from "./wechatRoutes.js";
@@ -8,7 +7,6 @@ import { registerWechatRoutes, type WechatRoutesOptions } from "./wechatRoutes.j
 export type CreateServerOptions = {
   readonly messageHandler: MessageHandler;
   readonly wechatToken: string;
-  readonly devRoleStore?: DevRoleStore | undefined;
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
@@ -36,7 +34,6 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
   if (options.enableDevRoutes !== false) {
     const devOptions: DevRoutesOptions = {
       messageHandler: options.messageHandler,
-      devRoleStore: options.devRoleStore,
       roleConfigStore: options.roleConfigStore,
       feedbackStore: options.feedbackStore,
       authorization: options.authorization,

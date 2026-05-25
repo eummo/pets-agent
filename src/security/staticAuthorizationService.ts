@@ -11,10 +11,6 @@ import type {
 } from "../core/ports.js";
 import { FILE_MUTATION_TOOLS } from "../core/ports.js";
 
-export type RoleProvider = {
-  getRole(userId: string): string;
-};
-
 // Maps AuthorizationAction to the required RoleCapability
 const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {
   read: "workspace_read",
@@ -23,14 +19,22 @@ const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {
 };
 
 export class StaticAuthorizationService implements AuthorizationService {
+  private readonly roles: Map<string, string>;
+
   public constructor(
-    private readonly roleProvider: RoleProvider = mapRoleProvider(new Map()),
     private readonly roleConfigStore?: RoleConfigStore,
-  ) {}
+    initialRoles: ReadonlyMap<string, string> = new Map(),
+  ) {
+    this.roles = new Map(initialRoles);
+  }
 
   public roleFor(user: ChannelUser): Promise<UserRole> {
-    const role = this.roleProvider.getRole(user.id);
+    const role = this.roles.get(user.id) ?? "reviewer";
     return Promise.resolve(normalizeRoleName(role));
+  }
+
+  public setRole(userId: string, role: string): void {
+    this.roles.set(userId, role);
   }
 
   public async can(
@@ -74,14 +78,6 @@ export class StaticAuthorizationService implements AuthorizationService {
 
     return ["workspace_read"];
   }
-}
-
-export function mapRoleProvider(roles: ReadonlyMap<string, string>): RoleProvider {
-  return {
-    getRole(userId) {
-      return roles.get(userId) ?? "reviewer";
-    }
-  };
 }
 
 function normalizeRoleName(role: string): UserRole {

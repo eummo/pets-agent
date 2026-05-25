@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import type { AgentStreamEvent, AuthorizationService, FeedbackStore, MessageHandler, RoleConfigStore } from "../core/ports.js";
-import type { DevRoleStore } from "../security/devRoleStore.js";
 import type { DevProgressBroker } from "./progressBroker.js";
 import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
 import { writeSse } from "./sseUtils.js";
@@ -36,7 +35,6 @@ type DevFeedbackQuery = {
 
 export type DevRoutesOptions = {
   readonly messageHandler: MessageHandler;
-  readonly devRoleStore?: DevRoleStore | undefined;
   readonly roleConfigStore?: RoleConfigStore | undefined;
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
@@ -182,11 +180,15 @@ export function registerDevRoutes(server: FastifyInstance, options: DevRoutesOpt
       }
     }
 
-    options.devRoleStore?.setRole(userId, role);
+    if (options.authorization?.setRole === undefined) {
+      return reply.status(501).send({ error: "Role management is not supported by this authorization service." });
+    }
+    options.authorization.setRole(userId, role);
 
+    const currentRole = await options.authorization.roleFor({ id: userId });
     return reply.send({
       userId,
-      role: options.devRoleStore?.getRole(userId) ?? role
+      role: currentRole
     });
   });
 

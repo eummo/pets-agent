@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthorizationService, FeedbackEntry, MessageHandler, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/ports.js";
-import { createDevRoleStore } from "../security/devRoleStore.js";
+import { StaticAuthorizationService } from "../security/staticAuthorizationService.js";
 import { createWechatSignature } from "../wechat/signature.js";
 import { createServer } from "./createServer.js";
 
@@ -66,11 +66,11 @@ describe("createServer", () => {
   });
 
   it("rejects role management from non-local clients", async () => {
-    const roleStore = createDevRoleStore();
+    const authorization = new StaticAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
       wechatToken: "token",
-      devRoleStore: roleStore
+      authorization
     });
 
     const response = await server.inject({
@@ -87,11 +87,11 @@ describe("createServer", () => {
   });
 
   it("sets development roles from the browser", async () => {
-    const roleStore = createDevRoleStore();
+    const authorization = new StaticAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
       wechatToken: "token",
-      devRoleStore: roleStore
+      authorization
     });
 
     const response = await server.inject({
@@ -105,15 +105,15 @@ describe("createServer", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ userId: "browser-user", role: "developer" });
-    expect(roleStore.getRole("browser-user")).toBe("developer");
+    await expect(authorization.roleFor({ id: "browser-user" })).resolves.toBe("developer");
   });
 
   it("accepts reviewer role", async () => {
-    const roleStore = createDevRoleStore();
+    const authorization = new StaticAuthorizationService();
     const server = createServer({
       messageHandler: echoHandler,
       wechatToken: "token",
-      devRoleStore: roleStore
+      authorization
     });
 
     const response = await server.inject({
@@ -127,7 +127,7 @@ describe("createServer", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ userId: "browser-user", role: "reviewer" });
-    expect(roleStore.getRole("browser-user")).toBe("reviewer");
+    await expect(authorization.roleFor({ id: "browser-user" })).resolves.toBe("reviewer");
   });
 
   it("verifies WeChat callback requests", async () => {

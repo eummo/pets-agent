@@ -26,7 +26,6 @@ import { createJsonlLogger } from "./logging/jsonlLogger.js";
 import { StaticWorkspaceResolver } from "./repos/staticWorkspaceResolver.js";
 import { createServer } from "./server/createServer.js";
 import { DevProgressBroker } from "./server/progressBroker.js";
-import { createDevRoleStore } from "./security/devRoleStore.js";
 import { StaticAuthorizationService } from "./security/staticAuthorizationService.js";
 
 export async function main(): Promise<void> {
@@ -35,7 +34,6 @@ export async function main(): Promise<void> {
   const conversationLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "conversation.jsonl"));
   const llmRawLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "llm-raw.jsonl"));
   const systemLogger = createJsonlLogger(path.join(runtimeConfig.logDir, "system.jsonl"));
-  const devRoleStore = createDevRoleStore();
   const progressBroker = new DevProgressBroker();
 
   // Initialize SQLite and stores
@@ -51,7 +49,7 @@ export async function main(): Promise<void> {
 
   const intentDetection = new LlmIntentDetectionService(buildPiModel(resolvedLlmConfig), resolvedLlmConfig.apiKey);
 
-  const authorization = new StaticAuthorizationService(devRoleStore, roleConfigStore);
+  const authorization = new StaticAuthorizationService(roleConfigStore);
 
   const runtimeFactory = createAgentRuntimeFactory(llmRawLogger, roleConfigStore, resolvedLlmConfig);
 
@@ -74,7 +72,6 @@ export async function main(): Promise<void> {
   const server = createServer({
     messageHandler: orchestrator,
     wechatToken: runtimeConfig.wechatToken,
-    devRoleStore,
     roleConfigStore,
     feedbackStore,
     authorization,

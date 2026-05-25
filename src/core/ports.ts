@@ -116,6 +116,7 @@ export type AuthorizationService = {
   roleFor(user: ChannelUser): Promise<UserRole>;
   can(user: ChannelUser, action: AuthorizationAction, workspace: KnowledgeWorkspace): Promise<AuthorizationDecision>;
   hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean>;
+  setRole?(userId: string, role: string): void;
 };
 
 // ── Role Configuration Store ─────────────────────────────────────────────────
