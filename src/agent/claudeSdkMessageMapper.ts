@@ -88,6 +88,7 @@ export function forwardStreamEvent(event: Record<string, unknown>, request: Agen
 }
 
 export type CompactBoundaryData = {
+  readonly sessionId?: string;
   readonly trigger: "manual" | "auto";
   readonly preTokens: number;
   readonly postTokens?: number;
@@ -114,6 +115,7 @@ export function forwardSystemMessageEvents(
     if (metadata === undefined) return undefined;
 
     const compactData: CompactBoundaryData = {
+      ...(typeof data["session_id"] === "string" ? { sessionId: data["session_id"] } : {}),
       trigger: metadata["trigger"] as "manual" | "auto",
       preTokens: metadata["pre_tokens"] as number,
       ...(metadata["post_tokens"] !== undefined ? { postTokens: metadata["post_tokens"] as number } : {}),

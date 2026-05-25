@@ -129,7 +129,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
             runtime: this.name,
             userId: request.user.id,
             workspacePath: request.workspacePath,
-            sessionId,
+            sessionId: compactData.sessionId ?? sessionId,
             trigger: compactData.trigger,
             preTokens: compactData.preTokens,
             ...(compactData.postTokens !== undefined ? { postTokens: compactData.postTokens } : {}),

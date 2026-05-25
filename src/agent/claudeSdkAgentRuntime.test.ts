@@ -526,6 +526,7 @@ describe("ClaudeSdkAgentRuntime", () => {
         {
           type: "system",
           subtype: "compact_boundary",
+          session_id: "session-compact",
           compact_metadata: {
             trigger: "auto",
             pre_tokens: 160_000,
@@ -562,6 +563,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       runtime: "claude-sdk-tester",
       userId: "user-1",
       workspacePath: "D:/workspace",
+      sessionId: "session-compact",
       trigger: "auto",
       preTokens: 160_000,
       durationMs: 800,
@@ -646,4 +648,3 @@ function firstQueryCall(): { readonly prompt: string; readonly options: Record<s
 function isCanUseTool(value: unknown): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
   return typeof value === "function";
 }
-

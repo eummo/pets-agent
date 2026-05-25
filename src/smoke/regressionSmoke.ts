@@ -27,6 +27,7 @@ const config = await loadRuntimeConfig();
 const baseUrl = process.env["SMOKE_BASE_URL"] ?? `http://127.0.0.1:${config.port}`;
 const conversationLogPath = path.resolve(config.logDir, "conversation.jsonl");
 const llmRawLogPath = path.resolve(config.logDir, "llm-raw.jsonl");
+const systemLogPath = path.resolve(config.logDir, "system.jsonl");
 const dbPath = config.dbPath;
 const firstCaseText = "What is the current project for?";
 const resetCaseText = "What is the current project after reset?";
@@ -124,6 +125,7 @@ async function main(): Promise<void> {
   // Verify logs
   await assertLogContains(conversationLogPath, ["conversation.turn", "smoke-user", firstCaseText]);
   await assertLogContainsAny(llmRawLogPath, ["llm.response"]);
+  await assertContextUsageLogged();
   console.info("[pass] logs-written");
 }
 
@@ -310,6 +312,33 @@ async function assertLogContainsAny(filePath: string, expectedValues: readonly s
 
   if (!expectedValues.some((expected) => content.includes(expected))) {
     throw new Error(`Expected ${filePath} to include one of: ${expectedValues.join(", ")}.`);
+  }
+}
+
+async function assertContextUsageLogged(): Promise<void> {
+  const content = await readFile(systemLogPath, "utf8");
+  const usageEvents = content
+    .split(/\r?\n/)
+    .filter((line) => line.includes('"type":"context.usage"') && line.includes('"userId":"smoke-user"'));
+
+  if (usageEvents.length === 0) {
+    throw new Error(`Expected ${systemLogPath} to include a context.usage event for smoke-user.`);
+  }
+
+  const latest = JSON.parse(usageEvents[usageEvents.length - 1] ?? "{}") as {
+    readonly inputTokens?: unknown;
+    readonly outputTokens?: unknown;
+    readonly contextWindow?: unknown;
+    readonly usagePercent?: unknown;
+  };
+
+  if (
+    typeof latest.inputTokens !== "number"
+    || typeof latest.outputTokens !== "number"
+    || typeof latest.contextWindow !== "number"
+    || typeof latest.usagePercent !== "number"
+  ) {
+    throw new Error(`context.usage event is missing numeric token fields: ${JSON.stringify(latest)}.`);
   }
 }
 
