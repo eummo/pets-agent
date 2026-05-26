@@ -11,7 +11,6 @@
   ConversationSessionStore,
   FeedbackStore,
   InboundMessage,
-  IntentDetectionService,
   KnowledgeWorkspace,
   KnowledgeWorkspaceResolver,
   MessageGateway,
@@ -22,6 +21,8 @@
 } from "./contracts.js";
 import { handleCommandWithoutWorkspace, isNewConversationCommand } from "./conversationCommands.js";
 import { actionForIntent, responseForDeniedIntent } from "./intentAuthorization.js";
+import { fallbackIntentFor } from "./intentHeuristics.js";
+import { parseIntentResponse } from "../agent/intentAgentRuntime.js";
 import { RuntimeCache } from "./runtimeCache.js";
 import { formatInternalError, formatSafeRuntimeError } from "./runtimeErrorFormatter.js";
 import { progressEventForAgentStreamEvent } from "./streamProgressMapper.js";
@@ -29,14 +30,13 @@ import { progressEventForAgentStreamEvent } from "./streamProgressMapper.js";
 export type OrchestratorDependencies = {
   readonly workspaceResolver: KnowledgeWorkspaceResolver;
   readonly authorization: AuthorizationService;
-  readonly agentRuntimes: Record<string, AgentRuntime>;
-  readonly runtimeFactory?: AgentRuntimeFactory;
+  readonly runtimeFactory: AgentRuntimeFactory;
+  readonly initialRuntimes?: Record<string, AgentRuntime>;
   readonly sessionStore?: ConversationSessionStore;
   readonly historyStore?: ConversationHistoryStore;
   readonly conversationLogger?: ConversationLogger;
   readonly eventLogger?: ConversationLogger;
   readonly progressReporter?: ProgressReporter;
-  readonly intentDetection: IntentDetectionService;
   readonly feedbackStore?: FeedbackStore | undefined;
 };
 
@@ -44,7 +44,7 @@ export class AgentOrchestrator implements MessageGateway {
   private readonly runtimeCache: RuntimeCache;
 
   public constructor(private readonly dependencies: OrchestratorDependencies) {
-    this.runtimeCache = new RuntimeCache(dependencies.agentRuntimes, dependencies.runtimeFactory);
+    this.runtimeCache = new RuntimeCache(dependencies.initialRuntimes ?? {}, dependencies.runtimeFactory);
   }
 
   public async handle(message: InboundMessage): Promise<OutboundMessage> {
@@ -142,6 +142,7 @@ export class AgentOrchestrator implements MessageGateway {
       user: message.user,
       text: message.text,
       workspacePath,
+      role,
       progress: (event) => this.publishProgress(message, event),
       stream: message.stream ?? ((event) => this.publishStreamEvent(message, event)),
       onCompact: async (summary) => {
@@ -185,7 +186,23 @@ export class AgentOrchestrator implements MessageGateway {
   }
 
   private async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
-    return this.dependencies.intentDetection.detectIntent(userMessage, role, history);
+    try {
+      const intentRuntime = await this.runtimeCache.resolve("intent");
+      if (intentRuntime !== undefined) {
+        const request: AgentRequest = {
+          user: { id: "system" },
+          text: userMessage,
+          workspacePath: "",
+          role,
+          ...(history !== undefined ? { history } : {}),
+        };
+        const response = await intentRuntime.run(request);
+        return parseIntentResponse(response.text);
+      }
+    } catch {
+      // Fall back to heuristic if intent runtime fails
+    }
+    return fallbackIntentFor(userMessage);
   }
 
   private async saveFeedback(
@@ -285,4 +302,3 @@ export class AgentOrchestrator implements MessageGateway {
     void this.publishProgress(message, progressEventForAgentStreamEvent(event));
   }
 }
-

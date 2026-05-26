@@ -46,6 +46,7 @@ export type AgentRequest = {
   readonly user: ChannelUser;
   readonly text: string;
   readonly workspacePath: string;
+  readonly role?: string;
   readonly history?: readonly AgentConversationMessage[];
   readonly sessionId?: string;
   readonly progress?: AgentProgressPublisher;
@@ -75,6 +76,7 @@ export type AgentRuntime = {
 };
 
 export type AgentRuntimeFactory = {
+  warmup(): Promise<Record<string, AgentRuntime>>;
   cacheKeyForRole?(role: string): Promise<string | undefined>;
   createRuntime(role: string): Promise<AgentRuntime | undefined>;
 };
@@ -187,10 +189,6 @@ export type UserIntent =
   | { readonly type: "query" }
   | { readonly type: "mutate" }
   | { readonly type: "update_kb" };
-
-export type IntentDetectionService = {
-  detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent>;
-};
 
 // ── Feedback Store ───────────────────────────────────────────────────────────
 

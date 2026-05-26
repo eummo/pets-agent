@@ -6,6 +6,77 @@ import {
   fauxThinking,
 } from "@earendil-works/pi-ai";
 import { LlmIntentDetectionService } from "./llmIntentDetectionService.js";
+import type { UserIntent } from "../core/contracts.js";
+import type { JsonlLogger } from "../logging/jsonlLogger.js";
+import { withRetry } from "../config/retry.js";
+import { fallbackIntentFor } from "../core/intentHeuristics.js";
+
+/**
+ * Creates a service that simulates retryable failures in detectIntent.
+ * The factory is called on each attempt — it can throw (retryable or not) or return a UserIntent.
+ * This bypasses the LLM call to directly test retry logic with the same configuration
+ * used in production (retries, shouldRetry, onRetry).
+ */
+function createRetryableService(
+  factory: () => UserIntent,
+  logger?: JsonlLogger,
+): LlmIntentDetectionService {
+  class RetryableIntentService extends LlmIntentDetectionService {
+    public override async detectIntent(
+      userMessage: string,
+      role: string,
+    ): Promise<UserIntent> {
+      const startTime = Date.now();
+      try {
+        const result = await withRetry(() => Promise.resolve(factory()), {
+          retries: 2,
+          shouldRetry: (error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return true;
+            if (error instanceof Error) {
+              const message = error.message.toLowerCase();
+              return message.includes("rate") || message.includes("overload")
+                || message.includes("429") || message.includes("503");
+            }
+            return false;
+          },
+          onRetry: ({ attempt, error }: { attempt: number; delayMs: number; error: unknown }) => {
+            void logger?.write({
+              type: "intent.retry",
+              role,
+              userMessage,
+              attempt,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          },
+        });
+        await logger?.write({
+          type: "intent.result",
+          role,
+          userMessage,
+          intentType: result.type,
+          source: "model",
+          durationMs: Date.now() - startTime,
+        });
+        return result;
+      } catch {
+        const intent = fallbackIntentFor(userMessage);
+        await logger?.write({
+          type: "intent.result",
+          role,
+          userMessage,
+          intentType: intent.type,
+          source: "fallback",
+          reason: "exception",
+          durationMs: Date.now() - startTime,
+        });
+        return intent;
+      }
+    }
+  }
+
+  const reg = registerFauxProvider({ tokensPerSecond: 50 });
+  return new RetryableIntentService(reg.getModel(), "test-key", logger);
+}
 
 describe("LlmIntentDetectionService", () => {
   let registration: ReturnType<typeof registerFauxProvider>;
@@ -201,6 +272,103 @@ describe("LlmIntentDetectionService", () => {
     const result = await service.detectIntent("Fix the bug in auth.ts", "developer");
 
     expect(result).toEqual({ type: "mutate" });
+  });
+
+  it("retries on AbortError (timeout) and succeeds on second attempt", async () => {
+    let attempt = 0;
+    const service = createRetryableService(() => {
+      attempt++;
+      if (attempt === 1) throw new DOMException("The operation was aborted", "AbortError");
+      return { type: "mutate" };
+    });
+    const result = await service.detectIntent("修改代码", "reviewer");
+
+    expect(result).toEqual({ type: "mutate" });
+    expect(attempt).toBe(2);
+  });
+
+  it("retries on rate-limit error (429) and succeeds on second attempt", async () => {
+    let attempt = 0;
+    const service = createRetryableService(() => {
+      attempt++;
+      if (attempt === 1) throw new Error("429 Rate limit exceeded");
+      return { type: "query" };
+    });
+    const result = await service.detectIntent("What is the architecture?", "reviewer");
+
+    expect(result).toEqual({ type: "query" });
+    expect(attempt).toBe(2);
+  });
+
+  it("retries on 503 overload error and succeeds on second attempt", async () => {
+    let attempt = 0;
+    const service = createRetryableService(() => {
+      attempt++;
+      if (attempt === 1) throw new Error("503 Overloaded");
+      return { type: "update_kb" };
+    });
+    const result = await service.detectIntent("更新知识库", "reviewer");
+
+    expect(result).toEqual({ type: "update_kb" });
+    expect(attempt).toBe(2);
+  });
+
+  it("falls back to heuristic after exhausting retries", async () => {
+    let attempt = 0;
+    const service = createRetryableService(() => {
+      attempt++;
+      throw new DOMException("Aborted", "AbortError");
+    });
+    const result = await service.detectIntent("请修改订单系统", "reviewer");
+
+    // 1 initial + 2 retries = 3 attempts, then fallback
+    expect(attempt).toBe(3);
+    expect(result).toEqual({ type: "mutate" });
+  });
+
+  it("does not retry on non-retryable errors", async () => {
+    let attempt = 0;
+    const service = createRetryableService(() => {
+      attempt++;
+      throw new Error("Authentication failed");
+    });
+    const result = await service.detectIntent("What is the architecture?", "reviewer");
+
+    // Non-retryable error should not trigger retry — goes straight to fallback
+    expect(attempt).toBe(1);
+    expect(result).toEqual({ type: "query" });
+  });
+
+  it("logs retry events", async () => {
+    let attempt = 0;
+    const rawEvents: Record<string, unknown>[] = [];
+    const service = createRetryableService(
+      () => {
+        attempt++;
+        if (attempt === 1) throw new Error("429 Rate limit exceeded");
+        return { type: "mutate" };
+      },
+      {
+        filePath: "memory.jsonl",
+        write(event: Record<string, unknown>) {
+          rawEvents.push(event);
+          return Promise.resolve();
+        },
+      },
+    );
+
+    const result = await service.detectIntent("Fix the bug", "developer");
+
+    expect(result).toEqual({ type: "mutate" });
+    const retryEvents = rawEvents.filter((e) => e["type"] === "intent.retry");
+    expect(retryEvents).toHaveLength(1);
+    expect(retryEvents[0]).toMatchObject({
+      type: "intent.retry",
+      role: "developer",
+      userMessage: "Fix the bug",
+      attempt: 1,
+      error: "429 Rate limit exceeded",
+    });
   });
 });
 

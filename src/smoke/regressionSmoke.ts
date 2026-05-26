@@ -56,6 +56,12 @@ const cases = [
     text: "客户订单是怎么创建的",
     expectedIncludes: ["订单", "创建"],
     forbiddenIncludes: ["修改请求", "不能修改", "反馈", "agent runtime", "model provider"]
+  },
+  {
+    name: "feedback-query-stays-in-selected-workspace",
+    text: "有哪些反馈信息",
+    expectedIncludes: ["反馈"],
+    forbiddenIncludes: ["FeedbackEntry", "sqliteFeedbackStore", "/dev/feedback", "src/", "contracts.ts", "代码分析"]
   }
 ] as const;
 

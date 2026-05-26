@@ -5,13 +5,13 @@ import type {
   AgentRequest,
   AgentResponse,
   AgentRuntime,
+  AgentRuntimeFactory,
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationService,
   ChannelUser,
   FeedbackEntry,
   FeedbackStore,
-  UserIntent,
 } from "../core/contracts.js";
 import { AgentOrchestrator } from "../core/orchestrator.js";
 import { ConfiguredWorkspaceResolver } from "../workspace/configuredWorkspaceResolver.js";
@@ -32,18 +32,28 @@ async function main(): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "pets-agent-deterministic-smoke-"));
   const feedbackStore = new MemoryFeedbackStore();
   const authorization = new ReviewerAuthorization();
+  const runtimes: Record<string, AgentRuntime> = {
+    reviewer: stubRuntime,
+    intent: {
+      name: "intent",
+      run(request: AgentRequest): Promise<AgentResponse> {
+        return Promise.resolve({ text: fallbackIntentFor(request.text).type });
+      },
+      disposeSession(): Promise<void> {
+        return Promise.resolve();
+      },
+    },
+  };
+  const runtimeFactory: AgentRuntimeFactory = {
+    warmup() { return Promise.resolve(runtimes); },
+    createRuntime(role: string) { return Promise.resolve(runtimes[role]); },
+  };
   const orchestrator = new AgentOrchestrator({
     workspaceResolver: new ConfiguredWorkspaceResolver({ knowledgeBasePath: path.join(root, "knowledge-base") }),
     authorization,
+    runtimeFactory,
+    initialRuntimes: runtimes,
     feedbackStore,
-    intentDetection: {
-      detectIntent(userMessage: string): Promise<UserIntent> {
-        return Promise.resolve(fallbackIntentFor(userMessage));
-      }
-    },
-    agentRuntimes: {
-      reviewer: stubRuntime,
-    },
   });
   const server = createServer({
     messageHandler: orchestrator,

@@ -4,7 +4,9 @@ import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 import type { AgentRuntime, AgentRuntimeFactory, RoleConfigStore } from "../core/contracts.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { ClaudeSdkAgentRuntime } from "./claudeSdkAgentRuntime.js";
+import { IntentAgentRuntime } from "./intentAgentRuntime.js";
 import { LlmBashPermissionDecider } from "./llmBashPermissionDecider.js";
+import { LlmIntentDetectionService } from "../intent/llmIntentDetectionService.js";
 
 export async function createAgentRuntimes(
   llmRawLogger: JsonlLogger,
@@ -50,12 +52,23 @@ export function createAgentRuntimeFactory(
   resolvedLlmConfig: ResolvedLlmConfig,
   contextConfig?: ContextConfig,
 ): AgentRuntimeFactory {
+  let warmupCache: Record<string, AgentRuntime> | undefined;
+
   return {
+    async warmup(): Promise<Record<string, AgentRuntime>> {
+      if (warmupCache !== undefined) return warmupCache;
+      warmupCache = await createAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig, contextConfig);
+      return warmupCache;
+    },
     async cacheKeyForRole(role: string): Promise<string | undefined> {
+      if (role === "intent") return "intent";
       const config = await roleConfigStore.getByName(role);
       return config === undefined ? undefined : `${role}:${config.updatedAt ?? "unknown"}`;
     },
     async createRuntime(role: string): Promise<AgentRuntime | undefined> {
+      if (role === "intent") {
+        return createIntentRuntime(resolvedLlmConfig, llmRawLogger);
+      }
       const config = await roleConfigStore.getByName(role);
       if (config === undefined) return undefined;
       const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig, llmRawLogger);
@@ -70,20 +83,13 @@ export function createAgentRuntimeFactory(
   };
 }
 
-export type AgentRuntimeSetup = {
-  readonly agentRuntimes: Record<string, AgentRuntime>;
-  readonly runtimeFactory: AgentRuntimeFactory;
-};
-
-export async function setupAgentRuntimes(
+export function setupAgentRuntimes(
   llmRawLogger: JsonlLogger,
   roleConfigStore: RoleConfigStore,
   resolvedLlmConfig: ResolvedLlmConfig,
   contextConfig?: ContextConfig,
-): Promise<AgentRuntimeSetup> {
-  const agentRuntimes = await createAgentRuntimes(llmRawLogger, roleConfigStore, resolvedLlmConfig, contextConfig);
-  const runtimeFactory = createAgentRuntimeFactory(llmRawLogger, roleConfigStore, resolvedLlmConfig, contextConfig);
-  return { agentRuntimes, runtimeFactory };
+): AgentRuntimeFactory {
+  return createAgentRuntimeFactory(llmRawLogger, roleConfigStore, resolvedLlmConfig, contextConfig);
 }
 
 function createToolPermissionDecider(resolvedLlmConfig: ResolvedLlmConfig, llmRawLogger: JsonlLogger) {
@@ -91,3 +97,8 @@ function createToolPermissionDecider(resolvedLlmConfig: ResolvedLlmConfig, llmRa
   return new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey, llmRawLogger).decide;
 }
 
+function createIntentRuntime(resolvedLlmConfig: ResolvedLlmConfig, llmRawLogger: JsonlLogger): IntentAgentRuntime {
+  const intentModel = buildPiModel(resolvedLlmConfig);
+  const detector = new LlmIntentDetectionService(intentModel, resolvedLlmConfig.apiKey, llmRawLogger);
+  return new IntentAgentRuntime(detector);
+}

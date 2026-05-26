@@ -2,7 +2,7 @@
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
-import type { AgentConversationMessage, IntentDetectionService, UserIntent, UserRole } from "../core/contracts.js";
+import type { AgentConversationMessage, UserIntent, UserRole } from "../core/contracts.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
@@ -41,10 +41,11 @@ Examples (with history):
 Respond with ONLY the intent label, nothing else.`;
 
 const INTENT_TIMEOUT_MS = 5000;
+const INTENT_MAX_RETRIES = 2;
 
 const VALID_INTENTS = new Set<string>(["query", "mutate", "update_kb"]);
 
-export class LlmIntentDetectionService implements IntentDetectionService {
+export class LlmIntentDetectionService {
   public constructor(
     private readonly model: Model<Api>,
     private readonly apiKey: string,
@@ -81,7 +82,25 @@ export class LlmIntentDetectionService implements IntentDetectionService {
         }, {
           apiKey: this.apiKey,
           signal: controller.signal,
+        }).then((response) => {
+          if (response.stopReason === "error" && isRetryableProviderResponse(response)) {
+            throw new Error(errorMessageForResponse(response));
+          }
+          return response;
         }).finally(() => clearTimeout(timeout));
+      }, {
+        retries: INTENT_MAX_RETRIES,
+        shouldRetry: (error) => isAbortError(error) || isRetryableError(error),
+        onRetry: ({ attempt, delayMs, error }) => {
+          void this.rawLogger?.write({
+            type: "intent.retry",
+            role,
+            userMessage,
+            attempt,
+            delayMs,
+            error: formatUnknownError(error),
+          });
+        },
       });
 
       if (response.stopReason === "error") {
@@ -201,3 +220,27 @@ function formatUnknownError(error: unknown): string {
   return String(error);
 }
 
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException) return error.name === "AbortError";
+  if (error instanceof Error) return error.name === "AbortError";
+  return false;
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("abort") || message.includes("rate") || message.includes("overload") || message.includes("429") || message.includes("503");
+}
+
+function isRetryableProviderResponse(response: Awaited<ReturnType<typeof complete>>): boolean {
+  return isRetryableError(new Error(errorMessageForResponse(response)));
+}
+
+function errorMessageForResponse(response: Awaited<ReturnType<typeof complete>>): string {
+  const responseData = response as unknown as Record<string, unknown>;
+  const errorMessage = responseData["errorMessage"];
+  if (typeof errorMessage === "string") {
+    return errorMessage;
+  }
+  return response.stopReason;
+}

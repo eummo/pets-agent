@@ -5,7 +5,7 @@
  * Architecture overview:
  * - AgentOrchestrator: Coordinates agent interactions, workspace resolution, and authorization
  * - Agent runtimes: Execute agent logic (Claude SDK, Echo for dev, or custom implementations)
- * - Intent detection: Routes incoming requests to appropriate intents using LLM
+ * - Intent detection: Routes incoming requests to appropriate intents via runtimeFactory
  * - Stores: Persist sessions, conversation history, role configs, and feedback
  * - Server: HTTP/WebSocket server handling incoming messages and progress updates
  * - WeChat adapter: WebSocket long connection to Enterprise WeChat smart bot
@@ -13,7 +13,7 @@
 import path from "node:path";
 import "dotenv/config";
 import { setupAgentRuntimes } from "./agent/createAgentRuntimes.js";
-import { buildPiModel, summarizeLlmConfig } from "./config/llmConfig.js";
+import { summarizeLlmConfig } from "./config/llmConfig.js";
 import { loadRuntimeConfig } from "./config/runtimeConfig.js";
 import { FileConversationHistoryStore } from "./persistence/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./persistence/fileConversationSessionStore.js";
@@ -22,7 +22,6 @@ import { createSqliteConnection } from "./persistence/sqliteConnection.js";
 import { SqliteFeedbackStore } from "./persistence/sqliteFeedbackStore.js";
 import { SqliteRoleConfigStore } from "./persistence/sqliteRoleConfigStore.js";
 import { seedDefaultRoles } from "./persistence/seedRoles.js";
-import { LlmIntentDetectionService } from "./intent/llmIntentDetectionService.js";
 import { createJsonlLogger } from "./logging/jsonlLogger.js";
 import { ConfiguredWorkspaceResolver } from "./workspace/configuredWorkspaceResolver.js";
 import { createServer } from "./server/createServer.js";
@@ -51,9 +50,10 @@ export async function main(): Promise<void> {
   const summary = summarizeLlmConfig(config.llm);
   console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
 
-  const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.context);
+  const runtimeFactory = setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.context);
 
-  const intentDetection = new LlmIntentDetectionService(buildPiModel(config.llm), config.llm.apiKey, llmRawLogger);
+  // Warmup pre-creates runtimes for all known roles and prints their status
+  const agentRuntimes = await runtimeFactory.warmup();
 
   const authorization = new InMemoryRoleAuthorizationService(roleConfigStore);
 
@@ -63,14 +63,13 @@ export async function main(): Promise<void> {
       logger: systemLogger,
     }),
     authorization,
-    agentRuntimes,
     runtimeFactory,
+    initialRuntimes: agentRuntimes,
     sessionStore: new FileConversationSessionStore(config.sessionStorePath),
     historyStore: new FileConversationHistoryStore(config.historyStorePath, { maxMessages: config.context.historyMaxMessages }),
     conversationLogger,
     eventLogger: systemLogger,
     progressReporter: progressBroker,
-    intentDetection,
     feedbackStore,
   });
 

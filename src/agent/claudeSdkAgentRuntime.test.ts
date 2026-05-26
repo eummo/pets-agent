@@ -48,7 +48,7 @@ describe("ClaudeSdkAgentRuntime", () => {
     const expectedOptions: Record<string, unknown> = {
       cwd: "D:/workspace",
       tools: ["Read", "Grep"],
-      allowedTools: ["Read", "Grep"],
+      allowedTools: [],
       disallowedTools: [],
       permissionMode: "dontAsk",
       allowDangerouslySkipPermissions: false,
@@ -128,7 +128,7 @@ describe("ClaudeSdkAgentRuntime", () => {
 
     const call = firstQueryCall();
     expect(call.prompt).toBe("Inspect files");
-    expect(call.options["allowedTools"]).toEqual(["Read"]);
+    expect(call.options["allowedTools"]).toEqual([]);
     expect(call.options["tools"]).toEqual(["Read", "Bash"]);
     expect(call.options["disallowedTools"]).toEqual(["Edit", "Write"]);
     expect(call.options["permissionMode"]).toBe("dontAsk");
@@ -160,7 +160,7 @@ describe("ClaudeSdkAgentRuntime", () => {
 
     const call = firstQueryCall();
     expect(call.options["tools"]).toEqual(["Read", "Bash"]);
-    expect(call.options["allowedTools"]).toEqual(["Read"]);
+    expect(call.options["allowedTools"]).toEqual([]);
     expect(call.options["permissionMode"]).toBe("dontAsk");
   });
 
@@ -202,6 +202,48 @@ describe("ClaudeSdkAgentRuntime", () => {
     expect(decisions).toEqual([
       { roleName: "reviewer", toolName: "Bash", input: { command: "ls" } }
     ]);
+  });
+
+  it("denies read-only tool requests outside the selected workspace", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "reviewer",
+        allowedTools: ["Read", "Grep"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+      },
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Inspect files",
+      workspacePath: "D:/code/pets-agent/.harness/knowledge-base",
+    });
+
+    const call = firstQueryCall();
+    const canUseTool = call.options["canUseTool"];
+    if (!isCanUseTool(canUseTool)) {
+      throw new Error("Expected canUseTool callback.");
+    }
+
+    await expect(canUseTool("Read", {
+      file_path: "D:/code/pets-agent/src/core/contracts.ts",
+    })).resolves.toMatchObject({
+      behavior: "deny",
+      message: expect.stringContaining("outside the selected workspace") as string,
+    });
+    await expect(canUseTool("Grep", {
+      path: "D:/code/pets-agent/.harness/knowledge-base/docs",
+    })).resolves.toMatchObject({
+      behavior: "allow",
+    });
   });
 
   it("passes mutating tools to the SDK when the role has edit permission mode", async () => {

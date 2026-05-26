@@ -64,7 +64,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
       allowDangerouslySkipPermissions: this.roleConfig.permissionMode === "bypassPermissions",
       systemPrompt: this.roleConfig.systemPrompt,
       includePartialMessages: true,
-      canUseTool: (toolName: string, input: Record<string, unknown>) => this.canUseTool(toolName, input),
+      canUseTool: (toolName: string, input: Record<string, unknown>) => this.canUseTool(toolName, input, request.workspacePath),
     };
     if (this.roleConfig.maxTurns !== undefined) {
       queryOptions["maxTurns"] = this.roleConfig.maxTurns;
@@ -232,8 +232,8 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     }
   }
 
-  private async canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
-    return decideToolPermission(this.roleConfig, toolName, input, this.toolPermissionDecider);
+  private async canUseTool(toolName: string, input: Record<string, unknown>, workspacePath: string): Promise<PermissionResult> {
+    return decideToolPermission(this.roleConfig, toolName, input, this.toolPermissionDecider, workspacePath);
   }
 }
 

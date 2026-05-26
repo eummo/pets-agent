@@ -1,41 +1,80 @@
 ﻿import { describe, expect, it } from "vitest";
 import type {
+  AgentRequest,
+  AgentRuntime,
+  AgentRuntimeFactory,
   AuthorizationService,
   ConversationHistoryStore,
   ConversationSessionKey,
   ConversationSessionStore,
   FeedbackEntry,
   FeedbackStore,
-  IntentDetectionService,
   KnowledgeWorkspaceResolver,
   UserIntent
 } from "./contracts.js";
 import { AgentOrchestrator } from "./orchestrator.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
 
-const stubIntentDetection: IntentDetectionService = {
-  detectIntent(): Promise<UserIntent> {
-    return Promise.resolve({ type: "query" });
-  }
-};
+function stubIntentRuntime(intentType: UserIntent["type"] = "query"): AgentRuntime {
+  return {
+    name: "intent",
+    run() {
+      return Promise.resolve({ text: intentType });
+    },
+    disposeSession() {
+      return Promise.resolve();
+    },
+  };
+}
+
+function stubIntentRuntimeFromMessage(): AgentRuntime {
+  return {
+    name: "intent",
+    run(request: AgentRequest) {
+      return Promise.resolve({ text: fallbackIntentFor(request.text).type });
+    },
+    disposeSession() {
+      return Promise.resolve();
+    },
+  };
+}
+
+function stubRuntimeFactory(
+  initialRuntimes: Record<string, AgentRuntime>,
+  factoryOverrides?: Partial<AgentRuntimeFactory>,
+): AgentRuntimeFactory {
+  return {
+    warmup() {
+      return Promise.resolve(initialRuntimes);
+    },
+    createRuntime(role: string) {
+      const existing = initialRuntimes[role];
+      if (existing !== undefined) return Promise.resolve(existing);
+      return Promise.resolve(undefined);
+    },
+    ...factoryOverrides,
+  };
+}
 
 describe("AgentOrchestrator", () => {
   it("returns a safe error message when the runtime fails with API key error", async () => {
+    const runtimes = {
+      reviewer: {
+        name: "failing",
+        run() {
+          return Promise.reject(new Error('401 {"error":{"message":"invalid api key"}}'));
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "failing",
-          run() {
-            return Promise.reject(new Error('401 {"error":{"message":"invalid api key"}}'));
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -47,22 +86,24 @@ describe("AgentOrchestrator", () => {
 
   it("handles /new without calling the runtime", async () => {
     let runtimeCalled = false;
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run() {
+          runtimeCalled = true;
+          return Promise.resolve({ text: "runtime" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run() {
-            runtimeCalled = true;
-            return Promise.resolve({ text: "runtime" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
     });
 
     const response = await orchestrator.handle(testMessage("/new"));
@@ -74,32 +115,34 @@ describe("AgentOrchestrator", () => {
   it("uses reviewer runtime for reviewer/viewer users", async () => {
     let reviewerCalled = false;
     let developerCalled = false;
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          reviewerCalled = true;
+          return Promise.resolve({ text: "reviewer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      developer: {
+        name: "developer",
+        run() {
+          developerCalled = true;
+          return Promise.resolve({ text: "developer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            reviewerCalled = true;
-            return Promise.resolve({ text: "reviewer response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        },
-        developer: {
-          name: "developer",
-          run() {
-            developerCalled = true;
-            return Promise.resolve({ text: "developer response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -111,27 +154,29 @@ describe("AgentOrchestrator", () => {
 
   it("writes internal event logs for workspace, role, intent, and runtime selection", async () => {
     const events: Record<string, unknown>[] = [];
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          return Promise.resolve({ text: "reviewer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       eventLogger: {
         write(event) {
           events.push(event);
           return Promise.resolve();
         }
       },
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            return Promise.resolve({ text: "reviewer response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -147,33 +192,30 @@ describe("AgentOrchestrator", () => {
   it("writes internal event logs when permission is denied", async () => {
     const events: Record<string, unknown>[] = [];
     const feedbackStore = new MemoryFeedbackStore();
-    const intentDetection: IntentDetectionService = {
-      detectIntent() {
-        return Promise.resolve({ type: "mutate" });
-      }
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          return Promise.resolve({ text: "runtime" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime("mutate"),
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       feedbackStore,
-      intentDetection,
       eventLogger: {
         write(event) {
           events.push(event);
           return Promise.resolve();
         }
       },
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            return Promise.resolve({ text: "runtime" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("modify files"));
@@ -184,32 +226,34 @@ describe("AgentOrchestrator", () => {
   it("uses developer runtime for developer users", async () => {
     let reviewerCalled = false;
     let developerCalled = false;
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          reviewerCalled = true;
+          return Promise.resolve({ text: "reviewer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      developer: {
+        name: "developer",
+        run() {
+          developerCalled = true;
+          return Promise.resolve({ text: "developer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: developerAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            reviewerCalled = true;
-            return Promise.resolve({ text: "reviewer response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        },
-        developer: {
-          name: "developer",
-          run() {
-            developerCalled = true;
-            return Promise.resolve({ text: "developer response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
     });
 
     const response = await orchestrator.handle(testMessage("refactor the code"));
@@ -222,28 +266,25 @@ describe("AgentOrchestrator", () => {
   it("records feedback instead of running runtime when a reviewer asks to mutate", async () => {
     let runtimeCalled = false;
     const feedbackStore = new MemoryFeedbackStore();
-    const intentDetection: IntentDetectionService = {
-      detectIntent() {
-        return Promise.resolve({ type: "update_kb" });
-      }
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          runtimeCalled = true;
+          return Promise.resolve({ text: "runtime response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime("update_kb"),
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       feedbackStore,
-      intentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            runtimeCalled = true;
-            return Promise.resolve({ text: "runtime response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     const response = await orchestrator.handle(testMessage("请帮我更新知识库", "user-1", "message-1"));
@@ -267,28 +308,25 @@ describe("AgentOrchestrator", () => {
   it("uses deterministic intent fallback via fallbackIntentFor for mutate detection", async () => {
     let runtimeCalled = false;
     const feedbackStore = new MemoryFeedbackStore();
-    const intentDetection: IntentDetectionService = {
-      detectIntent(userMessage: string) {
-        return Promise.resolve(fallbackIntentFor(userMessage));
-      }
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          runtimeCalled = true;
+          return Promise.resolve({ text: "runtime response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntimeFromMessage(),
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       feedbackStore,
-      intentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            runtimeCalled = true;
-            return Promise.resolve({ text: "runtime response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     const response = await orchestrator.handle(testMessage("请修改订单系统", "user-1", "message-1"));
@@ -305,27 +343,24 @@ describe("AgentOrchestrator", () => {
 
   it("uses deterministic knowledge-base fallback via fallbackIntentFor for update_kb detection", async () => {
     const feedbackStore = new MemoryFeedbackStore();
-    const intentDetection: IntentDetectionService = {
-      detectIntent(userMessage: string) {
-        return Promise.resolve(fallbackIntentFor(userMessage));
-      }
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          return Promise.resolve({ text: "runtime response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntimeFromMessage(),
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       feedbackStore,
-      intentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            return Promise.resolve({ text: "runtime response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     const response = await orchestrator.handle(testMessage("请更新知识库里的订单流程", "user-1", "message-1"));
@@ -352,22 +387,24 @@ describe("AgentOrchestrator", () => {
         return Promise.resolve(false);
       }
     };
+    const runtimes = {
+      "custom-reader": {
+        name: "custom-reader",
+        run() {
+          customCalled = true;
+          return Promise.resolve({ text: "custom response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: customAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {
-        "custom-reader": {
-          name: "custom-reader",
-          run() {
-            customCalled = true;
-            return Promise.resolve({ text: "custom response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -379,23 +416,25 @@ describe("AgentOrchestrator", () => {
   it("reuses stored runtime sessions for follow-up messages", async () => {
     const store = new MemorySessionStore();
     const calls: (string | undefined)[] = [];
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run(request: AgentRequest) {
+          calls.push(request.sessionId);
+          return Promise.resolve({ text: "runtime", sessionId: "session-1" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       sessionStore: store,
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run(request) {
-            calls.push(request.sessionId);
-            return Promise.resolve({ text: "runtime", sessionId: "session-1" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -407,22 +446,24 @@ describe("AgentOrchestrator", () => {
   it("appends new turns to history store", async () => {
     const historyStore = new MemoryHistoryStore();
     const sessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run() {
+          return Promise.resolve({ text: "second answer" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       historyStore,
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run() {
-            return Promise.resolve({ text: "second answer" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("second question", "user-1", "2"));
@@ -440,24 +481,26 @@ describe("AgentOrchestrator", () => {
     await store.set(sessionKey, "session-1");
     await historyStore.append(sessionKey, [{ role: "user", content: "hello" }]);
     const archivedSessions: string[] = [];
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run() {
+          return Promise.resolve({ text: "runtime" });
+        },
+        disposeSession(sessionId: string) {
+          archivedSessions.push(sessionId);
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       sessionStore: store,
       historyStore,
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run() {
-            return Promise.resolve({ text: "runtime" });
-          },
-          disposeSession(sessionId) {
-            archivedSessions.push(sessionId);
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     const response = await orchestrator.handle(testMessage("/new"));
@@ -481,28 +524,25 @@ describe("AgentOrchestrator", () => {
     }
 
     const feedbackStore = new MemoryFeedbackStore();
-    const intentDetection: IntentDetectionService = {
-      detectIntent() {
-        return Promise.resolve({ type: "mutate" });
-      }
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          return Promise.resolve({ text: "runtime response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime("mutate"),
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       historyStore,
       feedbackStore,
-      intentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "reviewer",
-          run() {
-            return Promise.resolve({ text: "runtime response" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("请修改代码", "user-1", "msg-7"));
@@ -521,21 +561,23 @@ describe("AgentOrchestrator", () => {
   });
 
   it("returns a generic error for non-API-key runtime failures", async () => {
+    const runtimes = {
+      reviewer: {
+        name: "failing",
+        run() {
+          return Promise.reject(new Error("Network timeout"));
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {
-        reviewer: {
-          name: "failing",
-          run() {
-            return Promise.reject(new Error("Network timeout"));
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -561,10 +603,10 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {},
       runtimeFactory: {
+        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
         createRuntime(role: string) {
+          if (role === "intent") return Promise.resolve(stubIntentRuntime());
           factoryCalled = true;
           expect(role).toBe("admin");
           return Promise.resolve({
@@ -577,7 +619,7 @@ describe("AgentOrchestrator", () => {
             }
           });
         }
-      }
+      },
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -603,13 +645,14 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {},
       runtimeFactory: {
+        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
         cacheKeyForRole(role: string) {
+          if (role === "intent") return Promise.resolve("intent");
           return Promise.resolve(`${role}:${version}`);
         },
-        createRuntime() {
+        createRuntime(role: string) {
+          if (role === "intent") return Promise.resolve(stubIntentRuntime());
           createCount += 1;
           const runtimeVersion = version;
           return Promise.resolve({
@@ -622,7 +665,7 @@ describe("AgentOrchestrator", () => {
             }
           });
         }
-      }
+      },
     });
 
     await expect(orchestrator.handle(testMessage("hello", "admin-1", "1"))).resolves.toEqual({ text: "v1" });
@@ -653,27 +696,28 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
-      intentDetection: stubIntentDetection,
-      sessionStore: store,
-      agentRuntimes: {},
       runtimeFactory: {
+        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
         cacheKeyForRole(role: string) {
+          if (role === "intent") return Promise.resolve("intent");
           return Promise.resolve(`${role}:${version}`);
         },
-        createRuntime() {
+        createRuntime(role: string) {
+          if (role === "intent") return Promise.resolve(stubIntentRuntime());
           const runtimeVersion = version;
           return Promise.resolve({
             name: `admin-${runtimeVersion}`,
             run() {
               return Promise.resolve({ text: runtimeVersion });
             },
-            disposeSession(sessionId) {
+            disposeSession(sessionId: string) {
               disposedSessions.push(`${runtimeVersion}:${sessionId}`);
               return Promise.resolve();
             }
           });
         }
-      }
+      },
+      sessionStore: store,
     });
 
     version = "v2";
@@ -683,7 +727,7 @@ describe("AgentOrchestrator", () => {
     expect(disposedSessions).toEqual(["v2:session-1"]);
   });
 
-  it("returns no-runtime error when factory is absent or returns undefined", async () => {
+  it("returns no-runtime error when factory returns undefined", async () => {
     const adminAuthorization: AuthorizationService = {
       roleFor() {
         return Promise.resolve("admin");
@@ -698,13 +742,13 @@ describe("AgentOrchestrator", () => {
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: adminAuthorization,
-      intentDetection: stubIntentDetection,
-      agentRuntimes: {},
       runtimeFactory: {
-        createRuntime() {
+        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
+        createRuntime(role: string) {
+          if (role === "intent") return Promise.resolve(stubIntentRuntime());
           return Promise.resolve(undefined);
         }
-      }
+      },
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -715,23 +759,25 @@ describe("AgentOrchestrator", () => {
   it("isolates sessions by chatId for group chats", async () => {
     const store = new MemorySessionStore();
     const historyStore = new MemoryHistoryStore();
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run(request: AgentRequest) {
+          return Promise.resolve({ text: "response", sessionId: request.sessionId ?? "s-new" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       sessionStore: store,
       historyStore,
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run(request) {
-            return Promise.resolve({ text: "response", sessionId: request.sessionId ?? "s-new" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     // Same user, different group chats = different sessions
@@ -754,23 +800,25 @@ describe("AgentOrchestrator", () => {
   it("isolates group chat session from single chat session for the same user", async () => {
     const store = new MemorySessionStore();
     const historyStore = new MemoryHistoryStore();
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run() {
+          return Promise.resolve({ text: "response", sessionId: "s-1" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       sessionStore: store,
       historyStore,
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run() {
-            return Promise.resolve({ text: "response", sessionId: "s-1" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     // User in group chat
@@ -805,10 +853,24 @@ describe("AgentOrchestrator", () => {
     ]);
 
     let onCompactCallback: ((summary: string) => Promise<void>) | undefined;
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run(request: AgentRequest) {
+          onCompactCallback = request.onCompact;
+          return Promise.resolve({ text: "response after compact" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       historyStore,
       eventLogger: {
         write(event) {
@@ -816,18 +878,6 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run(request) {
-            onCompactCallback = request.onCompact;
-            return Promise.resolve({ text: "response after compact" });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("continue"));
@@ -858,38 +908,40 @@ describe("AgentOrchestrator", () => {
 
   it("logs context usage event when the runtime reports token usage", async () => {
     const events: Record<string, unknown>[] = [];
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run() {
+          return Promise.resolve({
+            text: "response",
+            sessionId: "s-1",
+            contextUsage: {
+              inputTokens: 100_000,
+              outputTokens: 500,
+              cacheReadTokens: 60_000,
+              cacheCreationTokens: 20_000,
+              contextWindow: 150_000,
+              usagePercent: 67,
+            },
+          });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
-      intentDetection: stubIntentDetection,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
       eventLogger: {
         write(event) {
           events.push(event);
           return Promise.resolve();
         }
       },
-      agentRuntimes: {
-        reviewer: {
-          name: "runtime",
-          run() {
-            return Promise.resolve({
-              text: "response",
-              sessionId: "s-1",
-              contextUsage: {
-                inputTokens: 100_000,
-                outputTokens: 500,
-                cacheReadTokens: 60_000,
-                cacheCreationTokens: 20_000,
-                contextWindow: 150_000,
-                usagePercent: 67,
-              },
-            });
-          },
-          disposeSession() {
-            return Promise.resolve();
-          }
-        }
-      }
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -905,6 +957,30 @@ describe("AgentOrchestrator", () => {
       contextWindow: 150_000,
       usagePercent: 67,
     });
+  });
+
+  it("falls back to heuristic intent when intent runtime is unavailable", async () => {
+    const feedbackStore = new MemoryFeedbackStore();
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      runtimeFactory: {
+        warmup() { return Promise.resolve({}); },
+        createRuntime() { return Promise.resolve(undefined); },
+      },
+      feedbackStore,
+    });
+
+    // fallbackIntentFor("请修改订单系统") returns { type: "mutate" }
+    const response = await orchestrator.handle(testMessage("请修改订单系统", "user-1", "message-1"));
+
+    expect(response.text).toContain("修改请求");
+    expect(feedbackStore.entries).toEqual([
+      expect.objectContaining({
+        intentType: "mutate",
+        userMessage: "请修改订单系统",
+      })
+    ]);
   });
 });
 
@@ -1043,4 +1119,3 @@ class MemoryFeedbackStore implements FeedbackStore {
     return Promise.resolve(this.entries);
   }
 }
-
