@@ -86,8 +86,8 @@ describe("loadRuntimeConfig", () => {
     const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
 
     expect(config.port).toBe(3000);
-    expect(config.host).toBe("0.0.0.0");
-    expect(config.enableDevRoutes).toBe(true);
+    expect(config.host).toBe("127.0.0.1");
+    expect(config.enableDevRoutes).toBe(false);
     expect(config.wechat.botId).toBe("dev-bot-id");
     expect(config.wechat.secret).toBe("dev-secret");
   });

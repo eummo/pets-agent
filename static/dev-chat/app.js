@@ -127,10 +127,11 @@ function updateToolCallCard(toolUseId, result, isError) {
 }
 
 // ── Capabilities ──
-// Must stay in sync with RoleCapability in src/core/ports.ts
+// Must stay in sync with RoleCapability in src/core/contracts.ts
 const CAP = Object.freeze({
   WORKSPACE_READ: "workspace_read",
   WORKSPACE_MUTATE: "workspace_mutate",
+  KNOWLEDGE_BASE_UPDATE: "knowledge_base_update",
   FEEDBACK_VIEW: "feedback_view",
   FEEDBACK_MANAGE: "feedback_manage",
 });

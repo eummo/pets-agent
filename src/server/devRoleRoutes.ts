@@ -8,7 +8,11 @@ type DevRoleBody = {
 };
 
 export function registerDevRoleRoutes(server: FastifyInstance, options: DevRoutesOptions): void {
-  server.get("/dev/roles", async () => {
+  server.get("/dev/roles", async (request, reply) => {
+    if (!isLocalRequest(request.ip)) {
+      return reply.status(403).send({ error: "Role listing is only available from localhost." });
+    }
+
     if (options.roleConfigStore === undefined) {
       return { roles: [] };
     }

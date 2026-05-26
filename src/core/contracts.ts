@@ -127,7 +127,7 @@ export type KnowledgeWorkspaceResolver = {
   resolve(message: InboundMessage): Promise<readonly KnowledgeWorkspace[]>;
 };
 
-export type AuthorizationAction = "read" | "suggest" | "mutate";
+export type AuthorizationAction = "read" | "suggest" | "mutate" | "update_kb";
 
 export type AuthorizationDecision = {
   readonly allowed: boolean;
@@ -151,6 +151,7 @@ export type AuthorizationService = {
 export type RoleCapability =
   | "workspace_read"       // browse and read workspace content
   | "workspace_mutate"     // modify files in the workspace
+  | "knowledge_base_update" // update curated knowledge-base documentation
   | "feedback_view"        // view user feedback entries
   | "feedback_manage"      // review and update feedback status
   | "roles_manage";        // create, update, delete role configurations (future)

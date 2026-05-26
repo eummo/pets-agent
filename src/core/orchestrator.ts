@@ -225,7 +225,7 @@ export class AgentOrchestrator implements MessageGateway {
 
     if (sessionId !== undefined) {
       const role = await this.dependencies.authorization.roleFor(message.user);
-      const runtime = this.runtimeCache.getCachedByRole(role);
+      const runtime = await this.resolveRuntime(role);
       if (runtime !== undefined) {
         await runtime.disposeSession(sessionId);
       }

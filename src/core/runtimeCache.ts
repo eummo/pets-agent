@@ -29,10 +29,6 @@ export class RuntimeCache {
     return runtime;
   }
 
-  public getCachedByRole(role: string): AgentRuntime | undefined {
-    return this.cache.get(role);
-  }
-
   private cacheRuntime(role: string, runtime: AgentRuntime): void {
     this.cache.set(role, runtime);
     this.cacheOrder.push(role);

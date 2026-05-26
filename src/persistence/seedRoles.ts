@@ -14,10 +14,12 @@ export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
       continue;
     }
 
-    if (config.name === "reviewer" && shouldRaiseMaxTurns(existingConfig, config)) {
+    const missingCapabilities = missingDefaultCapabilities(existingConfig, config);
+    if ((config.name === "reviewer" && shouldRaiseReviewerRuntimeDefaults(existingConfig, config)) || missingCapabilities.length > 0) {
       await store.upsert({
         ...existingConfig,
-        ...reviewerRuntimeDefaultsToRaise(existingConfig, config),
+        ...(config.name === "reviewer" ? reviewerRuntimeDefaultsToRaise(existingConfig, config) : {}),
+        ...(missingCapabilities.length > 0 ? { capabilities: [...(existingConfig.capabilities ?? []), ...missingCapabilities] } : {}),
       });
     }
   }
@@ -36,10 +38,22 @@ function reviewerRuntimeDefaultsToRaise(
   };
 }
 
-function shouldRaiseMaxTurns(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): boolean {
+function shouldRaiseReviewerRuntimeDefaults(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): boolean {
   return maxTurnsToRaise(existing, nextDefault) !== existing.maxTurns
     || existing.permissionMode === "dontAsk"
     || !existing.allowedTools.includes("Bash");
+}
+
+function missingDefaultCapabilities(
+  existing: StoredRoleConfig,
+  nextDefault: StoredRoleConfig,
+): readonly NonNullable<StoredRoleConfig["capabilities"]>[number][] {
+  if (nextDefault.capabilities === undefined || nextDefault.capabilities.length === 0) {
+    return [];
+  }
+
+  const existingCapabilities = new Set(existing.capabilities ?? []);
+  return nextDefault.capabilities.filter((capability) => !existingCapabilities.has(capability));
 }
 
 function maxTurnsToRaise(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): number | undefined {

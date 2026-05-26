@@ -16,6 +16,7 @@ type RoleRow = {
 const roleCapabilitySchema = z.enum([
   "workspace_read",
   "workspace_mutate",
+  "knowledge_base_update",
   "feedback_view",
   "feedback_manage",
   "roles_manage",

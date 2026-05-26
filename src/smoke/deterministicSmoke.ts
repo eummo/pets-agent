@@ -49,6 +49,7 @@ async function main(): Promise<void> {
     messageHandler: orchestrator,
     feedbackStore,
     authorization,
+    enableDevRoutes: true,
   });
 
   await assertHealth(server);

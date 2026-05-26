@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AuthorizationService, FeedbackEntry, MessageGateway, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/contracts.js";
 import { InMemoryRoleAuthorizationService } from "../auth/inMemoryRoleAuthorizationService.js";
-import { createServer } from "./createServer.js";
+import { createServer, type CreateServerOptions } from "./createServer.js";
 
 describe("createServer", () => {
   it("serves health checks", async () => {
@@ -16,7 +16,7 @@ describe("createServer", () => {
   });
 
   it("serves the development chat page", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
     });
 
@@ -29,7 +29,7 @@ describe("createServer", () => {
   });
 
   it("rejects path traversal attempts for development chat assets", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
     });
 
@@ -38,8 +38,22 @@ describe("createServer", () => {
     expect(response.statusCode).toBe(403);
   });
 
+  it("rejects development UI assets from non-local clients", async () => {
+    const server = createDevServer({
+      messageHandler: echoHandler,
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/chat/app.js",
+      remoteAddress: "10.0.0.5",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
   it("routes browser chat messages via SSE streaming", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
     });
 
@@ -60,9 +74,55 @@ describe("createServer", () => {
     expect(response.body).toContain("received: hello");
   });
 
+  it("rejects browser chat messages from non-local clients", async () => {
+    const server = createDevServer({
+      messageHandler: echoHandler,
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/dev/chat",
+      payload: {
+        userId: "browser-user",
+        text: "hello"
+      },
+      remoteAddress: "10.0.0.5",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("rejects development events from non-local clients", async () => {
+    const server = createDevServer({
+      messageHandler: echoHandler,
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/events?userId=browser-user",
+      remoteAddress: "10.0.0.5",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("rejects role listing from non-local clients", async () => {
+    const server = createDevServer({
+      messageHandler: echoHandler,
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/dev/roles",
+      remoteAddress: "10.0.0.5",
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
   it("rejects role management from non-local clients", async () => {
     const authorization = new InMemoryRoleAuthorizationService();
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       authorization
     });
@@ -82,7 +142,7 @@ describe("createServer", () => {
 
   it("sets development roles from the browser", async () => {
     const authorization = new InMemoryRoleAuthorizationService();
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       authorization
     });
@@ -103,7 +163,7 @@ describe("createServer", () => {
 
   it("accepts reviewer role", async () => {
     const authorization = new InMemoryRoleAuthorizationService();
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       authorization
     });
@@ -122,10 +182,9 @@ describe("createServer", () => {
     await expect(authorization.roleFor({ id: "browser-user" })).resolves.toBe("reviewer");
   });
 
-  it("disables dev routes when enableDevRoutes is false", async () => {
+  it("does not enable dev routes by default", async () => {
     const server = createServer({
       messageHandler: echoHandler,
-      enableDevRoutes: false
     });
 
     const response = await server.inject({ method: "GET", url: "/" });
@@ -136,7 +195,7 @@ describe("createServer", () => {
 
 describe("feedback endpoints", () => {
   it("returns 501 when feedback store is not configured", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
     });
 
@@ -149,7 +208,7 @@ describe("feedback endpoints", () => {
   });
 
   it("returns 403 when user lacks feedback_view capability", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "reviewer-1": ["workspace_read"] }),
@@ -164,10 +223,10 @@ describe("feedback endpoints", () => {
   });
 
   it("returns feedback list for user with feedback_view capability", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       feedbackStore: makeFeedbackStore(),
-      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"] }),
     });
 
     const response = await server.inject({
@@ -182,10 +241,10 @@ describe("feedback endpoints", () => {
   });
 
   it("rejects feedback access from non-local clients", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       feedbackStore: makeFeedbackStore(),
-      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"] }),
     });
 
     const response = await server.inject({
@@ -198,7 +257,7 @@ describe("feedback endpoints", () => {
   });
 
   it("returns 403 when updating feedback without feedback_manage capability", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       feedbackStore: makeFeedbackStore(),
       authorization: makeAuthorization({ "dev-1": ["workspace_read", "workspace_mutate", "feedback_view"] }),
@@ -214,10 +273,10 @@ describe("feedback endpoints", () => {
   });
 
   it("updates feedback status with feedback_manage capability", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       feedbackStore: makeFeedbackStore(),
-      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"] }),
     });
 
     const response = await server.inject({
@@ -231,10 +290,10 @@ describe("feedback endpoints", () => {
   });
 
   it("returns 404 when updating missing feedback", async () => {
-    const server = createServer({
+    const server = createDevServer({
       messageHandler: echoHandler,
       feedbackStore: makeFeedbackStore({ existingIds: [1] }),
-      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+      authorization: makeAuthorization({ "admin-1": ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"] }),
     });
 
     const response = await server.inject({
@@ -253,6 +312,10 @@ const echoHandler: MessageGateway = {
     return Promise.resolve(result);
   }
 };
+
+function createDevServer(options: Omit<CreateServerOptions, "enableDevRoutes">) {
+  return createServer({ ...options, enableDevRoutes: true });
+}
 
 function makeFeedbackStore(options: { readonly existingIds?: readonly number[] } = {}) {
   const entries: readonly FeedbackEntry[] = [
@@ -273,7 +336,11 @@ function makeAuthorization(roleCapabilities: Record<string, readonly RoleCapabil
     },
     can(user: ChannelUser, action: AuthorizationAction): Promise<AuthorizationDecision> {
       const caps = roleCapabilities[user.id] ?? ["workspace_read"];
-      const required = action === "mutate" ? "workspace_mutate" : "workspace_read";
+      const required = action === "mutate"
+        ? "workspace_mutate"
+        : action === "update_kb"
+          ? "knowledge_base_update"
+          : "workspace_read";
       return Promise.resolve(caps.includes(required) ? { allowed: true } : { allowed: false, reason: "Insufficient permissions" });
     },
     hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean> {

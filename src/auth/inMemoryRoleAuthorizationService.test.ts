@@ -54,6 +54,28 @@ describe("InMemoryRoleAuthorizationService", () => {
     expect(decision).toEqual({ allowed: true });
   });
 
+  it("allows knowledge-base updates with knowledge_base_update capability", async () => {
+    const service = new InMemoryRoleAuthorizationService(
+      makeRoleConfigStore({ docsMaintainer: ["workspace_read", "knowledge_base_update"] }),
+      new Map([["docs-1", "docsMaintainer"]]),
+    );
+
+    const decision = await service.can({ id: "docs-1" }, "update_kb", workspace);
+
+    expect(decision).toEqual({ allowed: true });
+  });
+
+  it("does not allow knowledge-base updates from workspace_mutate alone", async () => {
+    const service = new InMemoryRoleAuthorizationService(
+      makeRoleConfigStore({ codeOnly: ["workspace_read", "workspace_mutate"] }),
+      new Map([["code-1", "codeOnly"]]),
+    );
+
+    const decision = await service.can({ id: "code-1" }, "update_kb", workspace);
+
+    expect(decision.allowed).toBe(false);
+  });
+
   it("denies mutate for reviewers without workspace_mutate capability", async () => {
     const service = new InMemoryRoleAuthorizationService(
       makeRoleConfigStore({ reviewer: ["workspace_read"] }),
@@ -66,7 +88,7 @@ describe("InMemoryRoleAuthorizationService", () => {
 
   it("allows mutate for admin with workspace_mutate capability", async () => {
     const service = new InMemoryRoleAuthorizationService(
-      makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+      makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"] }),
       new Map([["admin-1", "admin"]]),
     );
     const decision = await service.can(adminUser, "mutate", workspace);
@@ -135,7 +157,7 @@ describe("setRole", () => {
 describe("hasCapability", () => {
   it("returns true when role has the capability", async () => {
     const service = new InMemoryRoleAuthorizationService(
-      makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"] }),
+      makeRoleConfigStore({ admin: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"] }),
       new Map([["admin-1", "admin"]]),
     );
 

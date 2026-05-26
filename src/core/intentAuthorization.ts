@@ -1,7 +1,13 @@
 import type { AuthorizationAction, UserIntent } from "./contracts.js";
 
 export function actionForIntent(intent: UserIntent): AuthorizationAction | undefined {
-  return intent.type === "mutate" || intent.type === "update_kb" ? "mutate" : undefined;
+  if (intent.type === "mutate") {
+    return "mutate";
+  }
+  if (intent.type === "update_kb") {
+    return "update_kb";
+  }
+  return undefined;
 }
 
 export function responseForDeniedIntent(intent: UserIntent): string {

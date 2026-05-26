@@ -20,11 +20,11 @@ describe("seedDefaultRoles", () => {
     }));
     await expect(store.getByName("developer")).resolves.toEqual(expect.objectContaining({
       name: "developer",
-      capabilities: ["workspace_read", "workspace_mutate"],
+      capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
     }));
     await expect(store.getByName("admin")).resolves.toEqual(expect.objectContaining({
       name: "admin",
-      capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
+      capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"],
     }));
   });
 
@@ -46,6 +46,25 @@ describe("seedDefaultRoles", () => {
       allowedTools: ["Read", "Glob", "Grep", "Bash"],
       permissionMode: "dontAsk",
       maxTurns: REVIEWER_DEFAULT.maxTurns,
+    }));
+  });
+
+  it("adds missing default capabilities to existing roles without replacing prompts", async () => {
+    const store = new SqliteRoleConfigStore(createSqliteConnection(":memory:"));
+    await store.upsert({
+      name: "developer",
+      systemPrompt: "Custom developer prompt",
+      allowedTools: ["Read", "Edit", "Write"],
+      permissionMode: "bypassPermissions",
+      capabilities: ["workspace_read", "workspace_mutate"],
+    });
+
+    await seedDefaultRoles(store);
+
+    await expect(store.getByName("developer")).resolves.toEqual(expect.objectContaining({
+      name: "developer",
+      systemPrompt: "Custom developer prompt",
+      capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
     }));
   });
 });

@@ -17,6 +17,7 @@ export async function buildWorkspacePrompt(request: AgentRequest, maxChars = DEF
     "Use the selected workspace context above as the primary source of truth.",
     "If the user asks about the current project, architecture, or system, answer about this selected workspace.",
     "Do not answer from the host agent implementation unless the user explicitly asks how this assistant is built.",
+    "Do not infer the business domain from names such as Pets Agent unless the workspace context explicitly defines that domain.",
     "",
     "User request:",
     request.text,

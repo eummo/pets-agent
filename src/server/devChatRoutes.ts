@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AgentStreamEvent } from "../core/contracts.js";
 import type { DevRoutesOptions } from "./devRouteOptions.js";
-import { normalizeOptionalText } from "./serverUtils.js";
+import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
 import { writeSse } from "./sseUtils.js";
 
 type DevChatBody = {
@@ -11,6 +11,10 @@ type DevChatBody = {
 
 export function registerDevChatRoutes(server: FastifyInstance, options: DevRoutesOptions): void {
   server.post<{ Body: DevChatBody }>("/dev/chat", async (request, reply) => {
+    if (!isLocalRequest(request.ip)) {
+      return reply.status(403).send({ error: "Development chat is only available from localhost." });
+    }
+
     const text = request.body.text?.trim();
     const userId = normalizeOptionalText(request.body.userId) ?? "browser-user";
 

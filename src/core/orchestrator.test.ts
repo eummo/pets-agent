@@ -633,6 +633,56 @@ describe("AgentOrchestrator", () => {
     expect(createCount).toBe(2);
   });
 
+  it("disposes the current versioned runtime when starting a new conversation", async () => {
+    let version = "v1";
+    const disposedSessions: string[] = [];
+    const store = new MemorySessionStore();
+    const sessionKey = { channel: "test", userId: "admin-1", workspacePath: "D:/kb" };
+    await store.set(sessionKey, "session-1");
+    const adminAuthorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve("admin");
+      },
+      can() {
+        return Promise.resolve({ allowed: true });
+      },
+      hasCapability() {
+        return Promise.resolve(true);
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: adminAuthorization,
+      intentDetection: stubIntentDetection,
+      sessionStore: store,
+      agentRuntimes: {},
+      runtimeFactory: {
+        cacheKeyForRole(role: string) {
+          return Promise.resolve(`${role}:${version}`);
+        },
+        createRuntime() {
+          const runtimeVersion = version;
+          return Promise.resolve({
+            name: `admin-${runtimeVersion}`,
+            run() {
+              return Promise.resolve({ text: runtimeVersion });
+            },
+            disposeSession(sessionId) {
+              disposedSessions.push(`${runtimeVersion}:${sessionId}`);
+              return Promise.resolve();
+            }
+          });
+        }
+      }
+    });
+
+    version = "v2";
+    const response = await orchestrator.handle(testMessage("/new", "admin-1", "new"));
+
+    expect(response.text).toContain("New conversation started");
+    expect(disposedSessions).toEqual(["v2:session-1"]);
+  });
+
   it("returns no-runtime error when factory is absent or returns undefined", async () => {
     const adminAuthorization: AuthorizationService = {
       roleFor() {
@@ -870,7 +920,7 @@ const reviewerAuthorization: AuthorizationService = {
   },
   can(_user, action) {
     return Promise.resolve(
-      action === "mutate"
+      action === "mutate" || action === "update_kb"
         ? { allowed: false, reason: "reviewer cannot mutate" }
         : { allowed: true }
     );

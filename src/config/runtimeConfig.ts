@@ -25,13 +25,13 @@ const contextConfigSchema = z.object({
 
 const runtimeConfigSchema = z.object({
   port: z.number().int().positive().default(3000),
-  host: z.string().min(1).default("0.0.0.0"),
+  host: z.string().min(1).default("127.0.0.1"),
   knowledgeBasePath: z.string().min(1).default(".harness/knowledge-base"),
   logDir: z.string().min(1).default(".harness/logs"),
   dbPath: z.string().min(1).default(".harness/state/agent.db"),
   sessionStorePath: z.string().min(1).default(".harness/state/sessions.json"),
   historyStorePath: z.string().min(1).default(".harness/state/history.json"),
-  enableDevRoutes: z.boolean().default(true),
+  enableDevRoutes: z.boolean().default(false),
   wechat: z.object({
     botId: z.string().min(1).default("dev-bot-id"),
     secret: z.string().min(1).default("dev-secret"),

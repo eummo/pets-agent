@@ -16,6 +16,7 @@ const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {
   read: "workspace_read",
   suggest: "workspace_read",
   mutate: "workspace_mutate",
+  update_kb: "knowledge_base_update",
 };
 
 export class InMemoryRoleAuthorizationService implements AuthorizationService {
@@ -73,7 +74,7 @@ export class InMemoryRoleAuthorizationService implements AuthorizationService {
 
     // Backwards compat: infer from allowedTools and permissionMode
     if (config !== undefined && configAllowsMutation(config)) {
-      return ["workspace_read", "workspace_mutate"];
+      return ["workspace_read", "workspace_mutate", "knowledge_base_update"];
     }
 
     return ["workspace_read"];

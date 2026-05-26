@@ -14,7 +14,7 @@ export type CreateServerOptions = {
 };
 
 export function createServer(options: CreateServerOptions): FastifyInstance {
-  const enableDevRoutes = options.enableDevRoutes !== false;
+  const enableDevRoutes = options.enableDevRoutes === true;
   const server = Fastify({ logger: options.logger ?? false });
 
   server.get("/health", () => ({

@@ -121,6 +121,7 @@ async function main(): Promise<void> {
   assertIncludes(resetResult.text, ["New conversation started"], "new-conversation-command");
   const postResetResult = await chat(resetCaseText);
   assertIncludes(postResetResult.text, ["order"], "post-reset-starts-fresh-history");
+  assertForbidden(postResetResult.text, ["pet business", "pet-related", "pet application", "pet orders"], "post-reset-starts-fresh-history");
 
   // Verify logs
   await assertLogContains(conversationLogPath, ["conversation.turn", "smoke-user", firstCaseText]);

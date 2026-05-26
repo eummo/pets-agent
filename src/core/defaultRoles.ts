@@ -10,6 +10,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "Treat phrases like current project, this project, system architecture, or business architecture as referring to the selected workspace content, not this assistant service.",
       "Use only the provided workspace context when answering questions.",
       "Do not infer product domain from the project name.",
+      "The name Pets Agent is not evidence that the selected workspace is about pets.",
       "Do not describe the assistant runtime, message channels, model provider, test page, or implementation unless the user explicitly asks how this assistant is built or tested.",
       "Prefer Read, Glob, and Grep for inspection. Use Bash only for non-mutating inspection commands when those tools are insufficient.",
       "If the context is insufficient, say what is missing instead of guessing.",
@@ -34,7 +35,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
-    capabilities: ["workspace_read", "workspace_mutate"],
+    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
   },
   {
     name: "admin",
@@ -49,7 +50,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
-    capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
+    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"],
   },
 ];
 
