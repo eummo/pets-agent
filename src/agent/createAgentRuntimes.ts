@@ -13,7 +13,7 @@ export async function createAgentRuntimes(
   contextConfig?: ContextConfig,
 ): Promise<Record<string, AgentRuntime>> {
   const roleConfigs = await roleConfigStore.getAll();
-  const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig);
+  const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig, llmRawLogger);
 
   if (roleConfigs.length > 0) {
     return Object.fromEntries(
@@ -58,7 +58,7 @@ export function createAgentRuntimeFactory(
     async createRuntime(role: string): Promise<AgentRuntime | undefined> {
       const config = await roleConfigStore.getByName(role);
       if (config === undefined) return undefined;
-      const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig);
+      const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig, llmRawLogger);
       return new ClaudeSdkAgentRuntime({
         roleConfig: config,
         contextConfig,
@@ -86,8 +86,8 @@ export async function setupAgentRuntimes(
   return { agentRuntimes, runtimeFactory };
 }
 
-function createToolPermissionDecider(resolvedLlmConfig: ResolvedLlmConfig) {
+function createToolPermissionDecider(resolvedLlmConfig: ResolvedLlmConfig, llmRawLogger: JsonlLogger) {
   const permissionModel = buildPiModel(resolvedLlmConfig);
-  return new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey).decide;
+  return new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey, llmRawLogger).decide;
 }
 

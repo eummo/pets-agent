@@ -50,6 +50,12 @@ const cases = [
     text: "For the service you just mentioned, what is its main responsibility?",
     expectedIncludes: ["order"],
     forbiddenIncludes: ["WeChat", "browser", "agent runtime", "model provider"]
+  },
+  {
+    name: "chinese-creation-question-is-query",
+    text: "客户订单是怎么创建的",
+    expectedIncludes: ["订单", "创建"],
+    forbiddenIncludes: ["修改请求", "不能修改", "反馈", "agent runtime", "model provider"]
   }
 ] as const;
 
@@ -83,7 +89,7 @@ async function main(): Promise<void> {
   assertIncludes(chineseMutationResult.text, ["修改请求", "记录"], "reviewer-chinese-mutation-denied");
   assertForbidden(chineseMutationResult.text, ["计划", "审批", "Express", "TypeScript"], "reviewer-chinese-mutation-denied");
   assertFeedbackRecorded(chineseMutationUserId, chineseMutationText, "mutate");
-  await assertNoLlmResponseForUser(chineseMutationUserId);
+  await assertNoAgentRuntimeLlmResponseForUser(chineseMutationUserId);
   console.info("[pass] reviewer-chinese-mutation-denied");
 
   // Developer role can make code changes
@@ -125,7 +131,14 @@ async function main(): Promise<void> {
 
   // Verify logs
   await assertLogContains(conversationLogPath, ["conversation.turn", "smoke-user", firstCaseText]);
-  await assertLogContainsAny(llmRawLogPath, ["llm.response"]);
+  await assertLogContains(llmRawLogPath, [
+    '"type":"llm.request"',
+    '"type":"llm.response"',
+    '"operation":"intent_detection"',
+    '"operation":"agent_runtime"',
+    '"type":"intent.result"',
+  ]);
+  await assertLogContainsAny(llmRawLogPath, ['"type":"agent.tool_call"', '"type":"llm.compact"']);
   await assertContextUsageLogged();
   console.info("[pass] logs-written");
 }
@@ -343,11 +356,19 @@ async function assertContextUsageLogged(): Promise<void> {
   }
 }
 
-async function assertNoLlmResponseForUser(userId: string): Promise<void> {
+async function assertNoAgentRuntimeLlmResponseForUser(userId: string): Promise<void> {
   const content = await readFile(llmRawLogPath, "utf8");
 
-  if (content.split(/\r?\n/).some((line) => line.includes(`"userId":"${userId}"`))) {
-    throw new Error(`Expected no LLM response for denied reviewer mutation user ${userId}.`);
+  const hasAgentRuntimeResponse = content
+    .split(/\r?\n/)
+    .some((line) => (
+      line.includes(`"userId":"${userId}"`)
+      && line.includes('"type":"llm.response"')
+      && line.includes('"operation":"agent_runtime"')
+    ));
+
+  if (hasAgentRuntimeResponse) {
+    throw new Error(`Expected no agent runtime LLM response for denied reviewer mutation user ${userId}.`);
   }
 }
 

@@ -23,10 +23,24 @@ npm run smoke
 
 ## Runtime Logs
 
-Use these logs to verify actual behavior:
+Runtime logs are the primary observability surface for customer behavior. Use them to reconstruct
+what the customer asked, how the service classified and authorized the request, which model calls
+were made, which tools were invoked, and what final answer was returned.
 
 - `.harness/logs/conversation.jsonl` records user input and final output.
-- `.harness/logs/llm-raw.jsonl` records LLM request/response/error events.
+- `.harness/logs/system.jsonl` records orchestration events such as workspace resolution,
+  role resolution, final intent classification, permission denial, runtime selection, context usage,
+  and compaction.
+- `.harness/logs/llm-raw.jsonl` records model and tool observability events:
+  - `llm.request`, `llm.response`, and `llm.error` for agent-runtime model calls;
+  - `llm.request`, `llm.response`, and `intent.result` for intent-detection model calls;
+  - `llm.request`, `llm.response`, and `tool.permission_result` for Bash permission classification;
+  - `agent.tool_call` and `agent.tool_result` for customer requests that cause the agent to invoke tools.
+
+When investigating a customer report, start from the latest matching `conversation.turn`, then follow
+the same `messageId`, `userId`, `workspacePath`, and nearby timestamps across `system.jsonl` and
+`llm-raw.jsonl`. A denied request should still have intent-detection logs, but it should not have an
+agent-runtime `llm.response`.
 
 Do not log API keys, secrets, authorization headers, access tokens, or refresh tokens.
 
@@ -34,6 +48,7 @@ Log files are UTF-8 encoded and contain CJK characters. On Windows, always read 
 
 ```powershell
 Get-Content .harness\logs\llm-raw.jsonl -Encoding utf8
+Get-Content .harness\logs\system.jsonl -Encoding utf8
 Get-Content .harness\logs\conversation.jsonl -Encoding utf8
 ```
 

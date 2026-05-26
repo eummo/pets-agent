@@ -3,6 +3,7 @@ import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
 import type { AgentConversationMessage, IntentDetectionService, UserIntent, UserRole } from "../core/contracts.js";
+import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
 Given a user message, conversation history (if any), and their current role, classify the intent into exactly one of:
@@ -18,6 +19,8 @@ Classification rules:
 - When the user asks about something that contains modification-related words in its name
   (e.g., "更新日志", "修改记录", "changelog", "update log"), but is clearly asking
   for information, classify as "query".
+- When the user asks how or why something is created, updated, changed, or implemented,
+  classify as "query" unless they ask you to perform the change.
 - Do not grant or deny permission. Only classify the user's intent.
 - If in doubt, classify as "query".
 
@@ -25,6 +28,7 @@ Examples (without history):
 - "What is the current architecture?" -> query
 - "更新日志是什么" -> query
 - "修改记录怎么查看" -> query
+- "客户订单是怎么创建的" -> query
 - "我想修改订单系统" -> mutate
 - "更新知识库里的订单流程" -> update_kb
 
@@ -44,9 +48,24 @@ export class LlmIntentDetectionService implements IntentDetectionService {
   public constructor(
     private readonly model: Model<Api>,
     private readonly apiKey: string,
+    private readonly rawLogger?: JsonlLogger,
   ) {}
 
   public async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
+    const startTime = Date.now();
+    const requestContent = buildIntentUserContent(userMessage, role, history);
+    await this.rawLogger?.write({
+      type: "llm.request",
+      operation: "intent_detection",
+      role,
+      userMessage,
+      systemPrompt: INTENT_SYSTEM_PROMPT,
+      messages: [{
+        role: "user",
+        content: requestContent,
+      }],
+    });
+
     try {
       const response = await withRetry(async () => {
         const controller = new AbortController();
@@ -56,7 +75,7 @@ export class LlmIntentDetectionService implements IntentDetectionService {
           systemPrompt: INTENT_SYSTEM_PROMPT,
           messages: [{
             role: "user",
-            content: buildIntentUserContent(userMessage, role, history),
+            content: requestContent,
             timestamp: Date.now(),
           }],
         }, {
@@ -66,7 +85,7 @@ export class LlmIntentDetectionService implements IntentDetectionService {
       });
 
       if (response.stopReason === "error") {
-        return fallbackIntentFor(userMessage);
+        return await this.logFallbackResult(userMessage, role, startTime, "provider_error", serializePiResponse(response));
       }
 
       const text = response.content
@@ -76,13 +95,81 @@ export class LlmIntentDetectionService implements IntentDetectionService {
       const label = text.trim().toLowerCase();
 
       if (VALID_INTENTS.has(label)) {
-        return { type: label as UserIntent["type"] };
+        const intent = { type: label as UserIntent["type"] };
+        await this.logResponseAndResult({
+          role,
+          userMessage,
+          response: serializePiResponse(response),
+          intent,
+          source: "model",
+          durationMs: Date.now() - startTime,
+        });
+        return intent;
       }
 
-      return fallbackIntentFor(userMessage);
-    } catch {
-      return fallbackIntentFor(userMessage);
+      return await this.logFallbackResult(userMessage, role, startTime, "invalid_label", serializePiResponse(response));
+    } catch (error) {
+      await this.rawLogger?.write({
+        type: "llm.error",
+        operation: "intent_detection",
+        role,
+        userMessage,
+        error: formatUnknownError(error),
+        durationMs: Date.now() - startTime,
+      });
+      return await this.logFallbackResult(userMessage, role, startTime, "exception");
     }
+  }
+
+  private async logFallbackResult(
+    userMessage: string,
+    role: UserRole,
+    startTime: number,
+    reason: string,
+    response?: Record<string, unknown>,
+  ): Promise<UserIntent> {
+    const intent = fallbackIntentFor(userMessage);
+    await this.logResponseAndResult({
+      role,
+      userMessage,
+      intent,
+      source: "fallback",
+      reason,
+      durationMs: Date.now() - startTime,
+      ...(response !== undefined ? { response } : {}),
+    });
+    return intent;
+  }
+
+  private async logResponseAndResult(event: {
+    readonly role: UserRole;
+    readonly userMessage: string;
+    readonly response?: Record<string, unknown>;
+    readonly intent: UserIntent;
+    readonly source: "model" | "fallback";
+    readonly reason?: string;
+    readonly durationMs: number;
+  }): Promise<void> {
+    if (event.response !== undefined) {
+      await this.rawLogger?.write({
+        type: "llm.response",
+        operation: "intent_detection",
+        role: event.role,
+        userMessage: event.userMessage,
+        response: event.response,
+        durationMs: event.durationMs,
+      });
+    }
+
+    await this.rawLogger?.write({
+      type: "intent.result",
+      role: event.role,
+      userMessage: event.userMessage,
+      intentType: event.intent.type,
+      source: event.source,
+      ...(event.reason !== undefined ? { reason: event.reason } : {}),
+      durationMs: event.durationMs,
+    });
   }
 }
 
@@ -100,5 +187,17 @@ function buildIntentUserContent(userMessage: string, role: UserRole, history?: r
     "Current user message:",
     userMessage,
   ].join("\n");
+}
+
+function serializePiResponse(response: Awaited<ReturnType<typeof complete>>): Record<string, unknown> {
+  return {
+    stopReason: response.stopReason,
+    content: response.content,
+  };
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 

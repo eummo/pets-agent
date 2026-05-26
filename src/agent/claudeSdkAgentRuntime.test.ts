@@ -323,10 +323,48 @@ describe("ClaudeSdkAgentRuntime", () => {
         data: { toolUseId: "tool-1", toolName: "Read" }
       })
     ]);
-    expect(rawEvents).toHaveLength(1);
-    const rawEvent = rawEvents[0];
+    expect(rawEvents.map((event) => event["type"])).toEqual([
+      "llm.request",
+      "agent.tool_call",
+      "agent.tool_result",
+      "llm.response",
+    ]);
+    expect(rawEvents[0]).toMatchObject({
+      type: "llm.request",
+      operation: "agent_runtime",
+      runtime: "claude-sdk-tester",
+      userId: "user-1",
+      workspacePath: "D:/workspace",
+    });
+    expect(String(rawEvents[0]?.["prompt"])).toContain("Inspect files");
+    const loggedOptions = asRecord(rawEvents[0]?.["options"]);
+    expect(loggedOptions["cwd"]).toBe("D:/workspace");
+    expect(loggedOptions["tools"]).toEqual(["Read", "Grep"]);
+    expect(rawEvents[1]).toMatchObject({
+      type: "agent.tool_call",
+      runtime: "claude-sdk-tester",
+      userId: "user-1",
+      workspacePath: "D:/workspace",
+      userInput: "Inspect files",
+      toolName: "Read",
+      toolUseId: "tool-1",
+      permittedByRole: true,
+      input: { file_path: "README.md" },
+    });
+    expect(rawEvents[2]).toMatchObject({
+      type: "agent.tool_result",
+      runtime: "claude-sdk-tester",
+      userId: "user-1",
+      workspacePath: "D:/workspace",
+      userInput: "Inspect files",
+      toolUseId: "tool-1",
+      isError: false,
+      result: "file content",
+    });
+    const rawEvent = rawEvents[3];
     expect(rawEvent).toMatchObject({
       type: "llm.response",
+      operation: "agent_runtime",
       runtime: "claude-sdk-tester",
       userId: "user-1",
       workspacePath: "D:/workspace",
@@ -647,4 +685,11 @@ function firstQueryCall(): { readonly prompt: string; readonly options: Record<s
 
 function isCanUseTool(value: unknown): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
   return typeof value === "function";
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Expected object, got ${JSON.stringify(value)}.`);
+  }
+  return value as Record<string, unknown>;
 }

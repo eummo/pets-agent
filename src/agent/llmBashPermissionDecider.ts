@@ -3,6 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import type { StoredRoleConfig } from "../core/contracts.js";
+import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import type { ToolPermissionDecider } from "./claudeToolPolicy.js";
 
 const BASH_PERMISSION_SYSTEM_PROMPT = `You are a Bash command permission classifier.
@@ -20,6 +21,7 @@ export class LlmBashPermissionDecider {
   public constructor(
     private readonly model: Model<Api>,
     private readonly apiKey: string,
+    private readonly rawLogger?: JsonlLogger,
   ) {}
 
   public readonly decide: ToolPermissionDecider = async (
@@ -40,6 +42,20 @@ export class LlmBashPermissionDecider {
   };
 
   private async classify(roleName: string, command: string): Promise<PermissionResult> {
+    const startTime = Date.now();
+    const userContent = `Role: ${roleName}\nCommand: ${command}`;
+    await this.rawLogger?.write({
+      type: "llm.request",
+      operation: "bash_permission",
+      role: roleName,
+      command,
+      systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
+      messages: [{
+        role: "user",
+        content: userContent,
+      }],
+    });
+
     try {
       const response = await withRetry(async () => {
         const controller = new AbortController();
@@ -49,7 +65,7 @@ export class LlmBashPermissionDecider {
           systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
           messages: [{
             role: "user",
-            content: `Role: ${roleName}\nCommand: ${command}`,
+            content: userContent,
             timestamp: Date.now(),
           }],
         }, {
@@ -59,7 +75,9 @@ export class LlmBashPermissionDecider {
       });
 
       if (response.stopReason === "error") {
-        return deny("Bash", "Bash permission classifier failed.");
+        const result = deny("Bash", "Bash permission classifier failed.");
+        await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
+        return result;
       }
 
       const text = response.content
@@ -68,12 +86,62 @@ export class LlmBashPermissionDecider {
         .join("");
       const label = text.trim().toLowerCase();
 
-      return label === "allow"
+      const result: PermissionResult = label === "allow"
         ? { behavior: "allow", decisionClassification: "user_temporary" }
         : deny("Bash", "Bash command is not read-only.");
-    } catch {
-      return deny("Bash", "Bash permission classifier failed.");
+      await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
+      return result;
+    } catch (error) {
+      const result = deny("Bash", "Bash permission classifier failed.");
+      await this.rawLogger?.write({
+        type: "llm.error",
+        operation: "bash_permission",
+        role: roleName,
+        command,
+        error: formatUnknownError(error),
+        durationMs: Date.now() - startTime,
+      });
+      await this.logDecision(roleName, command, result, Date.now() - startTime);
+      return result;
     }
+  }
+
+  private async logResponseAndDecision(
+    roleName: string,
+    command: string,
+    response: Awaited<ReturnType<typeof complete>>,
+    result: PermissionResult,
+    durationMs: number,
+  ): Promise<void> {
+    await this.rawLogger?.write({
+      type: "llm.response",
+      operation: "bash_permission",
+      role: roleName,
+      command,
+      response: {
+        stopReason: response.stopReason,
+        content: response.content,
+      },
+      durationMs,
+    });
+    await this.logDecision(roleName, command, result, durationMs);
+  }
+
+  private async logDecision(
+    roleName: string,
+    command: string,
+    result: PermissionResult,
+    durationMs: number,
+  ): Promise<void> {
+    await this.rawLogger?.write({
+      type: "tool.permission_result",
+      operation: "bash_permission",
+      role: roleName,
+      command,
+      behavior: result.behavior,
+      message: "message" in result ? result.message : undefined,
+      durationMs,
+    });
   }
 }
 
@@ -83,5 +151,10 @@ function deny(toolName: string, message: string): PermissionResult {
     message: `Tool ${toolName} denied: ${message}`,
     decisionClassification: "user_reject",
   };
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 

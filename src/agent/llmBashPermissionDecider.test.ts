@@ -43,6 +43,49 @@ describe("LlmBashPermissionDecider", () => {
     expect(result).toEqual({ behavior: "allow", decisionClassification: "user_temporary" });
   });
 
+  it("logs bash permission model request, response, and decision", async () => {
+    registration.setResponses([
+      fauxAssistantMessage([fauxText("allow")]),
+    ]);
+    const rawEvents: Record<string, unknown>[] = [];
+    const decider = new LlmBashPermissionDecider(registration.getModel(), "test-key", {
+      filePath: "memory.jsonl",
+      write(event) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      },
+    });
+
+    const result = await decider.decide(roleConfig, "Bash", { command: "ls -la" });
+
+    expect(result.behavior).toBe("allow");
+    expect(rawEvents.map((event) => event["type"])).toEqual([
+      "llm.request",
+      "llm.response",
+      "tool.permission_result",
+    ]);
+    expect(rawEvents[0]).toMatchObject({
+      type: "llm.request",
+      operation: "bash_permission",
+      role: "reviewer",
+      command: "ls -la",
+    });
+    expect(rawEvents[1]).toMatchObject({
+      type: "llm.response",
+      operation: "bash_permission",
+      role: "reviewer",
+      command: "ls -la",
+    });
+    expect(asRecord(rawEvents[1]?.["response"])["stopReason"]).toBe("stop");
+    expect(rawEvents[2]).toMatchObject({
+      type: "tool.permission_result",
+      operation: "bash_permission",
+      role: "reviewer",
+      command: "ls -la",
+      behavior: "allow",
+    });
+  });
+
   it("denies commands when the model does not classify them as read-only", async () => {
     const decider = createDecider([
       fauxAssistantMessage([fauxText("deny")]),
@@ -86,4 +129,11 @@ describe("LlmBashPermissionDecider", () => {
     expect(result.behavior).toBe("deny");
   });
 });
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Expected object, got ${JSON.stringify(value)}.`);
+  }
+  return value as Record<string, unknown>;
+}
 

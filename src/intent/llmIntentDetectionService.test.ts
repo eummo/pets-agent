@@ -32,6 +32,49 @@ describe("LlmIntentDetectionService", () => {
     expect(result).toEqual({ type: "query" });
   });
 
+  it("logs intent model request, response, and final result", async () => {
+    registration.setResponses([
+      fauxAssistantMessage([fauxText("query")]),
+    ]);
+    const rawEvents: Record<string, unknown>[] = [];
+    const service = new LlmIntentDetectionService(registration.getModel(), "test-key", {
+      filePath: "memory.jsonl",
+      write(event) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      },
+    });
+
+    const result = await service.detectIntent("客户订单是怎么创建的", "reviewer");
+
+    expect(result).toEqual({ type: "query" });
+    expect(rawEvents.map((event) => event["type"])).toEqual([
+      "llm.request",
+      "llm.response",
+      "intent.result",
+    ]);
+    expect(rawEvents[0]).toMatchObject({
+      type: "llm.request",
+      operation: "intent_detection",
+      role: "reviewer",
+      userMessage: "客户订单是怎么创建的",
+    });
+    expect(rawEvents[1]).toMatchObject({
+      type: "llm.response",
+      operation: "intent_detection",
+      role: "reviewer",
+      userMessage: "客户订单是怎么创建的",
+    });
+    expect(asRecord(rawEvents[1]?.["response"])["stopReason"]).toBe("stop");
+    expect(rawEvents[2]).toMatchObject({
+      type: "intent.result",
+      role: "reviewer",
+      userMessage: "客户订单是怎么创建的",
+      intentType: "query",
+      source: "model",
+    });
+  });
+
   it("extracts text from thinking+text response", async () => {
     const service = createService([
       fauxAssistantMessage([
@@ -69,6 +112,15 @@ describe("LlmIntentDetectionService", () => {
     const result = await service.detectIntent("我想修改订单系统", "reviewer");
 
     expect(result).toEqual({ type: "mutate" });
+  });
+
+  it("classifies Chinese creation explanation questions as query", async () => {
+    const service = createService([
+      fauxAssistantMessage([fauxText("query")]),
+    ]);
+    const result = await service.detectIntent("客户订单是怎么创建的", "reviewer");
+
+    expect(result).toEqual({ type: "query" });
   });
 
   it("classifies Chinese feature-add requests", async () => {
@@ -113,6 +165,15 @@ describe("LlmIntentDetectionService", () => {
     expect(result).toEqual({ type: "mutate" });
   });
 
+  it("uses deterministic query fallback for Chinese creation explanation questions", async () => {
+    const service = createService([
+      fauxAssistantMessage([fauxText("unknown_label")]),
+    ]);
+    const result = await service.detectIntent("客户订单是怎么创建的", "reviewer");
+
+    expect(result).toEqual({ type: "query" });
+  });
+
   it("defaults to query on empty text response", async () => {
     const service = createService([
       fauxAssistantMessage([fauxText("")]),
@@ -142,3 +203,10 @@ describe("LlmIntentDetectionService", () => {
     expect(result).toEqual({ type: "mutate" });
   });
 });
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Expected object, got ${JSON.stringify(value)}.`);
+  }
+  return value as Record<string, unknown>;
+}

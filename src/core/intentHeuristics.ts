@@ -39,8 +39,32 @@ const UPDATE_TERMS = [
   "修复",
 ] as const;
 
+const INFORMATION_QUESTION_TERMS = [
+  "what",
+  "how",
+  "why",
+  "where",
+  "when",
+  "which",
+  "explain",
+  "describe",
+  "tell me",
+  "是什么",
+  "怎么",
+  "如何",
+  "为什么",
+  "哪里",
+  "哪个",
+  "介绍",
+  "说明",
+] as const;
+
 export function fallbackIntentFor(userMessage: string): UserIntent {
   const normalized = userMessage.trim().toLowerCase();
+
+  if (containsAnyTerm(normalized, INFORMATION_QUESTION_TERMS)) {
+    return { type: "query" };
+  }
 
   if (!containsAnyTerm(normalized, UPDATE_TERMS)) {
     return { type: "query" };

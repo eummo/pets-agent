@@ -53,7 +53,7 @@ export async function main(): Promise<void> {
 
   const { agentRuntimes, runtimeFactory } = await setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.context);
 
-  const intentDetection = new LlmIntentDetectionService(buildPiModel(config.llm), config.llm.apiKey);
+  const intentDetection = new LlmIntentDetectionService(buildPiModel(config.llm), config.llm.apiKey, llmRawLogger);
 
   const authorization = new InMemoryRoleAuthorizationService(roleConfigStore);
 
