@@ -1,6 +1,7 @@
 ﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConversationSessionKey, ConversationSessionStore } from "../core/contracts.js";
+import { toLocalIsoString } from "../logging/jsonlLogger.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredSession = {
@@ -32,7 +33,7 @@ export class FileConversationSessionStore implements ConversationSessionStore {
       const file = await this.readStore();
       const sessions = { ...(file.sessions ?? {}) };
       const keyText = serializeSessionKey(key);
-      const now = new Date().toISOString();
+      const now = toLocalIsoString(new Date());
       sessions[keyText] = {
         sessionId,
         createdAt: sessions[keyText]?.createdAt ?? now,

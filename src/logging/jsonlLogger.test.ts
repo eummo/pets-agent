@@ -2,7 +2,26 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createJsonlLogger } from "./jsonlLogger.js";
+import { createJsonlLogger, toLocalIsoString } from "./jsonlLogger.js";
+
+describe("toLocalIsoString", () => {
+  it("produces local time with timezone offset", () => {
+    const date = new Date("2026-05-26T08:30:00.000Z");
+    const result = toLocalIsoString(date);
+    // Should contain timezone offset like +08:00 or -05:00
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
+  });
+
+  it("reflects local time, not UTC", () => {
+    const utcNoon = new Date("2026-05-26T12:00:00.000Z");
+    const result = toLocalIsoString(utcNoon);
+    // Verify by parsing: the local time should equal what Date.getLocal methods return
+    const expectedHour = utcNoon.getHours();
+    const hourStr = result.split("T")[1]?.split(":")[0];
+    const hourInResult = hourStr ? parseInt(hourStr, 10) : -1;
+    expect(hourInResult).toBe(expectedHour);
+  });
+});
 
 describe("createJsonlLogger", () => {
   it("writes jsonl events and redacts secrets", async () => {
@@ -68,8 +87,8 @@ describe("createJsonlLogger", () => {
     await logger.write({ message: "ts-test" });
 
     const content = await readFile(logger.filePath, "utf8");
-
-    expect(content).toMatch(/"timestamp":"\d{4}-\d{2}-\d{2}T/);
+    // Local ISO format: 2026-05-26T16:30:00.123+08:00
+    expect(content).toMatch(/"timestamp":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}"/);
   });
 
   it("appends multiple events to the same file", async () => {

@@ -33,9 +33,24 @@ function redactRecord(event: Record<string, unknown>): Record<string, unknown> {
   return redactSecrets(event) as Record<string, unknown>;
 }
 
+export function toLocalIsoString(date: Date): string {
+  const pad = (n: number, width = 2): string => String(n).padStart(width, "0");
+  const offsetMin = date.getTimezoneOffset();
+  const sign = offsetMin <= 0 ? "+" : "-";
+  const absOffsetMin = Math.abs(offsetMin);
+  const offsetHours = pad(Math.floor(absOffsetMin / 60));
+  const offsetMins = pad(absOffsetMin % 60);
+
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+    `.${pad(date.getMilliseconds(), 3)}${sign}${offsetHours}:${offsetMins}`
+  );
+}
+
 function withTimestamp(event: Record<string, unknown>): Record<string, unknown> {
   return {
-    timestamp: new Date().toISOString(),
+    timestamp: toLocalIsoString(new Date()),
     ...event
   };
 }

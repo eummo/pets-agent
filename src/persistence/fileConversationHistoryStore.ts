@@ -1,6 +1,7 @@
 ﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/contracts.js";
+import { toLocalIsoString } from "../logging/jsonlLogger.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 
 type StoredHistory = {
@@ -50,7 +51,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
       const file = await this.readStore();
       const histories = { ...(file.histories ?? {}) };
       const keyText = serializeSessionKey(key);
-      const now = new Date().toISOString();
+      const now = toLocalIsoString(new Date());
       const previous = histories[keyText];
       histories[keyText] = {
         messages: [...(previous?.messages ?? []), ...messages].slice(-this.maxMessages),
@@ -85,7 +86,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
       histories[keyText] = {
         messages,
         createdAt: existing.createdAt,
-        updatedAt: new Date().toISOString(),
+        updatedAt: toLocalIsoString(new Date()),
       };
       await this.writeStore(withExistingArchives({ histories }, file));
     } finally {
@@ -126,7 +127,7 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
         ...(archives[keyText] ?? []),
         {
           ...current,
-          archivedAt: new Date().toISOString()
+          archivedAt: toLocalIsoString(new Date())
         }
       ];
       await this.writeStore({ histories, archives });

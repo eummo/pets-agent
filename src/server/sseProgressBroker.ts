@@ -1,5 +1,6 @@
 ﻿import type { ServerResponse } from "node:http";
 import type { AgentProgressEvent, ChannelUser, ProgressReporter } from "../core/contracts.js";
+import { toLocalIsoString } from "../logging/jsonlLogger.js";
 import { writeSse } from "./sseUtils.js";
 
 type Subscriber = {
@@ -37,7 +38,7 @@ export class SseProgressBroker implements ProgressReporter {
 
     const payload = {
       ...event,
-      timestamp: new Date().toISOString()
+      timestamp: toLocalIsoString(new Date())
     };
 
     for (const subscriber of subscribers.values()) {
