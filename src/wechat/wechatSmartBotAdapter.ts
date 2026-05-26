@@ -9,7 +9,8 @@
  */
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import type { WsFrame, TextMessage, EventMessage } from "@wecom/aibot-node-sdk";
-import type { ConversationLogger, InboundMessage, MessageGateway, OutboundMessage } from "../core/contracts.js";
+import type { ConversationLogger, InboundMessage, MessageGateway, AgentStreamPublisher } from "../core/contracts.js";
+import { SessionLock } from "./sessionLock.js";
 
 export type WechatAdapterConfig = {
   readonly botId: string;
@@ -30,10 +31,16 @@ export type WechatAdapterConfig = {
    * Max reconnect attempts. -1 for infinite. Default: 10
    */
   readonly maxReconnectAttempts?: number;
+  /**
+   * Max inflight messages per user session before rejecting with "please wait".
+   * Default: 3 (matches WeChat platform limit).
+   */
+  readonly maxInflightPerSession?: number;
 };
 
 export class WechatSmartBotAdapter {
   private readonly wsClient: WSClient;
+  private readonly sessionLock = new SessionLock();
 
   public constructor(private readonly config: WechatAdapterConfig) {
     this.wsClient = new WSClient({
@@ -100,6 +107,20 @@ export class WechatSmartBotAdapter {
 
     const chatId = body.chattype === "group" ? body.chatid : undefined;
 
+    // Send "thinking" indicator immediately so the user sees feedback
+    const streamId = generateReqId("stream");
+    await this.wsClient.replyStream(frame, streamId, "思考中...", false);
+
+    // Accumulate text deltas for intermediate stream updates
+    let accumulated = "";
+    const streamCallback: AgentStreamPublisher = (event) => {
+      if (event.type === "text_delta") {
+        accumulated += event.text;
+        // Push intermediate content, replacing the "thinking" indicator
+        void this.wsClient.replyStream(frame, streamId, accumulated, false);
+      }
+    };
+
     const inbound: InboundMessage = {
       id: body.msgid,
       channel: "wechat-work",
@@ -108,24 +129,43 @@ export class WechatSmartBotAdapter {
       receivedAt: body.create_time !== undefined
         ? new Date(body.create_time * 1000)
         : new Date(),
+      stream: streamCallback,
       ...(chatId !== undefined ? { chatId } : {}),
     };
 
     await this.logConversation(inbound, "processing");
 
+    // Serialize per-user messages: if a previous message from the same
+    // user/session is still being processed, wait for it to complete first.
+    // This prevents Claude SDK session collision and history interleaving.
+    const lockKey = `wechat-work:${userId}${chatId !== undefined ? `:${chatId}` : ""}`;
+
+    // Reject immediately if too many inflight messages for this session
+    const maxInflight = this.config.maxInflightPerSession ?? 3;
+    if (this.sessionLock.inflightFor(lockKey) >= maxInflight) {
+      await this.wsClient.replyStream(frame, streamId, "请稍等，您还有消息正在处理中，请等我回复后再发送新消息。", true);
+      await this.logConversation(inbound, "rejected: too many inflight messages");
+      return;
+    }
+
+    const release = await this.sessionLock.acquire(lockKey);
+
     try {
       const response = await this.config.messageHandler.handle(inbound);
-      await this.sendStreamReply(frame, response);
+      // Send the final response with finish=true, replacing any intermediate content
+      const finalContent = accumulated.length > 0 ? accumulated : response.text;
+      await this.wsClient.replyStream(frame, streamId, finalContent, true);
       await this.logConversation(inbound, response.text);
     } catch (error) {
       await this.logConversation(inbound, `WeChat adapter error: ${error instanceof Error ? error.message : String(error)}`);
       // Try to send an error reply
       try {
-        const streamId = generateReqId("stream");
         await this.wsClient.replyStream(frame, streamId, "抱歉，处理消息时出错，请稍后重试。", true);
       } catch {
         // Reply failed, nothing more we can do
       }
+    } finally {
+      release();
     }
   }
 
@@ -134,14 +174,6 @@ export class WechatSmartBotAdapter {
       msgtype: "text",
       text: { content: "您好！我是知识库助手，可以帮您查询知识库内容。请问有什么可以帮您的？" },
     });
-  }
-
-  private async sendStreamReply(frame: WsFrame<TextMessage>, response: OutboundMessage): Promise<void> {
-    const streamId = generateReqId("stream");
-    // For now, send the entire response as a single final stream message.
-    // In the future, this could be enhanced to stream token-by-token
-    // by hooking into the AgentStreamPublisher.
-    await this.wsClient.replyStream(frame, streamId, response.text, true);
   }
 
   private async logConversation(message: InboundMessage, output: string): Promise<void> {
