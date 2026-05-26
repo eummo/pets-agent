@@ -106,18 +106,16 @@ export class WechatSmartBotAdapter {
     const cleanContent = stripBotMention(content);
 
     const chatId = body.chattype === "group" ? body.chatid : undefined;
-
-    // Send "thinking" indicator immediately so the user sees feedback
+    const replyTarget = chatId ?? userId;
     const streamId = generateReqId("stream");
-    await this.wsClient.replyStream(frame, streamId, "思考中...", false);
+    const streamState: { inbound: InboundMessage | undefined } = { inbound: undefined };
 
-    // Accumulate text deltas for intermediate stream updates
+    // Accumulate text deltas for intermediate stream updates.
     let accumulated = "";
     const streamCallback: AgentStreamPublisher = (event) => {
-      if (event.type === "text_delta") {
+      if (event.type === "text_delta" && streamState.inbound !== undefined) {
         accumulated += event.text;
-        // Push intermediate content, replacing the "thinking" indicator
-        void this.wsClient.replyStream(frame, streamId, accumulated, false);
+        void this.replyStreamBestEffort(frame, streamId, accumulated, false, streamState.inbound, "delta");
       }
     };
 
@@ -132,8 +130,12 @@ export class WechatSmartBotAdapter {
       stream: streamCallback,
       ...(chatId !== undefined ? { chatId } : {}),
     };
+    streamState.inbound = inbound;
 
     await this.logConversation(inbound, "processing");
+
+    // Send "thinking" feedback without letting transport backpressure drop the message.
+    await this.replyStreamBestEffort(frame, streamId, "思考中...", false, inbound, "initial");
 
     // Serialize per-user messages: if a previous message from the same
     // user/session is still being processed, wait for it to complete first.
@@ -143,7 +145,7 @@ export class WechatSmartBotAdapter {
     // Reject immediately if too many inflight messages for this session
     const maxInflight = this.config.maxInflightPerSession ?? 3;
     if (this.sessionLock.inflightFor(lockKey) >= maxInflight) {
-      await this.wsClient.replyStream(frame, streamId, "请稍等，您还有消息正在处理中，请等我回复后再发送新消息。", true);
+      await this.sendReply(frame, streamId, replyTarget, inbound, "请稍等，您还有消息正在处理中，请等我回复后再发送新消息。", "rejection");
       await this.logConversation(inbound, "rejected: too many inflight messages");
       return;
     }
@@ -154,16 +156,12 @@ export class WechatSmartBotAdapter {
       const response = await this.config.messageHandler.handle(inbound);
       // Send the final response with finish=true, replacing any intermediate content
       const finalContent = accumulated.length > 0 ? accumulated : response.text;
-      await this.wsClient.replyStream(frame, streamId, finalContent, true);
+      await this.sendReply(frame, streamId, replyTarget, inbound, finalContent, "final");
       await this.logConversation(inbound, response.text);
     } catch (error) {
       await this.logConversation(inbound, `WeChat adapter error: ${error instanceof Error ? error.message : String(error)}`);
       // Try to send an error reply
-      try {
-        await this.wsClient.replyStream(frame, streamId, "抱歉，处理消息时出错，请稍后重试。", true);
-      } catch {
-        // Reply failed, nothing more we can do
-      }
+      await this.sendReply(frame, streamId, replyTarget, inbound, "抱歉，处理消息时出错，请稍后重试。", "error");
     } finally {
       release();
     }
@@ -194,6 +192,76 @@ export class WechatSmartBotAdapter {
       ...data,
     });
   }
+
+  private async sendReply(
+    frame: WsFrame<TextMessage>,
+    streamId: string,
+    replyTarget: string,
+    message: InboundMessage,
+    content: string,
+    phase: "rejection" | "final" | "error",
+  ): Promise<void> {
+    const streamed = await this.replyStreamBestEffort(frame, streamId, content, true, message, phase);
+    if (streamed) {
+      return;
+    }
+    await this.sendMessageFallback(replyTarget, message, content, phase);
+  }
+
+  private async replyStreamBestEffort(
+    frame: WsFrame<TextMessage>,
+    streamId: string,
+    content: string,
+    finish: boolean,
+    message: InboundMessage,
+    phase: "initial" | "delta" | "rejection" | "final" | "error",
+  ): Promise<boolean> {
+    try {
+      await this.wsClient.replyStream(frame, streamId, content, finish);
+      return true;
+    } catch (error) {
+      await this.logMessageEvent("wechat.reply_stream_failed", message, {
+        phase,
+        error: formatUnknownError(error),
+      });
+      return false;
+    }
+  }
+
+  private async sendMessageFallback(
+    replyTarget: string,
+    message: InboundMessage,
+    content: string,
+    phase: "rejection" | "final" | "error",
+  ): Promise<void> {
+    try {
+      await this.wsClient.sendMessage(replyTarget, {
+        msgtype: "markdown",
+        markdown: { content },
+      });
+      await this.logMessageEvent("wechat.fallback_message_sent", message, { phase, replyTarget });
+    } catch (error) {
+      await this.logMessageEvent("wechat.fallback_message_failed", message, {
+        phase,
+        replyTarget,
+        error: formatUnknownError(error),
+      });
+    }
+  }
+
+  private async logMessageEvent(
+    type: string,
+    message: InboundMessage,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    await this.logEvent(type, {
+      channel: message.channel,
+      messageId: message.id,
+      userId: message.user.id,
+      chatId: message.chatId,
+      ...data,
+    });
+  }
 }
 
 /**
@@ -206,3 +274,6 @@ export function stripBotMention(content: string): string {
   return content.replace(mentionPattern, "").trim();
 }
 
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

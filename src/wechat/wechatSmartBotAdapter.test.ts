@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { MessageType } from "@wecom/aibot-node-sdk";
+import type { TextMessage, WsFrame } from "@wecom/aibot-node-sdk";
+import { describe, expect, it, vi } from "vitest";
 import { stripBotMention } from "./wechatSmartBotAdapter.js";
+import { WechatSmartBotAdapter } from "./wechatSmartBotAdapter.js";
 import { SessionLock } from "./sessionLock.js";
+import type { ConversationLogger, MessageGateway, OutboundMessage } from "../core/contracts.js";
 
 describe("stripBotMention", () => {
   it("strips @bot mention prefix from group chat messages", () => {
@@ -151,3 +155,88 @@ describe("SessionLock", () => {
     expect(lock.inflightFor("user-a")).toBe(0);
   });
 });
+
+describe("WechatSmartBotAdapter replies", () => {
+  it("continues processing and sends a fallback message when stream replies fail", async () => {
+    const conversationEvents: Record<string, unknown>[] = [];
+    const systemEvents: Record<string, unknown>[] = [];
+    let handled = false;
+
+    const messageHandler: MessageGateway = {
+      handle(): Promise<OutboundMessage> {
+        handled = true;
+        return Promise.resolve({ text: "最终答案" });
+      },
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      conversationLogger: collectingLogger(conversationEvents),
+      eventLogger: collectingLogger(systemEvents),
+    });
+
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.reject(new Error("stream busy"))),
+      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "sent" } } as WsFrame)),
+    };
+
+    const privateAdapter = adapter as unknown as {
+      wsClient: typeof fakeClient;
+      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+    };
+    privateAdapter.wsClient = fakeClient;
+
+    await privateAdapter.handleTextMessage(groupTextFrame("msg-1", "user-1", "group-1", "@Bot 你好"));
+
+    expect(handled).toBe(true);
+    expect(fakeClient.replyStream).toHaveBeenCalled();
+    expect(fakeClient.sendMessage).toHaveBeenCalledWith("group-1", {
+      msgtype: "markdown",
+      markdown: { content: "最终答案" },
+    });
+    expect(conversationEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ messageId: "msg-1", chatId: "group-1", output: "processing" }),
+        expect.objectContaining({ messageId: "msg-1", chatId: "group-1", output: "最终答案" }),
+      ]),
+    );
+    expect(systemEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "wechat.reply_stream_failed", phase: "initial", messageId: "msg-1", chatId: "group-1" }),
+        expect.objectContaining({ type: "wechat.fallback_message_sent", phase: "final", messageId: "msg-1", chatId: "group-1" }),
+      ]),
+    );
+  });
+});
+
+function collectingLogger(events: Record<string, unknown>[]): ConversationLogger {
+  return {
+    write(event: Record<string, unknown>): Promise<void> {
+      events.push(event);
+      return Promise.resolve();
+    },
+  };
+}
+
+function groupTextFrame(
+  messageId: string,
+  userId: string,
+  chatId: string,
+  content: string,
+): WsFrame<TextMessage> {
+  return {
+    headers: { req_id: `req-${messageId}` },
+    body: {
+      msgid: messageId,
+      aibotid: "bot-id",
+      chatid: chatId,
+      chattype: "group",
+      from: { userid: userId },
+      create_time: 1_779_786_805,
+      msgtype: MessageType.Text,
+      text: { content },
+    },
+  };
+}

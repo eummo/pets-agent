@@ -274,6 +274,7 @@ export class AgentOrchestrator implements MessageGateway {
       channel: message.channel,
       messageId: message.id,
       userId: message.user.id,
+      chatId: message.chatId,
       input: message.text,
       output,
       workspacePath
@@ -290,6 +291,7 @@ export class AgentOrchestrator implements MessageGateway {
       channel: message.channel,
       messageId: message.id,
       userId: message.user.id,
+      chatId: message.chatId,
       ...data,
     });
   }
