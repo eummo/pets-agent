@@ -26,6 +26,8 @@ const CREATE_TABLE_MIGRATIONS = [
 
 const ROLES_METADATA_COLUMNS = [
   { name: "capabilities", definition: "TEXT" },
+  { name: "skills", definition: "TEXT" },
+  { name: "setting_sources", definition: "TEXT" },
 ] as const;
 
 const FEEDBACK_METADATA_COLUMNS = [

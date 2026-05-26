@@ -151,6 +151,47 @@ describe("SqliteRoleConfigStore", () => {
     expect(retrieved?.capabilities).toBeUndefined();
   });
 
+  it("persists and retrieves skills and settingSources", async () => {
+    await store.upsert({
+      name: "custom",
+      systemPrompt: "Custom prompt",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+      skills: "all",
+      settingSources: ["project", "local"],
+    });
+
+    const retrieved = await store.getByName("custom");
+    expect(retrieved?.skills).toBe("all");
+    expect(retrieved?.settingSources).toEqual(["project", "local"]);
+  });
+
+  it("persists a filtered skill list", async () => {
+    await store.upsert({
+      name: "filtered",
+      systemPrompt: "Filtered prompt",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+      skills: ["order-check", "pdf"],
+    });
+
+    const retrieved = await store.getByName("filtered");
+    expect(retrieved?.skills).toEqual(["order-check", "pdf"]);
+  });
+
+  it("handles undefined skills and settingSources", async () => {
+    await store.upsert({
+      name: "basic",
+      systemPrompt: "Basic prompt",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+    });
+
+    const retrieved = await store.getByName("basic");
+    expect(retrieved?.skills).toBeUndefined();
+    expect(retrieved?.settingSources).toBeUndefined();
+  });
+
   it("rejects invalid stored JSON shapes", async () => {
     await store.upsert({
       name: "broken",

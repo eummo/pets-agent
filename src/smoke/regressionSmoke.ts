@@ -147,6 +147,16 @@ async function main(): Promise<void> {
   await assertLogContainsAny(llmRawLogPath, ['"type":"agent.tool_call"', '"type":"llm.compact"']);
   await assertContextUsageLogged();
   console.info("[pass] logs-written");
+
+  // Verify skills and settingSources are passed to the SDK
+  await assertLogContains(llmRawLogPath, ['"skills":"all"', '"settingSources":["project","local"]']);
+  console.info("[pass] sdk-options-include-skills-and-setting-sources");
+
+  // Verify .claude/rules content is loaded: ask a question that the rule should steer
+  const ruleResult = await chat("What is the scope of this workspace?", "smoke-rules-user");
+  assertIncludes(ruleResult.text.toLowerCase(), ["workspace"], "workspace-rules-loaded");
+  assertForbidden(ruleResult.text, ["agent runtime", "model provider", "WeChat"], "workspace-rules-loaded");
+  console.info("[pass] workspace-rules-loaded");
 }
 
 async function assertHealthy(): Promise<void> {

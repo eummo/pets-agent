@@ -158,6 +158,8 @@ export type RoleCapability =
   | "feedback_manage"      // review and update feedback status
   | "roles_manage";        // create, update, delete role configurations (future)
 
+export type SettingSource = "user" | "project" | "local";
+
 export type StoredRoleConfig = {
   readonly name: string;
   readonly systemPrompt: string;
@@ -166,6 +168,8 @@ export type StoredRoleConfig = {
   readonly maxTurns?: number;
   readonly model?: string;
   readonly capabilities?: readonly RoleCapability[];
+  readonly skills?: string[] | "all";
+  readonly settingSources?: readonly SettingSource[];
   readonly updatedAt?: string;
 };
 

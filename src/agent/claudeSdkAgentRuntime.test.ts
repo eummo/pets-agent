@@ -62,6 +62,7 @@ describe("ClaudeSdkAgentRuntime", () => {
         autoCompactEnabled: true,
         autoCompactWindow: 150_000,
       },
+      settingSources: ["project", "local"],
     };
 
     expect(runtime.name).toBe("claude-sdk-tester");
@@ -700,6 +701,82 @@ describe("ClaudeSdkAgentRuntime", () => {
     });
 
     expect(response.contextUsage).toBeUndefined();
+  });
+
+  it("passes skills when the role config specifies skills: 'all'", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({ type: "result", subtype: "success", result: "done" })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "skilled",
+        allowedTools: ["Read"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+        skills: "all",
+        settingSources: ["project"],
+      },
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.options["skills"]).toBe("all");
+    expect(call.options["settingSources"]).toEqual(["project"]);
+  });
+
+  it("passes a filtered skill list when the role specifies specific skills", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({ type: "result", subtype: "success", result: "done" })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "custom",
+        allowedTools: ["Read"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Custom.",
+        skills: ["order-check"],
+        settingSources: ["project"],
+      },
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.options["skills"]).toEqual(["order-check"]);
+    expect(call.options["settingSources"]).toEqual(["project"]);
+  });
+
+  it("does not pass skills when the role config omits it but still sets default settingSources", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({ type: "result", subtype: "success", result: "done" })
+    );
+    const runtime = new ClaudeSdkAgentRuntime({
+      roleConfig: {
+        name: "minimal",
+        allowedTools: ["Read"],
+        permissionMode: "dontAsk",
+        systemPrompt: "Read only.",
+      },
+    });
+
+    await runtime.run({
+      user: { id: "user-1" },
+      text: "Test",
+      workspacePath: "D:/workspace",
+    });
+
+    const call = firstQueryCall();
+    expect(call.options["skills"]).toBeUndefined();
+    expect(call.options["settingSources"]).toEqual(["project", "local"]);
   });
 });
 

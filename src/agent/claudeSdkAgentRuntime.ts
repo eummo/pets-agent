@@ -81,6 +81,10 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
         autoCompactWindow: this.contextConfig.autoCompactWindow,
       };
     }
+    queryOptions["settingSources"] = this.roleConfig.settingSources ?? ["project", "local"];
+    if (this.roleConfig.skills !== undefined) {
+      queryOptions["skills"] = this.roleConfig.skills;
+    }
     if (request.onCompact !== undefined) {
       queryOptions["hooks"] = {
         PostCompact: [{
@@ -255,6 +259,8 @@ function serializeQueryOptions(queryOptions: Record<string, unknown>): Record<st
     "model",
     "resume",
     "settings",
+    "skills",
+    "settingSources",
   ];
 
   return Object.fromEntries(

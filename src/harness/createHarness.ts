@@ -58,6 +58,7 @@ export async function createHarnessEnvironment(
   await mkdir(path.join(knowledgeBasePath, "requirements"), { recursive: true });
   await mkdir(path.join(knowledgeBasePath, ".claude", "skills"), { recursive: true });
   await mkdir(path.join(knowledgeBasePath, ".claude", "commands"), { recursive: true });
+  await mkdir(path.join(knowledgeBasePath, ".claude", "rules"), { recursive: true });
 
   // SDK permissions: allow developer role to use Write/Bash/Edit
   await writeFile(
@@ -96,6 +97,40 @@ export async function createHarnessEnvironment(
       "Users need to understand how order creation, catalog availability checks, and order lifecycle recording fit together.",
       "Code-related questions about catalog behavior should use the catalog-api repository.",
       "Code-related questions about order lifecycle behavior should use the order-service repository."
+    ].join("\n")
+  );
+
+  await writeFile(
+    path.join(knowledgeBasePath, ".claude", "rules", "workspace-scope.md"),
+    [
+      "# Workspace Scope",
+      "",
+      "Always answer from the selected workspace content.",
+      "Do not reference the host agent implementation unless the user explicitly asks.",
+    ].join("\n")
+  );
+
+  await mkdir(path.join(knowledgeBasePath, ".claude", "skills", "order-check"), { recursive: true });
+  await writeFile(
+    path.join(knowledgeBasePath, ".claude", "skills", "order-check", "SKILL.md"),
+    [
+      "---",
+      "name: order-check",
+      "description: Check order status by order ID",
+      "---",
+      "",
+      "# Order Check Skill",
+      "",
+      "When the user asks about an order, use Grep to search for the order ID in the workspace files.",
+    ].join("\n")
+  );
+
+  await writeFile(
+    path.join(knowledgeBasePath, ".claude", "commands", "summarize.md"),
+    [
+      "# /summarize",
+      "",
+      "Summarize the key documents in the selected workspace.",
     ].join("\n")
   );
 

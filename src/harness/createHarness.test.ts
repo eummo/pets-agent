@@ -19,6 +19,15 @@ describe("createHarnessEnvironment", () => {
       stat(path.join(environment.knowledgeBasePath, "docs", "business-processes", "order-flow.md"))
     ).resolves.toBeTruthy();
     await expect(
+      stat(path.join(environment.knowledgeBasePath, ".claude", "rules", "workspace-scope.md"))
+    ).resolves.toBeTruthy();
+    await expect(
+      stat(path.join(environment.knowledgeBasePath, ".claude", "skills", "order-check", "SKILL.md"))
+    ).resolves.toBeTruthy();
+    await expect(
+      stat(path.join(environment.knowledgeBasePath, ".claude", "commands", "summarize.md"))
+    ).resolves.toBeTruthy();
+    await expect(
       stat(path.join(environment.knowledgeBasePath, "code", "catalog-api", "src", "index.ts"))
     ).resolves.toBeTruthy();
     await expect(

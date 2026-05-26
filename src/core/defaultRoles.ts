@@ -20,6 +20,8 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     permissionMode: "dontAsk",
     maxTurns: 20,
     capabilities: ["workspace_read"],
+    skills: "all",
+    settingSources: ["project", "local"],
   },
   {
     name: "developer",
@@ -36,6 +38,8 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     permissionMode: "bypassPermissions",
     maxTurns: 30,
     capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
+    skills: "all",
+    settingSources: ["project", "local"],
   },
   {
     name: "admin",
@@ -51,6 +55,8 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     permissionMode: "bypassPermissions",
     maxTurns: 30,
     capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"],
+    skills: "all",
+    settingSources: ["project", "local"],
   },
 ];
 
