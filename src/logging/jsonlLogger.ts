@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isRecord } from "../core/unknownRecord.js";
 
 export type JsonlLogger = {
   readonly filePath: string;
@@ -30,7 +31,8 @@ export function createJsonlLogger(filePathInput: string): JsonlLogger {
 }
 
 function redactRecord(event: Record<string, unknown>): Record<string, unknown> {
-  return redactSecrets(event) as Record<string, unknown>;
+  const redacted = redactSecrets(event);
+  return isRecord(redacted) ? redacted : {};
 }
 
 export function toLocalIsoString(date: Date): string {

@@ -1,8 +1,9 @@
 ﻿import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
-import { fallbackIntentFor } from "../core/intentHeuristics.js";
 import type { AgentConversationMessage, UserIntent, UserRole } from "../core/contracts.js";
+import { fallbackIntentFor } from "../core/intentHeuristics.js";
+import { isRecord, stringField } from "../core/unknownRecord.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
@@ -237,9 +238,8 @@ function isRetryableProviderResponse(response: Awaited<ReturnType<typeof complet
 }
 
 function errorMessageForResponse(response: Awaited<ReturnType<typeof complete>>): string {
-  const responseData = response as unknown as Record<string, unknown>;
-  const errorMessage = responseData["errorMessage"];
-  if (typeof errorMessage === "string") {
+  const errorMessage = isRecord(response) ? stringField(response, "errorMessage") : undefined;
+  if (errorMessage !== undefined) {
     return errorMessage;
   }
   return response.stopReason;

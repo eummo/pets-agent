@@ -48,3 +48,42 @@ export function buildPiModel(config: ResolvedLlmConfig): Model<"anthropic-messag
     maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
 }
+
+// ── Agent SDK Configuration ─────────────────────────────────────────────────
+// Selects which agent runtime SDK to use and provides its connection config.
+
+export type AgentSdkType = "claude" | "codebuddy" | "pi";
+
+export type AgentSdkConfig = {
+  readonly type: AgentSdkType;
+  readonly baseUrl: string;
+  readonly apiKeyEnv: string;
+  readonly modelId: string;
+  readonly agentDir?: string | undefined;
+};
+
+export type ResolvedAgentSdkConfig = AgentSdkConfig & {
+  readonly apiKey: string;
+};
+
+export function resolveAgentSdkConfig(config: AgentSdkConfig, env: NodeJS.ProcessEnv = process.env): ResolvedAgentSdkConfig {
+  const apiKey = env[config.apiKeyEnv];
+
+  if (apiKey === undefined || apiKey.trim().length === 0) {
+    throw new Error(`Missing Agent SDK API key environment variable: ${config.apiKeyEnv}`);
+  }
+
+  return {
+    ...config,
+    apiKey
+  };
+}
+
+export function summarizeAgentSdkConfig(config: AgentSdkConfig): { readonly type: AgentSdkType; readonly baseUrl: string; readonly apiKeyEnv: string; readonly modelId: string } {
+  return {
+    type: config.type,
+    baseUrl: config.baseUrl,
+    apiKeyEnv: config.apiKeyEnv,
+    modelId: config.modelId
+  };
+}

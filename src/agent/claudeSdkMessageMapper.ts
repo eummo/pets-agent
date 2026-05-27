@@ -1,6 +1,7 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRequest, AgentStreamEvent, StoredRoleConfig } from "../core/contracts.js";
-import { canUseConfiguredTool } from "./claudeToolPolicy.js";
+import { arrayField, booleanField, isRecord, numberField, recordField, stringField } from "../core/unknownRecord.js";
+import { canUseConfiguredTool } from "./toolPolicy.js";
 
 export function isAssistantMessage(msg: SDKMessage): boolean {
   return msg.type === "assistant";
@@ -19,14 +20,19 @@ export function forwardAssistantMessageEvents(
   request: AgentRequest,
   roleConfig: StoredRoleConfig,
 ): void {
-  const msgData = msg as unknown as { message?: { content?: unknown[] } };
-  const content = msgData.message?.content ?? [];
+  const msgData = isRecord(msg) ? recordField(msg, "message") : undefined;
+  const content = msgData === undefined ? [] : (arrayField(msgData, "content") ?? []);
   for (const rawBlock of content) {
-    const block = rawBlock as Record<string, unknown>;
-    const blockType = block["type"] as string;
+    if (!isRecord(rawBlock)) continue;
+
+    const block = rawBlock;
+    const blockType = stringField(block, "type");
 
     if (blockType === "tool_use") {
-      const toolName = block["name"] as string;
+      const toolName = stringField(block, "name");
+      const toolUseId = stringField(block, "id");
+      if (toolName === undefined || toolUseId === undefined) continue;
+
       if (!canUseConfiguredTool(roleConfig, toolName)) {
         const message = `Tool ${toolName} is not permitted for role ${roleConfig.name}.`;
         request.stream?.({ type: "error", message });
@@ -38,31 +44,34 @@ export function forwardAssistantMessageEvents(
         continue;
       }
 
-      const input = (block["input"] as Record<string, unknown> | null) ?? {};
+      const input = recordField(block, "input") ?? {};
       const toolEvent: AgentStreamEvent = {
         type: "tool_use_start",
         toolName,
-        toolUseId: block["id"] as string,
+        toolUseId,
         input,
       };
       request.stream?.(toolEvent);
       void request.progress?.({
         stage: "agent.tool_use_start",
-        message: `${toolName}: ${JSON.stringify(block["input"]).slice(0, 100)}`,
-        data: { toolUseId: block["id"], toolName },
+        message: `${toolName}: ${JSON.stringify(input).slice(0, 100)}`,
+        data: { toolUseId, toolName },
       });
     } else if (blockType === "tool_result") {
-      const isError = block["is_error"] === true;
-      const contentParts = block["content"] as unknown[] | undefined;
-      const resultText = (contentParts ?? [])
+      const toolUseId = stringField(block, "tool_use_id");
+      if (toolUseId === undefined) continue;
+
+      const isError = booleanField(block, "is_error") ?? false;
+      const resultText = (arrayField(block, "content") ?? [])
         .map((p: unknown) => {
-          const part = p as Record<string, unknown>;
-          return typeof part["text"] === "string" ? part["text"] : "";
+          if (typeof p === "string") return p;
+          if (!isRecord(p)) return "";
+          return stringField(p, "text") ?? "";
         })
         .join("");
       request.stream?.({
         type: "tool_use_result",
-        toolUseId: block["tool_use_id"] as string,
+        toolUseId,
         result: resultText,
         ...(isError ? { isError: true } : {}),
       });
@@ -71,18 +80,22 @@ export function forwardAssistantMessageEvents(
 }
 
 export function forwardStreamEvent(event: Record<string, unknown>, request: AgentRequest): void {
-  const e = event["event"] as Record<string, unknown> | undefined;
+  const e = recordField(event, "event");
   if (e === undefined) return;
 
-  const eventType = e["type"] as string | undefined;
+  const eventType = stringField(e, "type");
 
   if (eventType === "content_block_delta") {
-    const delta = e["delta"] as Record<string, unknown> | undefined;
-    const deltaType = delta?.["type"] as string | undefined;
-    if (deltaType === "text_delta" && typeof delta?.["text"] === "string") {
-      request.stream?.({ type: "text_delta", text: delta["text"] });
-    } else if (deltaType === "thinking_delta" && typeof delta?.["thinking"] === "string") {
-      request.stream?.({ type: "thinking", text: delta["thinking"] });
+    const delta = recordField(e, "delta");
+    if (delta === undefined) return;
+
+    const deltaType = stringField(delta, "type");
+    const text = stringField(delta, "text");
+    const thinking = stringField(delta, "thinking");
+    if (deltaType === "text_delta" && text !== undefined) {
+      request.stream?.({ type: "text_delta", text });
+    } else if (deltaType === "thinking_delta" && thinking !== undefined) {
+      request.stream?.({ type: "thinking", text: thinking });
     }
   }
 }
@@ -99,11 +112,13 @@ export function forwardSystemMessageEvents(
   msg: SDKMessage,
   request: AgentRequest,
 ): CompactBoundaryData | undefined {
-  const data = msg as unknown as Record<string, unknown>;
-  const subtype = data["subtype"] as string | undefined;
+  if (!isRecord(msg)) return undefined;
+
+  const data = msg;
+  const subtype = stringField(data, "subtype");
 
   if (subtype === "status") {
-    const status = data["status"] as string | undefined;
+    const status = stringField(data, "status");
     if (status === "compacting") {
       request.stream?.({ type: "compact_start" });
     }
@@ -111,15 +126,24 @@ export function forwardSystemMessageEvents(
   }
 
   if (subtype === "compact_boundary") {
-    const metadata = data["compact_metadata"] as Record<string, unknown> | undefined;
+    const metadata = recordField(data, "compact_metadata");
     if (metadata === undefined) return undefined;
 
+    const trigger = stringField(metadata, "trigger");
+    const preTokens = numberField(metadata, "pre_tokens");
+    if ((trigger !== "manual" && trigger !== "auto") || preTokens === undefined) {
+      return undefined;
+    }
+
+    const sessionId = stringField(data, "session_id");
+    const postTokens = numberField(metadata, "post_tokens");
+    const durationMs = numberField(metadata, "duration_ms");
     const compactData: CompactBoundaryData = {
-      ...(typeof data["session_id"] === "string" ? { sessionId: data["session_id"] } : {}),
-      trigger: metadata["trigger"] as "manual" | "auto",
-      preTokens: metadata["pre_tokens"] as number,
-      ...(metadata["post_tokens"] !== undefined ? { postTokens: metadata["post_tokens"] as number } : {}),
-      ...(metadata["duration_ms"] !== undefined ? { durationMs: metadata["duration_ms"] as number } : {}),
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      trigger,
+      preTokens,
+      ...(postTokens !== undefined ? { postTokens } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
     };
 
     request.stream?.({

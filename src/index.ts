@@ -13,7 +13,7 @@
 import path from "node:path";
 import "dotenv/config";
 import { setupAgentRuntimes } from "./agent/createAgentRuntimes.js";
-import { summarizeLlmConfig } from "./config/llmConfig.js";
+import { summarizeLlmConfig, summarizeAgentSdkConfig } from "./config/llmConfig.js";
 import { loadRuntimeConfig } from "./config/runtimeConfig.js";
 import { FileConversationHistoryStore } from "./persistence/fileConversationHistoryStore.js";
 import { FileConversationSessionStore } from "./persistence/fileConversationSessionStore.js";
@@ -44,13 +44,17 @@ export async function main(): Promise<void> {
   // Seed default roles if table is empty
   await seedDefaultRoles(roleConfigStore);
 
-  // Configure Anthropic SDK env vars from resolved LLM config
-  process.env["ANTHROPIC_API_KEY"] ??= config.llm.apiKey;
-  process.env["ANTHROPIC_BASE_URL"] ??= config.llm.baseUrl;
-  const summary = summarizeLlmConfig(config.llm);
-  console.info(`SDK configured: ${summary.modelId} at ${summary.baseUrl}`);
+  // Configure SDK env vars based on agent SDK type
+  if (config.agentSdk.type === "claude") {
+    process.env["ANTHROPIC_API_KEY"] ??= config.agentSdk.apiKey;
+    process.env["ANTHROPIC_BASE_URL"] ??= config.agentSdk.baseUrl;
+  }
+  const sdkSummary = summarizeAgentSdkConfig(config.agentSdk);
+  const llmSummary = summarizeLlmConfig(config.llm);
+  console.info(`Agent SDK: ${sdkSummary.type} ${sdkSummary.modelId} at ${sdkSummary.baseUrl}`);
+  console.info(`Intent LLM: ${llmSummary.modelId} at ${llmSummary.baseUrl}`);
 
-  const runtimeFactory = setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.context);
+  const runtimeFactory = setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.agentSdk, config.context);
 
   // Warmup pre-creates runtimes for all known roles and prints their status
   const agentRuntimes = await runtimeFactory.warmup();

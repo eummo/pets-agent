@@ -1,5 +1,6 @@
 ﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/contracts.js";
 import { toLocalIsoString } from "../logging/jsonlLogger.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
@@ -18,6 +19,26 @@ type HistoryStoreFile = {
   readonly histories?: Record<string, StoredHistory>;
   readonly archives?: Record<string, readonly ArchivedHistory[]>;
 };
+
+const conversationMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+});
+
+const storedHistorySchema = z.object({
+  messages: z.array(conversationMessageSchema),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const archivedHistorySchema = storedHistorySchema.extend({
+  archivedAt: z.string(),
+});
+
+const historyStoreFileSchema = z.object({
+  histories: z.record(z.string(), storedHistorySchema).optional(),
+  archives: z.record(z.string(), z.array(archivedHistorySchema)).optional(),
+});
 
 export type FileConversationHistoryStoreOptions = {
   readonly maxMessages?: number;
@@ -139,7 +160,8 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
   private async readStore(): Promise<HistoryStoreFile> {
     try {
       const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as HistoryStoreFile;
+      const parsed = historyStoreFileSchema.parse(JSON.parse(raw));
+      return toHistoryStoreFile(parsed);
     } catch (error) {
       if (isFileNotFound(error)) {
         return {};
@@ -154,6 +176,13 @@ export class FileConversationHistoryStore implements ConversationHistoryStore {
     await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
     await rename(tempPath, this.filePath);
   }
+}
+
+function toHistoryStoreFile(parsed: z.infer<typeof historyStoreFileSchema>): HistoryStoreFile {
+  return {
+    ...(parsed.histories !== undefined ? { histories: parsed.histories } : {}),
+    ...(parsed.archives !== undefined ? { archives: parsed.archives } : {}),
+  };
 }
 
 function withExistingArchives(file: HistoryStoreFile, existingFile: HistoryStoreFile): HistoryStoreFile {

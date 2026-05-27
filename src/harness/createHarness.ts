@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isRecord, stringField } from "../core/unknownRecord.js";
 import { stopServerFromPidFile } from "./serverPid.js";
 
 export type HarnessRepository = {
@@ -161,9 +162,10 @@ async function removeHarnessRoot(root: string): Promise<void> {
 }
 
 function isRetryableRemoveError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error
-    && "code" in error
-    && ((error as NodeJS.ErrnoException).code === "EBUSY" || (error as NodeJS.ErrnoException).code === "EPERM");
+  if (!(error instanceof Error) || !isRecord(error)) return false;
+
+  const code = stringField(error, "code");
+  return code === "EBUSY" || code === "EPERM";
 }
 
 function sleep(ms: number): Promise<void> {

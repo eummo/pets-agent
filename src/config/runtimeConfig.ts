@@ -1,14 +1,22 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { ResolvedLlmConfig } from "./llmConfig.js";
-import { resolveLlmConfig } from "./llmConfig.js";
+import type { ResolvedLlmConfig, ResolvedAgentSdkConfig } from "./llmConfig.js";
+import { resolveLlmConfig, resolveAgentSdkConfig } from "./llmConfig.js";
 
 const llmConfigSchema = z.object({
   baseUrl: z.url(),
   apiKeyEnv: z.string().min(1),
   modelId: z.string().min(1),
   maxTokens: z.number().int().positive().optional(),
+});
+
+const agentSdkConfigSchema = z.object({
+  type: z.enum(["claude", "codebuddy", "pi"]),
+  baseUrl: z.url(),
+  apiKeyEnv: z.string().min(1),
+  modelId: z.string().min(1),
+  agentDir: z.string().min(1).optional(),
 });
 
 const contextConfigSchema = z.object({
@@ -42,6 +50,7 @@ const runtimeConfigSchema = z.object({
     maxReconnectAttempts: z.number().int().optional(),
   }).default({ botId: "dev-bot-id", secret: "dev-secret" }),
   llm: llmConfigSchema,
+  agentSdk: agentSdkConfigSchema.optional(),
   context: contextConfigSchema,
 });
 
@@ -71,6 +80,7 @@ export type RuntimeConfig = {
   readonly enableDevRoutes: boolean;
   readonly wechat: WechatConfig;
   readonly llm: ResolvedLlmConfig;
+  readonly agentSdk: ResolvedAgentSdkConfig;
   readonly context: ContextConfig;
 };
 
@@ -99,6 +109,10 @@ export async function loadRuntimeConfig(
   }
 
   const resolvedLlm = resolveLlmConfig(parsed.data.llm, env);
+  const resolvedAgentSdk = resolveAgentSdkConfig(
+    parsed.data.agentSdk ?? { type: "claude", baseUrl: parsed.data.llm.baseUrl, apiKeyEnv: parsed.data.llm.apiKeyEnv, modelId: parsed.data.llm.modelId },
+    env,
+  );
   const wechat: WechatConfig = {
     botId: resolveEnvOrDirect(parsed.data.wechat.botId, parsed.data.wechat.botIdEnv, env),
     secret: resolveEnvOrDirect(parsed.data.wechat.secret, parsed.data.wechat.secretEnv, env),
@@ -106,7 +120,7 @@ export async function loadRuntimeConfig(
     ...(parsed.data.wechat.reconnectInterval !== undefined ? { reconnectInterval: parsed.data.wechat.reconnectInterval } : {}),
     ...(parsed.data.wechat.maxReconnectAttempts !== undefined ? { maxReconnectAttempts: parsed.data.wechat.maxReconnectAttempts } : {}),
   };
-  return { ...parsed.data, llm: resolvedLlm, wechat };
+  return { ...parsed.data, llm: resolvedLlm, agentSdk: resolvedAgentSdk, wechat };
 }
 
 function resolveEnvOrDirect(directValue: string, envName: string | undefined, env: NodeJS.ProcessEnv): string {

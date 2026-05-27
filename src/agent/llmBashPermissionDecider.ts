@@ -1,10 +1,9 @@
-﻿import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import type { Api, Model } from "@earendil-works/pi-ai";
+﻿import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import type { StoredRoleConfig } from "../core/contracts.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
-import type { ToolPermissionDecider } from "./claudeToolPolicy.js";
+import type { ToolPermissionDecider, ToolPermissionResult } from "./toolPolicy.js";
 
 const BASH_PERMISSION_SYSTEM_PROMPT = `You are a Bash command permission classifier.
 Decide whether a Bash command is read-only inspection.
@@ -41,7 +40,7 @@ export class LlmBashPermissionDecider {
     return await this.classify(roleConfig.name, command);
   };
 
-  private async classify(roleName: string, command: string): Promise<PermissionResult> {
+  private async classify(roleName: string, command: string): Promise<ToolPermissionResult> {
     const startTime = Date.now();
     const userContent = `Role: ${roleName}\nCommand: ${command}`;
     await this.rawLogger?.write({
@@ -86,7 +85,7 @@ export class LlmBashPermissionDecider {
         .join("");
       const label = text.trim().toLowerCase();
 
-      const result: PermissionResult = label === "allow"
+      const result: ToolPermissionResult = label === "allow"
         ? { behavior: "allow", decisionClassification: "user_temporary" }
         : deny("Bash", "Bash command is not read-only.");
       await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
@@ -110,7 +109,7 @@ export class LlmBashPermissionDecider {
     roleName: string,
     command: string,
     response: Awaited<ReturnType<typeof complete>>,
-    result: PermissionResult,
+    result: ToolPermissionResult,
     durationMs: number,
   ): Promise<void> {
     await this.rawLogger?.write({
@@ -130,7 +129,7 @@ export class LlmBashPermissionDecider {
   private async logDecision(
     roleName: string,
     command: string,
-    result: PermissionResult,
+    result: ToolPermissionResult,
     durationMs: number,
   ): Promise<void> {
     await this.rawLogger?.write({
@@ -145,7 +144,7 @@ export class LlmBashPermissionDecider {
   }
 }
 
-function deny(toolName: string, message: string): PermissionResult {
+function deny(toolName: string, message: string): ToolPermissionResult {
   return {
     behavior: "deny",
     message: `Tool ${toolName} denied: ${message}`,
