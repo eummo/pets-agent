@@ -56,11 +56,16 @@ export function registerDevStaticRoutes(server: FastifyInstance): void {
 }
 
 function isPathOutsideDirectory(filePath: string, directoryPath: string): boolean {
-  // Normalize Windows paths to WSL mount points (e.g. "D:/foo" -> "/mnt/d/foo")
-  // so the relative-path check works correctly in WSL environments.
-  // Node.js path.isAbsolute() doesn't recognize Windows drive letters on Linux/WSL,
+  // In WSL, Node.js path.isAbsolute() doesn't recognize Windows drive letters,
   // which could allow path traversal to bypass this check.
-  const normalized = filePath.replace(/^[a-zA-Z]:[/\\]/, '/mnt/');
-  const relativePath = path.relative(directoryPath, normalized);
-  return relativePath.startsWith("..") || path.isAbsolute(relativePath);
+  // Normalize both paths to WSL mount points (e.g. "D:/foo" -> "/mnt/d/foo")
+  // so the relative-path check works correctly in WSL environments.
+  // On native Windows, both paths already share the same format, so the
+  // normalization is a no-op for the relative comparison.
+  const normalizeDrive = (p: string) => p.replace(/^[a-zA-Z]:[/\\]/, '/mnt/');
+  const normalizedFile = normalizeDrive(filePath);
+  const normalizedDir = normalizeDrive(directoryPath);
+  const relativePath = path.relative(normalizedDir, normalizedFile);
+  const result = relativePath.startsWith("..") || path.isAbsolute(relativePath);
+  return result;
 }
