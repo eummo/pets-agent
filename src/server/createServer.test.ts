@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { AuthorizationService, FeedbackEntry, MessageGateway, OutboundMessage, RoleCapability, UserRole, ChannelUser, AuthorizationAction, AuthorizationDecision } from "../core/contracts.js";
+import type { MessageGateway, OutboundMessage, UserRole, ChannelUser } from "../core/index.js";
+import type { AuthorizationService, RoleCapability, AuthorizationAction, AuthorizationDecision } from "../auth/index.js";
+import type { FeedbackEntry } from "../persistence/index.js";
 import { InMemoryRoleAuthorizationService } from "../auth/inMemoryRoleAuthorizationService.js";
 import { createServer, type CreateServerOptions } from "./createServer.js";
 

@@ -1,4 +1,6 @@
-import type { AuthorizationService, FeedbackStore, MessageGateway, RoleConfigStore } from "../core/contracts.js";
+import type { MessageGateway } from "../core/index.js";
+import type { AuthorizationService, RoleConfigStore } from "../auth/index.js";
+import type { FeedbackStore } from "../persistence/index.js";
 import type { SseProgressBroker } from "./sseProgressBroker.js";
 
 export type DevRoutesOptions = {

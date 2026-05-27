@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { stripBotMention } from "./wechatSmartBotAdapter.js";
 import { WechatSmartBotAdapter } from "./wechatSmartBotAdapter.js";
 import { SessionLock } from "./sessionLock.js";
-import type { ConversationLogger, MessageGateway, OutboundMessage } from "../core/contracts.js";
+import type { ConversationLogger, MessageGateway, OutboundMessage } from "../core/index.js";
 
 describe("stripBotMention", () => {
   it("strips @bot mention prefix from group chat messages", () => {

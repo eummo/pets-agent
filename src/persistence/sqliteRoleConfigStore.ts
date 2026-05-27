@@ -1,6 +1,6 @@
 ﻿import type Database from "better-sqlite3";
 import { z } from "zod";
-import type { RoleConfigStore, StoredRoleConfig } from "../core/contracts.js";
+import type { RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
 
 type RoleRow = {
   readonly name: string;

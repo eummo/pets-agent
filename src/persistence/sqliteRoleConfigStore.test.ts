@@ -1,7 +1,7 @@
 ﻿import { describe, it, expect, beforeEach } from "vitest";
 import { createSqliteConnection } from "./sqliteConnection.js";
 import { SqliteRoleConfigStore } from "./sqliteRoleConfigStore.js";
-import type { StoredRoleConfig } from "../core/contracts.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import type Database from "better-sqlite3";
 
 describe("SqliteRoleConfigStore", () => {

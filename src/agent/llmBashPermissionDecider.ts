@@ -1,7 +1,7 @@
 ﻿import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
-import type { StoredRoleConfig } from "../core/contracts.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import type { ToolPermissionDecider, ToolPermissionResult } from "./toolPolicy.js";
 

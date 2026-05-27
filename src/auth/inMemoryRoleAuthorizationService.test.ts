@@ -1,6 +1,6 @@
 ﻿import { describe, expect, it } from "vitest";
 import { InMemoryRoleAuthorizationService } from "./inMemoryRoleAuthorizationService.js";
-import type { RoleCapability, RoleConfigStore } from "../core/contracts.js";
+import type { RoleCapability, RoleConfigStore } from "./index.js";
 
 const reviewerUser = { id: "reviewer-1" };
 const developerUser = { id: "dev-1" };

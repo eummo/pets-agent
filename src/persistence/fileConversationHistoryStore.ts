@@ -1,7 +1,8 @@
 ﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { AgentConversationMessage, ConversationHistoryStore, ConversationSessionKey } from "../core/contracts.js";
+import type { AgentConversationMessage } from "../core/index.js";
+import type { ConversationHistoryStore, ConversationSessionKey } from "./index.js";
 import { toLocalIsoString } from "../logging/jsonlLogger.js";
 import { FileMutex, isFileNotFound, serializeSessionKey } from "./fileStoreUtils.js";
 

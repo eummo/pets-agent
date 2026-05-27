@@ -6,7 +6,7 @@ import {
   fauxThinking,
 } from "@earendil-works/pi-ai";
 import { LlmIntentDetectionService } from "./llmIntentDetectionService.js";
-import type { UserIntent } from "../core/contracts.js";
+import type { UserIntent } from "./index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { withRetry } from "../config/retry.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";

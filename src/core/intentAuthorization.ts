@@ -1,4 +1,5 @@
-import type { AuthorizationAction, UserIntent } from "./contracts.js";
+import type { AuthorizationAction } from "../auth/index.js";
+import type { UserIntent } from "../intent/index.js";
 
 export function actionForIntent(intent: UserIntent): AuthorizationAction | undefined {
   if (intent.type === "mutate") {

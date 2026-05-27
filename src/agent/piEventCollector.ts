@@ -3,7 +3,8 @@
  * and records structured logs to llm-raw.jsonl.
  */
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { AgentRequest, AgentResponse, ContextUsageReport, StoredRoleConfig } from "../core/contracts.js";
+import type { AgentRequest, AgentResponse, ContextUsageReport } from "./index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { canUseConfiguredTool } from "./toolPolicy.js";
 

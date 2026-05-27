@@ -1,5 +1,5 @@
 ﻿import path from "node:path";
-import type { ConversationSessionKey } from "../core/contracts.js";
+import type { ConversationSessionKey } from "./index.js";
 
 export function serializeSessionKey(key: ConversationSessionKey): string {
   return JSON.stringify([key.channel, key.userId, path.resolve(key.workspacePath), key.chatId ?? ""]);

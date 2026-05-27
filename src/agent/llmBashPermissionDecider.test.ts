@@ -5,7 +5,7 @@ import {
   fauxText,
   fauxThinking,
 } from "@earendil-works/pi-ai";
-import type { StoredRoleConfig } from "../core/contracts.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import { LlmBashPermissionDecider } from "./llmBashPermissionDecider.js";
 
 const roleConfig: StoredRoleConfig = {

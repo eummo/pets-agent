@@ -1,18 +1,17 @@
 import { mkdtemp } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { ChannelUser } from "../core/index.js";
 import type {
   AgentRequest,
   AgentResponse,
   AgentRuntime,
-  AgentRuntimeFactory,
-  AuthorizationAction,
-  AuthorizationDecision,
-  AuthorizationService,
-  ChannelUser,
-  FeedbackEntry,
-  FeedbackStore,
-} from "../core/contracts.js";
+  AgentRuntimeFactory
+} from "../agent/index.js";
+import type { AuthorizationAction, AuthorizationDecision, AuthorizationService } from "../auth/index.js";
+import type { FeedbackEntry, FeedbackStore } from "../persistence/index.js";
 import { AgentOrchestrator } from "../core/orchestrator.js";
 import { ConfiguredWorkspaceResolver } from "../workspace/configuredWorkspaceResolver.js";
 import { createServer } from "../server/createServer.js";
@@ -27,6 +26,53 @@ const stubRuntime: AgentRuntime = {
     return Promise.resolve();
   },
 };
+
+/**
+ * Regression: after the contracts.ts → index.ts migration, no contracts.ts files
+ * or imports referencing contracts.js should remain in the package directories.
+ */
+function assertNoContractsTsRemnants(): void {
+  const srcRoot = path.resolve(import.meta.dirname, "..");
+  const packageDirs = ["agent", "auth", "core", "intent", "persistence", "workspace"];
+
+  // 1. No contracts.ts files in package directories
+  const forbiddenFiles: string[] = [];
+  for (const dir of packageDirs) {
+    const candidate = path.join(srcRoot, dir, "contracts.ts");
+    if (existsSync(candidate)) {
+      forbiddenFiles.push(candidate);
+    }
+  }
+
+  if (forbiddenFiles.length > 0) {
+    throw new Error(
+      `Found contracts.ts files that should have been migrated to index.ts:\n` +
+      forbiddenFiles.map((f) => `  ${f}`).join("\n")
+    );
+  }
+
+  // 2. No imports referencing contracts.js in src/
+  try {
+    const result = execSync(
+      `grep -r "from.*contracts\\.js" --include="*.ts" -l "${srcRoot}"`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+    ).trim();
+    if (result.length > 0) {
+      throw new Error(
+        `Found imports referencing contracts.js (should use index.js):\n${result}`
+      );
+    }
+  } catch (error: unknown) {
+    // grep returns exit code 1 when no matches — that's the passing case
+    if (error instanceof Error && "status" in error && (error as { status: number }).status === 1) {
+      // No matches found — pass
+    } else {
+      throw error;
+    }
+  }
+
+  console.info("[pass] deterministic-no-contracts-ts-remnants");
+}
 
 async function main(): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "pets-agent-deterministic-smoke-"));
@@ -65,6 +111,7 @@ async function main(): Promise<void> {
   await assertHealth(server);
   await assertReviewerMutationDeniedWithoutIntentLlm(server, feedbackStore);
   await assertPathTraversalRejected(server);
+  assertNoContractsTsRemnants();
 
   await server.close();
 }

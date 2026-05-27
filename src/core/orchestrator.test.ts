@@ -2,16 +2,18 @@
 import type {
   AgentRequest,
   AgentRuntime,
-  AgentRuntimeFactory,
-  AuthorizationService,
+  AgentRuntimeFactory
+} from "../agent/index.js";
+import type { AuthorizationService } from "../auth/index.js";
+import type {
   ConversationHistoryStore,
   ConversationSessionKey,
   ConversationSessionStore,
   FeedbackEntry,
-  FeedbackStore,
-  KnowledgeWorkspaceResolver,
-  UserIntent
-} from "./contracts.js";
+  FeedbackStore
+} from "../persistence/index.js";
+import type { KnowledgeWorkspaceResolver } from "../workspace/index.js";
+import type { UserIntent } from "../intent/index.js";
 import { AgentOrchestrator } from "./orchestrator.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
 

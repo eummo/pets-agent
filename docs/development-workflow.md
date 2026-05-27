@@ -28,7 +28,17 @@ http://127.0.0.1:3000/
 
 Do not import Enterprise WeChat, Claude Code, MiniMax, GitHub, or other provider SDKs into orchestration code.
 
-## 3. Run Static And Unit Checks
+## 3. Evaluate Test Coverage Needs
+
+Before running checks, consider whether the current change requires new or updated test cases:
+
+- **Unit test**: needed for new deterministic logic (parsing, routing, authorization, configuration, persistence, formatting).
+- **Smoke test**: needed for runtime/model behavior changes (intent classification, role permissions, workspace grounding, stream events, tool permissions, new API endpoints).
+- If no new test is needed (pure refactor, doc change, config tweak), note why.
+
+This step is not optional — every change must explicitly consider test coverage, even if the conclusion is "no new test needed."
+
+## 4. Run Static And Unit Checks
 
 ```bash
 npm run check
@@ -36,7 +46,7 @@ npm run check
 
 This runs typecheck, lint, unit tests, and production build.
 
-## 4. Run Browser/Runtime Smoke
+## 5. Run Browser/Runtime Smoke
 
 With the service running:
 
@@ -49,7 +59,7 @@ The smoke test sends real `/dev/chat` messages, checks key response expectations
 - `.harness/logs/conversation.jsonl`
 - `.harness/logs/llm-raw.jsonl`
 
-## 5. Read Logs Before Calling Work Done
+## 6. Read Logs Before Calling Work Done
 
 Inspect the latest lines:
 
@@ -66,7 +76,7 @@ Confirm:
 - output matches the intended behavior;
 - no API keys or secrets appear in logs.
 
-## 6. Add Or Update Regression Cases
+## 7. Add Or Update Regression Cases
 
 When a bug is found from logs or browser testing:
 

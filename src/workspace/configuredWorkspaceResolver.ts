@@ -1,11 +1,11 @@
 ﻿import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import type { InboundMessage } from "../core/index.js";
 import type {
-  InboundMessage,
   KnowledgeWorkspace,
   KnowledgeWorkspaceResolver
-} from "../core/contracts.js";
+} from "./index.js";
 
 export type ConfiguredWorkspaceResolverOptions = {
   readonly knowledgeBasePath: string;

@@ -1,15 +1,14 @@
-﻿import type {
+﻿import type { ChannelUser, UserRole } from "../core/index.js";
+import type { KnowledgeWorkspace } from "../workspace/index.js";
+import type {
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationService,
-  ChannelUser,
-  KnowledgeWorkspace,
   RoleCapability,
   RoleConfigStore,
-  StoredRoleConfig,
-  UserRole
-} from "../core/contracts.js";
-import { FILE_MUTATION_TOOLS } from "../core/contracts.js";
+  StoredRoleConfig
+} from "./index.js";
+import { FILE_MUTATION_TOOLS } from "./index.js";
 
 // Maps AuthorizationAction to the required RoleCapability
 const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {

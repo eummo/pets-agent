@@ -1,7 +1,8 @@
 import { createAgentSession, DefaultResourceLoader, SessionManager, AuthStorage, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ResolvedAgentSdkConfig } from "../config/llmConfig.js";
 import { AGENT_SDK_DEFAULTS } from "../config/llmConfig.js";
-import type { AgentRequest, AgentResponse, AgentRuntime, StoredRoleConfig } from "../core/contracts.js";
+import type { AgentRequest, AgentResponse, AgentRuntime } from "./index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import type { ContextConfig } from "../config/runtimeConfig.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { buildWorkspacePrompt } from "./workspacePromptBuilder.js";

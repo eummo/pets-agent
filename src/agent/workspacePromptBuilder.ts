@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentRequest } from "../core/contracts.js";
+import type { AgentRequest } from "./index.js";
 
 export const DEFAULT_WORKSPACE_MAX_CHARS = 8_000;
 

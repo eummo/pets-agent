@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { StoredRoleConfig } from "../core/contracts.js";
-import { FILE_MUTATION_TOOLS } from "../core/contracts.js";
+import type { StoredRoleConfig } from "../auth/index.js";
+import { FILE_MUTATION_TOOLS } from "../auth/index.js";
 
 // ── Provider-Neutral Permission Result ──────────────────────────────────────
 // This type replaces the Claude SDK's PermissionResult so that tool policy

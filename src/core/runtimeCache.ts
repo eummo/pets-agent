@@ -1,4 +1,4 @@
-import type { AgentRuntime, AgentRuntimeFactory } from "./contracts.js";
+import type { AgentRuntime, AgentRuntimeFactory } from "../agent/index.js";
 
 export class RuntimeCache {
   private readonly cache: Map<string, AgentRuntime>;

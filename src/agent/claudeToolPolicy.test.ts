@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StoredRoleConfig } from "../core/contracts.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import { autoAllowedToolsForRole, decideToolPermission, isToolInputWithinWorkspace } from "./claudeToolPolicy.js";
 
 const reviewerConfig: StoredRoleConfig = {

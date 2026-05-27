@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStreamEvent, StoredRoleConfig } from "../core/contracts.js";
+import type { AgentStreamEvent } from "./index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { PiAgentRuntime, _piToolsForRole } from "./piAgentRuntime.js";
 

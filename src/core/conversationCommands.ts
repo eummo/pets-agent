@@ -1,4 +1,4 @@
-import type { InboundMessage, OutboundMessage } from "./contracts.js";
+import type { InboundMessage, OutboundMessage } from "./index.js";
 
 export function handleCommandWithoutWorkspace(message: InboundMessage): OutboundMessage | undefined {
   const normalizedText = message.text.trim().toLowerCase();

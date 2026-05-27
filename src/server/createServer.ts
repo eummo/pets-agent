@@ -1,5 +1,7 @@
 ﻿import Fastify, { type FastifyInstance } from "fastify";
-import type { AuthorizationService, FeedbackStore, MessageGateway, RoleConfigStore } from "../core/contracts.js";
+import type { MessageGateway } from "../core/index.js";
+import type { AuthorizationService, RoleConfigStore } from "../auth/index.js";
+import type { FeedbackStore } from "../persistence/index.js";
 import { registerDevRoutes, type DevRoutesOptions } from "./devRoutes.js";
 import type { SseProgressBroker } from "./sseProgressBroker.js";
 

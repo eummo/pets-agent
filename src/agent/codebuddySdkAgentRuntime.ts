@@ -1,5 +1,6 @@
 import type { Message, PermissionResult } from "@tencent-ai/agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport, StoredRoleConfig } from "../core/contracts.js";
+import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport } from "./index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import { arrayField, booleanField, isRecord, numberField, recordField, stringArrayField, stringField } from "../core/unknownRecord.js";
 import type { ContextConfig } from "../config/runtimeConfig.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";

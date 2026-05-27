@@ -1,5 +1,6 @@
 ﻿import type Database from "better-sqlite3";
-import type { FeedbackEntry, FeedbackQuery, FeedbackStore, FeedbackStatus, UserIntent } from "../core/contracts.js";
+import type { FeedbackEntry, FeedbackQuery, FeedbackStore, FeedbackStatus } from "./index.js";
+import type { UserIntent } from "../intent/index.js";
 
 type FeedbackRow = {
   readonly id: number;

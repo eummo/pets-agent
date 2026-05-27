@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentStreamEvent } from "../core/contracts.js";
+import type { AgentStreamEvent } from "../agent/index.js";
 import type { DevRoutesOptions } from "./devRouteOptions.js";
 import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
 import { writeSse } from "./sseUtils.js";

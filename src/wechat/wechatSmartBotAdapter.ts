@@ -9,7 +9,8 @@
  */
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import type { WsFrame, TextMessage, EventMessage } from "@wecom/aibot-node-sdk";
-import type { ConversationLogger, InboundMessage, MessageGateway, AgentStreamPublisher } from "../core/contracts.js";
+import type { ConversationLogger, InboundMessage, MessageGateway } from "../core/index.js";
+import type { AgentStreamPublisher } from "../agent/index.js";
 import { SessionLock } from "./sessionLock.js";
 
 export type WechatAdapterConfig = {

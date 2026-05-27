@@ -1,7 +1,8 @@
 ﻿import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
-import type { AgentConversationMessage, UserIntent, UserRole } from "../core/contracts.js";
+import type { AgentConversationMessage, UserRole } from "../core/index.js";
+import type { UserIntent } from "./index.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
 import { isRecord, stringField } from "../core/unknownRecord.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";

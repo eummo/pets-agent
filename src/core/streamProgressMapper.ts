@@ -1,4 +1,4 @@
-import type { AgentProgressEvent, AgentStreamEvent } from "./contracts.js";
+import type { AgentProgressEvent, AgentStreamEvent } from "../agent/index.js";
 
 export function progressEventForAgentStreamEvent(event: AgentStreamEvent): AgentProgressEvent {
   const stage = event.type === "text_delta" ? "agent.text_delta"

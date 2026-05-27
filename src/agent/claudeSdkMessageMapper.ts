@@ -1,5 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRequest, AgentStreamEvent, StoredRoleConfig } from "../core/contracts.js";
+import type { AgentRequest, AgentStreamEvent } from "./index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import { arrayField, booleanField, isRecord, numberField, recordField, stringField } from "../core/unknownRecord.js";
 import { canUseConfiguredTool } from "./toolPolicy.js";
 

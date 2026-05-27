@@ -291,7 +291,7 @@ export type AgentConversationMessage = { ... };  // core 和 agent 共用
 - `undefined`、`null`、可选字段的含义是否清楚？
 - 判空逻辑是否优先使用 `?.`、`??` 和简洁命名？
 - 错误是否对用户安全，日志是否足够排查且不含敏感信息？
-- 是否添加或更新了合适的单元测试或 smoke 回归？
+- 是否添加或更新了合适的单元测试或 smoke 回归？每次改动后需同时评估是否需要新增冒烟测试案例。
 - `npm run check` 是否通过？涉及运行时行为时 `npm run smoke` 是否通过？
 
 ## 参考资料

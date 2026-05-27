@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentRequest } from "../core/contracts.js";
+import type { AgentRequest } from "./index.js";
 import { IntentAgentRuntime, parseIntentResponse } from "./intentAgentRuntime.js";
 import { LlmIntentDetectionService } from "../intent/llmIntentDetectionService.js";
 import {

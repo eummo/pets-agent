@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport, StoredRoleConfig } from "../core/contracts.js";
+import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport } from "./index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import { arrayField, booleanField, isRecord, recordField, stringArrayField, stringField } from "../core/unknownRecord.js";
 import type { ContextConfig } from "../config/runtimeConfig.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";

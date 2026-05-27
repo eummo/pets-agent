@@ -1,24 +1,22 @@
 ﻿import type {
   AgentConversationMessage,
+  ConversationLogger,
+  InboundMessage,
+  MessageGateway,
+  OutboundMessage,
+  UserRole
+} from "./index.js";
+import type {
   AgentRequest,
   AgentRuntime,
   AgentRuntimeFactory,
   AgentStreamEvent,
-  AuthorizationService,
-  ConversationHistoryStore,
-  ConversationLogger,
-  ConversationSessionKey,
-  ConversationSessionStore,
-  FeedbackStore,
-  InboundMessage,
-  KnowledgeWorkspace,
-  KnowledgeWorkspaceResolver,
-  MessageGateway,
-  OutboundMessage,
-  ProgressReporter,
-  UserIntent,
-  UserRole
-} from "./contracts.js";
+  ProgressReporter
+} from "../agent/index.js";
+import type { AuthorizationService } from "../auth/index.js";
+import type { ConversationHistoryStore, ConversationSessionKey, ConversationSessionStore, FeedbackStore } from "../persistence/index.js";
+import type { KnowledgeWorkspace, KnowledgeWorkspaceResolver } from "../workspace/index.js";
+import type { UserIntent } from "../intent/index.js";
 import { handleCommandWithoutWorkspace, isNewConversationCommand } from "./conversationCommands.js";
 import { actionForIntent, responseForDeniedIntent } from "./intentAuthorization.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";

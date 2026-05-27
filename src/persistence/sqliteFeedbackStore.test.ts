@@ -1,7 +1,7 @@
 ﻿import { describe, it, expect, beforeEach } from "vitest";
 import { createSqliteConnection } from "./sqliteConnection.js";
 import { SqliteFeedbackStore } from "./sqliteFeedbackStore.js";
-import type { FeedbackEntry } from "../core/contracts.js";
+import type { FeedbackEntry } from "./index.js";
 
 describe("SqliteFeedbackStore", () => {
   let store: SqliteFeedbackStore;

@@ -1,5 +1,6 @@
 ﻿import type { ServerResponse } from "node:http";
-import type { AgentProgressEvent, ChannelUser, ProgressReporter } from "../core/contracts.js";
+import type { ChannelUser } from "../core/index.js";
+import type { AgentProgressEvent, ProgressReporter } from "../agent/index.js";
 import { toLocalIsoString } from "../logging/jsonlLogger.js";
 import { writeSse } from "./sseUtils.js";
 
