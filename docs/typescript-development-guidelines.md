@@ -24,6 +24,28 @@
 - 使用仓库脚本验证代码：`npm run check` 负责 typecheck、lint、unit test 和 build；
   涉及运行时/模型行为时还必须执行 `npm run smoke`。
 
+## 源文件结构
+
+文件顶部按以下顺序排列，各节之间留一个空行：
+
+1. 文件级 JSDoc（`@fileoverview`，如需要）
+2. 版权声明（如需要）
+3. `import` 语句
+4. 实现代码
+
+```typescript
+/**
+ * @fileoverview Orchestrator entry point for routing inbound messages to agent runtimes.
+ */
+
+// import type 用于纯类型导入，不产生运行时依赖
+import type { AgentRequest, InboundMessage } from "./contracts.js";
+import { AgentOrchestrator } from "./orchestrator.js";
+
+// 实现
+export class XxxOrchestrator { ... }
+```
+
 ## 模块边界
 
 - 稳定契约放在 `src/core/contracts.ts` 或邻近 core 模块。
@@ -45,7 +67,7 @@
   `value !== null`、`value !== undefined`、`Array.isArray(value)` 或项目内命名清楚的类型守卫。
 - 禁止无意义的非空断言 `!`。只有在值的生命周期已经被同一作用域内的逻辑严格保证时才允许使用，
   并优先改成显式 guard、默认值或更准确的类型建模。
-- 区分“字段缺失”和“值为空”：可省略字段使用 `?`，明确为空使用 `null` 或联合类型。不要用
+- 区分"字段缺失"和"值为空"：可省略字段使用 `?`，明确为空使用 `null` 或联合类型。不要用
   `undefined` 作为业务含义。
 - 空值传递优先通过可选属性和严格联合类型表达，例如 `age?: number`、`name: string | null`。
 - 不用宽泛的 `Record<string, unknown>` 代替已知结构。只有动态键值表才使用 `Record`，读取时必须处理
@@ -67,6 +89,71 @@ function describeIntent(result: IntentResult): string {
 }
 ```
 
+## 导入与导出
+
+### Import 类型选择
+
+| 类型 | 示例 | 使用场景 |
+|------|------|----------|
+| 命名导入 | `import {Foo} from './foo'` | 大多数场景，推荐优先使用 |
+| 类型导入 | `import type {Foo} from './foo'` | 仅类型编译期使用 |
+| 命名空间导入 | `import * as foo from './foo'` | 大量符号的 API，需权衡可读性 |
+| 默认导入 | `import SomeThing from '...'` | 仅用于强制要求默认导出的第三方库 |
+
+```typescript
+// ✓ 优先命名导入，清晰且便于重构
+import {describe, it, expect} from './testing';
+
+// ✗ 滥用命名空间反而降低可读性
+import * as testing from './testing';
+testing.describe('foo', () => { testing.it('bar', ...) });
+
+// ✗ 过长的重命名导入
+import {Item as TableviewItem, Header as TableviewHeader} from './tableview';
+// ✓ 改用命名空间或直接解构
+import * as tableview from './tableview';
+```
+
+### 重命名导入
+
+仅在以下情况重命名：
+1. 消除命名冲突
+2. 符号名由工具生成、不够清晰
+3. 需要说明导入内容的业务含义
+
+### 导出规范
+
+```typescript
+// ✓ 优先命名导出，便于 IDE 支持和重构
+export class Foo { ... }
+export const FOO = 1;
+export function bar() { return 1; }
+
+// ✗ 禁止默认导出——导致导入名不一致，无法静态检查成员是否存在
+export default class Foo { ... }
+
+// ✗ 禁止可变导出 let
+export let foo = 3;
+// ✓ 改为显式 getter
+let foo = 3;
+export function getFoo() { return foo; }
+
+// ✗ 不要用容器类做命名空间
+export class Container {
+  static FOO = 1;
+  static bar() { return 1; }
+}
+// ✓ 直接导出独立常量或函数
+export const FOO = 1;
+export function bar() { return 1; }
+```
+
+### 模块与命名空间
+
+- **必须**使用 ES6 模块（`import`/`export`）
+- **禁止**使用 TypeScript 命名空间（`namespace`）
+- **禁止**使用 `require` 风格导入（`import x = require(...)`）
+
 ## 函数与控制流
 
 - 一个函数只做一个决策或一个转换。超过一个抽象层级时拆分为命名 helper。
@@ -86,13 +173,40 @@ function describeIntent(result: IntentResult): string {
 - 超时、取消和重试应靠近外部调用适配器实现，不泄漏到核心编排层。
 - 流式事件必须映射到项目契约中的事件类型，不把供应商原始事件向上透传。
 
-## 导入与导出
+## 数组与对象
 
-- 使用 ESM `import`/`export`。类型仅用于编译期时使用 `import type`。
-- NodeNext 下相对导入遵循 Node ESM 规则；新增源码导入时保持仓库现有写法，并确保 `npm run build`
-  生成物能在 Node 中解析。
-- 模块默认导出只用于第三方约定或单一主组件；业务模块优先命名导出，便于重构和测试。
-- 避免桶文件过度聚合。只有稳定公开 API 才建立 `index.ts`。
+### 数组
+
+```typescript
+// ✗ 禁止使用 Array 构造函数
+const a = new Array(2);    // [undefined, undefined]
+const b = new Array(2, 3); // [2, 3]
+
+// ✓ 使用字面量或 Array.from
+const a = [2];
+const b = [2, 3];
+Array.from({length: 5}).fill(0);
+
+// ✓ 复制/拼接使用展开语法
+const foo2 = [ ...foo, 6, 7 ];
+
+// ✓ 使用解构
+const [first, ...rest] = items;
+const [a, b, [, d]] = [1, 2, 3, 4];
+```
+
+### 对象
+
+```typescript
+// ✓ 使用对象解构
+const { id, displayName } = user;
+
+// ✓ 使用展开复制
+const clone = { ...original };
+
+// ✗ 不使用 Array 构造函数创建数组（见上方）
+// ✗ 不使用 for...in 遍历数组，使用 for...of 或 .forEach
+```
 
 ## 命名
 
@@ -103,6 +217,7 @@ function describeIntent(result: IntentResult): string {
 - 判空变量和参数命名保持简洁，避免 `isDataUndefinedOrNull` 这类把实现细节塞进名字的冗长命名。
   优先使用 `value`、`input`、`existingUser`、`hasData`、`isMissing` 等能表达业务意图的名字。
 - 避免 `utils`、`helpers`、`manager` 这类模糊命名，除非文件很小且只在局部模块内使用。
+- 使用 `Foo`, `Bar` 等命名时确保上下文清晰，避免用 `tmp` 或 `temp` 作为有业务含义的变量名。
 
 ## 错误处理与日志
 
@@ -138,7 +253,7 @@ function describeIntent(result: IntentResult): string {
 
 ## 注释与文档
 
-- 代码应通过命名和结构解释“做什么”。注释用于说明“为什么这样做”、协议限制、供应商怪癖或非显然约束。
+- 代码应通过命名和结构解释"做什么"。注释用于说明"为什么这样做"、协议限制、供应商怪癖或非显然约束。
 - 不写复述代码的注释。
 - 修改系统契约、配置格式、日志结构、运行时行为或开发流程时，同步更新相关文档。
 
@@ -156,6 +271,7 @@ function describeIntent(result: IntentResult): string {
 
 ## 参考资料
 
+- [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html)
 - [TypeScript Handbook: Narrowing](https://www.typescriptlang.org/docs/handbook/2/narrowing.html)
 - [TypeScript Modules Reference](https://www.typescriptlang.org/docs/handbook/modules/reference)
 - [TypeScript TSConfig Reference](https://www.typescriptlang.org/tsconfig/)
