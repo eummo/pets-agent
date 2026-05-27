@@ -17,6 +17,11 @@ const agentSdkConfigSchema = z.object({
   apiKeyEnv: z.string().min(1),
   modelId: z.string().min(1),
   agentDir: z.string().min(1).optional(),
+  provider: z.string().min(1).optional(),
+  api: z.string().min(1).optional(),
+  contextWindow: z.number().int().positive().optional(),
+  reasoning: z.boolean().optional(),
+  input: z.array(z.enum(["text", "image"])).optional(),
 });
 
 const contextConfigSchema = z.object({

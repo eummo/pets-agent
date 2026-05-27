@@ -1,6 +1,15 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
-const DEFAULT_MAX_TOKENS = 256;
+// ── Defaults for agent SDK model construction ────────────────────────────────
+
+export const AGENT_SDK_DEFAULTS = {
+  api: "anthropic-messages",
+  provider: "pets-agent",
+  contextWindow: 200000,
+  maxTokens: 256,
+  reasoning: false,
+  input: ["text"] as readonly ("text" | "image")[],
+} as const;
 
 export type LlmConfig = {
   readonly baseUrl: string;
@@ -34,19 +43,20 @@ export function summarizeLlmConfig(config: LlmConfig): Pick<LlmConfig, "baseUrl"
   };
 }
 
-export function buildPiModel(config: ResolvedLlmConfig): Model<"anthropic-messages"> {
-  return {
+export function buildPiModel(config: ResolvedLlmConfig): Model<Api> {
+  const model: Model<Api> = {
     id: config.modelId,
     name: config.modelId,
-    api: "anthropic-messages",
-    provider: "pets-agent",
+    api: AGENT_SDK_DEFAULTS.api,
+    provider: AGENT_SDK_DEFAULTS.provider,
     baseUrl: config.baseUrl.replace(/\/+$/, ""),
-    reasoning: false,
-    input: ["text"],
+    reasoning: AGENT_SDK_DEFAULTS.reasoning,
+    input: [...AGENT_SDK_DEFAULTS.input],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
-    maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
+    contextWindow: AGENT_SDK_DEFAULTS.contextWindow,
+    maxTokens: config.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens,
   };
+  return model;
 }
 
 // ── Agent SDK Configuration ─────────────────────────────────────────────────
@@ -60,6 +70,11 @@ export type AgentSdkConfig = {
   readonly apiKeyEnv: string;
   readonly modelId: string;
   readonly agentDir?: string | undefined;
+  readonly provider?: string | undefined;
+  readonly api?: string | undefined;
+  readonly contextWindow?: number | undefined;
+  readonly reasoning?: boolean | undefined;
+  readonly input?: readonly ("text" | "image")[] | undefined;
 };
 
 export type ResolvedAgentSdkConfig = AgentSdkConfig & {

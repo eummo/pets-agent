@@ -74,17 +74,12 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 // ── Test fixtures ───────────────────────────────────────────────────────────
 
-const model = {
-  id: "test-model",
-  name: "Test Model",
-  api: "anthropic-messages" as const,
-  provider: "test",
+const agentSdkConfig = {
+  type: "pi" as const,
   baseUrl: "https://api.example.com",
-  reasoning: false,
-  input: ["text"] as ("text" | "image")[],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 200000,
-  maxTokens: 256,
+  apiKeyEnv: "TEST_API_KEY",
+  modelId: "test-model",
+  apiKey: "test-key",
 };
 
 const roleConfig: StoredRoleConfig = {
@@ -118,7 +113,7 @@ describe("PiAgentRuntime", () => {
       });
     });
 
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
     const response = await runtime.run({
       user: { id: "user-1" },
       text: "What is the architecture?",
@@ -141,7 +136,7 @@ describe("PiAgentRuntime", () => {
       mockSession._emit({ type: "agent_end", messages: [] });
     });
 
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
     const response = await runtime.run({
       user: { id: "user-1" },
       text: "What is the architecture?",
@@ -167,7 +162,7 @@ describe("PiAgentRuntime", () => {
     });
 
     const streamEvents: AgentStreamEvent[] = [];
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
 
     await runtime.run({
       user: { id: "user-1" },
@@ -193,7 +188,7 @@ describe("PiAgentRuntime", () => {
     });
 
     const streamEvents: AgentStreamEvent[] = [];
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
 
     await runtime.run({
       user: { id: "user-1" },
@@ -210,7 +205,7 @@ describe("PiAgentRuntime", () => {
       mockSession._emit({ type: "agent_end", messages: [] });
     });
 
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
 
     const firstResponse = await runtime.run({
       user: { id: "user-1" },
@@ -241,7 +236,7 @@ describe("PiAgentRuntime", () => {
       mockSession._emit({ type: "agent_end", messages: [] });
     });
 
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
 
     const response = await runtime.run({
       user: { id: "user-1" },
@@ -278,7 +273,7 @@ describe("PiAgentRuntime", () => {
         return Promise.resolve();
       },
     };
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key", rawLogger });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig, rawLogger });
 
     await runtime.run({
       user: { id: "user-1" },
@@ -308,7 +303,7 @@ describe("PiAgentRuntime", () => {
         return Promise.resolve();
       },
     };
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key", rawLogger });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig, rawLogger });
 
     await expect(
       runtime.run({
@@ -326,7 +321,7 @@ describe("PiAgentRuntime", () => {
       mockSession._emit({ type: "agent_end", messages: [] });
     });
 
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
 
     const response = await runtime.run({
       user: { id: "user-1" },
@@ -342,14 +337,14 @@ describe("PiAgentRuntime", () => {
       mockSession._emit({ type: "agent_end", messages: [] });
     });
 
-    const runtime = new PiAgentRuntime({ roleConfig, model, apiKey: "test-key" });
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig });
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
       workspacePath: "D:/workspace",
     });
 
-    expect(mockAuthStorage.setRuntimeApiKey).toHaveBeenCalledWith(model.provider, "test-key");
+    expect(mockAuthStorage.setRuntimeApiKey).toHaveBeenCalledWith("pets-agent", "test-key");
   });
 
   it("does not enable Bash for non-mutating roles because Pi has no dynamic Bash permission decider", () => {
@@ -382,8 +377,7 @@ describe("PiAgentRuntime", () => {
         permissionMode: "dontAsk",
         systemPrompt: "No tools.",
       },
-      model,
-      apiKey: "test-key",
+      agentSdkConfig,
     });
 
     await runtime.run({

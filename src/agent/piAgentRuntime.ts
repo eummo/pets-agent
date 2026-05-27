@@ -1,5 +1,6 @@
 import { createAgentSession, DefaultResourceLoader, SessionManager, AuthStorage, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { Model } from "@earendil-works/pi-ai";
+import type { ResolvedAgentSdkConfig } from "../config/llmConfig.js";
+import { AGENT_SDK_DEFAULTS } from "../config/llmConfig.js";
 import type { AgentRequest, AgentResponse, AgentRuntime, StoredRoleConfig } from "../core/contracts.js";
 import type { ContextConfig } from "../config/runtimeConfig.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
@@ -15,12 +16,11 @@ import { PiEventCollector } from "./piEventCollector.js";
 
 export type PiAgentRuntimeOptions = {
   readonly roleConfig: StoredRoleConfig;
-  readonly model: Model<"anthropic-messages">;
-  readonly apiKey: string;
+  readonly agentSdkConfig: ResolvedAgentSdkConfig;
+  readonly maxTokens?: number | undefined;
   readonly contextConfig?: ContextConfig | undefined;
   readonly rawLogger?: JsonlLogger;
   readonly toolPermissionDecider?: ToolPermissionDecider;
-  readonly agentDir?: string | undefined;
 };
 
 const TOOL_NAME_MAP: Readonly<Record<string, string>> = {
@@ -35,12 +35,11 @@ const TOOL_NAME_MAP: Readonly<Record<string, string>> = {
 export class PiAgentRuntime implements AgentRuntime {
   public readonly name: string;
   private readonly roleConfig: StoredRoleConfig;
-  private readonly piModel: Model<"anthropic-messages">;
-  private readonly apiKey: string;
+  private readonly agentSdkConfig: ResolvedAgentSdkConfig;
+  private readonly maxTokens: number | undefined;
   private readonly contextConfig: ContextConfig;
   private readonly rawLogger: JsonlLogger | undefined;
   private readonly toolPermissionDecider: ToolPermissionDecider | undefined;
-  private readonly agentDir: string | undefined;
 
   private readonly sessionCache = new Map<string, AgentSession>();
 
@@ -56,12 +55,11 @@ export class PiAgentRuntime implements AgentRuntime {
   public constructor(options: PiAgentRuntimeOptions) {
     this.name = `pi-${options.roleConfig.name}`;
     this.roleConfig = options.roleConfig;
-    this.piModel = options.model;
-    this.apiKey = options.apiKey;
+    this.agentSdkConfig = options.agentSdkConfig;
+    this.maxTokens = options.maxTokens;
     this.contextConfig = options.contextConfig ?? PiAgentRuntime.DEFAULT_CONTEXT_CONFIG;
     this.rawLogger = options.rawLogger;
     this.toolPermissionDecider = options.toolPermissionDecider;
-    this.agentDir = options.agentDir;
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
@@ -135,9 +133,23 @@ export class PiAgentRuntime implements AgentRuntime {
   }
 
   private async createSession(request: AgentRequest): Promise<AgentSession> {
+    const cfg = this.agentSdkConfig;
+    const model = {
+      id: cfg.modelId,
+      name: cfg.modelId,
+      api: cfg.api ?? AGENT_SDK_DEFAULTS.api,
+      provider: cfg.provider ?? AGENT_SDK_DEFAULTS.provider,
+      baseUrl: cfg.baseUrl.replace(/\/+$/, ""),
+      reasoning: cfg.reasoning ?? AGENT_SDK_DEFAULTS.reasoning,
+      input: cfg.input ? [...cfg.input] : [...AGENT_SDK_DEFAULTS.input],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: cfg.contextWindow ?? AGENT_SDK_DEFAULTS.contextWindow,
+      maxTokens: this.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens,
+    };
+
     const resourceLoader = new DefaultResourceLoader({
       cwd: request.workspacePath,
-      agentDir: this.agentDir ?? PiAgentRuntime.DEFAULT_AGENT_DIR,
+      agentDir: cfg.agentDir ?? PiAgentRuntime.DEFAULT_AGENT_DIR,
       systemPrompt: this.roleConfig.systemPrompt,
       noExtensions: true,
       noThemes: true,
@@ -148,13 +160,12 @@ export class PiAgentRuntime implements AgentRuntime {
       .map((tool) => TOOL_NAME_MAP[tool] ?? tool)
       .filter((name) => name.length > 0);
 
-    // Set up auth storage with the API key for our model's provider
     const authStorage = AuthStorage.inMemory();
-    authStorage.setRuntimeApiKey(this.piModel.provider, this.apiKey);
+    authStorage.setRuntimeApiKey(model.provider, cfg.apiKey);
 
     const sessionOptions: Parameters<typeof createAgentSession>[0] = {
       cwd: request.workspacePath,
-      model: this.piModel,
+      model,
       resourceLoader,
       sessionManager: SessionManager.inMemory(),
       authStorage,

@@ -100,18 +100,13 @@ function createRuntimeForSdkType(
         toolPermissionDecider,
       });
     case "pi": {
-      const piModel = buildPiModel({
-        ...agentSdkConfig,
-        maxTokens: resolvedLlmConfig.maxTokens,
-      });
       return new PiAgentRuntime({
         roleConfig,
-        model: piModel,
-        apiKey: agentSdkConfig.apiKey,
+        agentSdkConfig,
+        maxTokens: resolvedLlmConfig.maxTokens,
         contextConfig,
         rawLogger: llmRawLogger,
         toolPermissionDecider,
-        agentDir: agentSdkConfig.agentDir,
       });
     }
   }
