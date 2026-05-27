@@ -84,7 +84,7 @@ export function isToolInputWithinWorkspace(toolName: string, input: Record<strin
     return true;
   }
 
-  if (!path.isAbsolute(pathValue)) {
+  if (!isAbsolutePath(pathValue)) {
     return true;
   }
 
@@ -95,6 +95,18 @@ export function isToolInputWithinWorkspace(toolName: string, input: Record<strin
 }
 
 // ── Internal Helpers ────────────────────────────────────────────────────────
+
+/**
+ * Returns true for absolute paths on any platform.
+ * Handles Windows paths (e.g. "D:/code") even when running on Linux/WSL,
+ * where `path.isAbsolute` does not recognize them.
+ */
+function isAbsolutePath(p: string): boolean {
+  if (path.isAbsolute(p)) return true;
+  // Windows drive-letter absolute path on a non-Windows system
+  if (/^[a-zA-Z]:[/\\]/.test(p)) return true;
+  return false;
+}
 
 function pathValueForTool(toolName: string, input: Record<string, unknown>): string | undefined {
   if (toolName === "Read") {

@@ -1,4 +1,4 @@
-import type { AgentConversationMessage, ChannelUser } from "../core/contracts.js";
+import type { AgentConversationMessage } from "../core/contracts.js";
 
 export type ConversationSessionKey = {
   readonly channel: string;
