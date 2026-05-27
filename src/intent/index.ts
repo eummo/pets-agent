@@ -1,0 +1,1 @@
+export type { UserIntent } from "./contracts.js";

@@ -257,6 +257,31 @@ const clone = { ...original };
 - 不写复述代码的注释。
 - 修改系统契约、配置格式、日志结构、运行时行为或开发流程时，同步更新相关文档。
 
+## 模块结构
+
+每个功能模块有自己的公开 API 出口文件（barrel file），类型定义按以下原则分布：
+
+| 类型使用范围 | 存放位置 |
+|------------|----------|
+| 仅本模块使用 | `src/<module>/contracts.ts` |
+| 跨模块共享 | `src/core/contracts.ts` |
+| 模块公开类型 | `src/<module>/index.ts`（重导出） |
+
+```typescript
+// src/agent/index.ts — 模块公开 API
+export type { AgentRequest, AgentResponse, AgentRuntime } from "./contracts.js";
+export type { ProgressReporter } from "./contracts.js";
+
+// src/core/contracts.ts — 真正的跨层共享基元
+export type { ChannelUser, InboundMessage, OutboundMessage, MessageGateway } from "./contracts.js";
+export type AgentConversationMessage = { ... };  // core 和 agent 共用
+```
+
+原则：
+- 只被少数模块使用的类型不要堆到 `core/contracts.ts`，放在对应领域模块
+- `core/contracts.ts` 只放真正跨层共享的基元类型
+- 导入方从对应模块的 `index.ts` import，不直接从 `contracts.ts` 导入（除非是 `core/contracts.ts` 的跨层类型）
+
 ## 评审清单
 
 - 是否遵守 contracts/adapters 边界？

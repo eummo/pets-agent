@@ -1,0 +1,1 @@
+export type { KnowledgeWorkspace, KnowledgeWorkspaceResolver } from "./contracts.js";
