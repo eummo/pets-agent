@@ -1,6 +1,5 @@
 import { buildPiModel, type ResolvedLlmConfig, type ResolvedAgentSdkConfig } from "../config/llmConfig.js";
 import type { ContextConfig } from "../config/runtimeConfig.js";
-import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 import type { AgentRuntime, AgentRuntimeFactory } from "./index.js";
 import type { RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
@@ -19,10 +18,8 @@ export async function createAgentRuntimes(
   resolvedAgentSdkConfig: ResolvedAgentSdkConfig,
   contextConfig?: ContextConfig,
 ): Promise<Record<string, AgentRuntime>> {
-  const roleConfigs = await roleConfigStore.getAll();
+  const configs = await roleConfigStore.getAll();
   const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig, llmRawLogger);
-
-  const configs = roleConfigs.length > 0 ? roleConfigs : DEFAULT_ROLE_CONFIGS;
 
   return Object.fromEntries(
     configs.map((config) => [

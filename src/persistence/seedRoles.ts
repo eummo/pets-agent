@@ -1,13 +1,11 @@
-﻿import type { RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
+﻿import type { RoleCapability, RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
 import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 
 export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
   const existing = await store.getAll();
   const existingByName = new Map(existing.map((config) => [config.name, config]));
 
-  const defaults = DEFAULT_ROLE_CONFIGS;
-
-  for (const config of defaults) {
+  for (const config of DEFAULT_ROLE_CONFIGS) {
     const existingConfig = existingByName.get(config.name);
     if (existingConfig === undefined) {
       await store.upsert(config);
@@ -15,20 +13,32 @@ export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
     }
 
     const missingCapabilities = missingDefaultCapabilities(existingConfig, config);
-    if ((config.name === "reviewer" && shouldRaiseReviewerRuntimeDefaults(existingConfig, config)) || missingCapabilities.length > 0) {
-      await store.upsert({
-        ...existingConfig,
-        ...(config.name === "reviewer" ? reviewerRuntimeDefaultsToRaise(existingConfig, config) : {}),
-        ...(missingCapabilities.length > 0 ? { capabilities: [...(existingConfig.capabilities ?? []), ...missingCapabilities] } : {}),
-      });
+    const needsReviewerFix = config.name === "reviewer" && shouldRaiseReviewerRuntimeDefaults(existingConfig, config);
+
+    if (!needsReviewerFix && missingCapabilities.length === 0) {
+      continue;
     }
+
+    const reviewerOverrides = needsReviewerFix ? reviewerRuntimeDefaultsToRaise(existingConfig, config) : {};
+    const capabilityOverrides = missingCapabilities.length > 0
+      ? { capabilities: [...(existingConfig.capabilities ?? []), ...missingCapabilities] }
+      : {};
+
+    const updated: StoredRoleConfig = { ...existingConfig, ...reviewerOverrides, ...capabilityOverrides };
+    await store.upsert(updated);
   }
 }
+
+type ReviewerOverrides = {
+  readonly allowedTools: readonly string[];
+  readonly permissionMode: StoredRoleConfig["permissionMode"];
+  readonly maxTurns?: number;
+};
 
 function reviewerRuntimeDefaultsToRaise(
   existing: StoredRoleConfig,
   nextDefault: StoredRoleConfig,
-): Pick<StoredRoleConfig, "allowedTools" | "permissionMode"> & { readonly maxTurns?: number } {
+): ReviewerOverrides {
   const maxTurns = maxTurnsToRaise(existing, nextDefault);
 
   return {
@@ -44,16 +54,9 @@ function shouldRaiseReviewerRuntimeDefaults(existing: StoredRoleConfig, nextDefa
     || !existing.allowedTools.includes("Bash");
 }
 
-function missingDefaultCapabilities(
-  existing: StoredRoleConfig,
-  nextDefault: StoredRoleConfig,
-): readonly NonNullable<StoredRoleConfig["capabilities"]>[number][] {
-  if (nextDefault.capabilities === undefined || nextDefault.capabilities.length === 0) {
-    return [];
-  }
-
-  const existingCapabilities = new Set(existing.capabilities ?? []);
-  return nextDefault.capabilities.filter((capability) => !existingCapabilities.has(capability));
+function missingDefaultCapabilities(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): RoleCapability[] {
+  const existingCapabilities = new Set<RoleCapability>(existing.capabilities ?? []);
+  return (nextDefault.capabilities ?? []).filter((c): c is RoleCapability => !existingCapabilities.has(c));
 }
 
 function maxTurnsToRaise(existing: StoredRoleConfig, nextDefault: StoredRoleConfig): number | undefined {
