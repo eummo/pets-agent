@@ -1,4 +1,4 @@
-﻿import type { UserIntent } from "../intent/index.js";
+import type { UserIntent } from "../intent/index.js";
 
 const KNOWLEDGE_BASE_TERMS = [
   "documentation",

@@ -1,11 +1,8 @@
-﻿import type { PermissionResult } from "@tencent-ai/agent-sdk";
+import { query } from "@tencent-ai/agent-sdk";
+import type { PermissionResult } from "@tencent-ai/agent-sdk";
 import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
-import {
-  isRecord,
-  stringArrayField,
-  stringField
-} from "../../core/unknownRecord.js";
+import { isRecord, stringArrayField, stringField } from "../../core/unknownRecord.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
 import { DEFAULT_CONTEXT_CONFIG } from "../../config/runtimeConfig.js";
 import type { JsonlLogger } from "../../logging/jsonlLogger.js";
@@ -60,7 +57,6 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
-    const { query } = await import("@tencent-ai/agent-sdk");
     const prompt = await buildWorkspacePrompt(request, this.contextConfig.workspaceMaxChars);
     const queryOptions: Record<string, unknown> = {
       cwd: request.workspacePath,
@@ -139,7 +135,14 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
         if (message.type === "assistant") {
           sessionId = message.session_id;
           const content = message.message.content;
-          await logToolEventsFromContent(content, this.name, request, sessionId, this.roleConfig, this.rawLogger);
+          await logToolEventsFromContent(
+            content,
+            this.name,
+            request,
+            sessionId,
+            this.roleConfig,
+            this.rawLogger
+          );
           forwardAssistantContentEvents(content, request, this.roleConfig);
         } else if (message.type === "result") {
           const resultData: Record<string, unknown> = isRecord(message) ? message : {};
@@ -161,7 +164,9 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
             forwardStreamEvent(message, request);
           }
         } else if (message.type === "system") {
-          const compactData = isRecord(message) ? forwardSystemContentEvents(message, request) : undefined;
+          const compactData = isRecord(message)
+            ? forwardSystemContentEvents(message, request)
+            : undefined;
           if (compactData !== undefined) {
             await this.rawLogger?.write({
               type: "llm.compact",

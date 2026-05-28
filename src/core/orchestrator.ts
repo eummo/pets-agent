@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AgentConversationMessage,
   ConversationLogger,
   InboundMessage,
@@ -25,7 +25,7 @@ import type { UserIntent } from "../intent/index.js";
 import { handleCommandWithoutWorkspace, isNewConversationCommand } from "./conversationCommands.js";
 import { actionForIntent, responseForDeniedIntent } from "./intentAuthorization.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
-import { parseIntentResponse } from "../agent/intent/intentAgentRuntime.js";
+import { parseIntentResponse } from "../agent/intent/index.js";
 import { RuntimeCache } from "./runtimeCache.js";
 import { formatInternalError, formatSafeRuntimeError } from "./runtimeErrorFormatter.js";
 import { formatUnknownError } from "./unknownRecord.js";

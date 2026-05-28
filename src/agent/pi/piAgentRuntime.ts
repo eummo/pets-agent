@@ -1,4 +1,4 @@
-﻿import {
+import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,

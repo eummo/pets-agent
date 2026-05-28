@@ -1,4 +1,4 @@
-﻿import type { ChannelUser, UserRole } from "../core/index.js";
+import type { ChannelUser, UserRole } from "../core/index.js";
 import type { KnowledgeWorkspace } from "../workspace/index.js";
 import type {
   AuthorizationAction,

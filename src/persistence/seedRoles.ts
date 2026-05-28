@@ -1,4 +1,4 @@
-﻿import type { RoleCapability, RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
+import type { RoleCapability, RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
 import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 
 export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Translates pi-coding-agent AgentSessionEvents into the project's AgentStreamEvent format
  * and records structured logs to llm-raw.jsonl.
  */

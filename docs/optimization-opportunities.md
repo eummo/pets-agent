@@ -10,11 +10,11 @@
 
 ## 摘要
 
-| 优先级 | 数量 | 主要方向 |
-| --- | ---: | --- |
-| P0 | 2 | 权限分类失败策略、运行时配置生效 |
-| P1 | 8 | 文件锁完善、日志吞吐、工作区解析缓存、SQLite 查询边界、前端安全、retry 策略、静态资源路径、smoke 稳定性 |
-| P2 | 5 | 类型校验、配置清理、依赖升级、代码组织收尾和可观测性增强 |
+| 优先级 | 数量 | 主要方向                                                                                                |
+| ------ | ---: | ------------------------------------------------------------------------------------------------------- |
+| P0     |    2 | 权限分类失败策略、运行时配置生效                                                                        |
+| P1     |    8 | 文件锁完善、日志吞吐、工作区解析缓存、SQLite 查询边界、前端安全、retry 策略、静态资源路径、smoke 稳定性 |
+| P2     |    5 | 类型校验、配置清理、依赖升级、代码组织收尾和可观测性增强                                                |
 
 最新剩余优先处理项：
 
@@ -176,7 +176,7 @@
 证据位置：
 
 - `src/config/retry.ts` 新增了通用 `withRetry`。
-- `src/intent/llmIntentDetectionService.ts` 和 `src/agent/llmBashPermissionDecider.ts` 已接入。
+- `src/intent/llmIntentDetectionService.ts` 和 `src/agent/policy/llmBashPermissionDecider.ts` 已接入。
 
 风险：
 
@@ -266,7 +266,8 @@
 证据位置：
 
 - 当前 `src/core/orchestrator.ts:217` 的 conversation log 主要记录输入输出。
-- `src/agent/claudeSdkAgentRuntime.ts:168` 记录 runtime response。
+- `src/agent/claude/claudeSdkAgentRuntime.ts`、`src/agent/codebuddy/codebuddySdkAgentRuntime.ts`
+  和 `src/agent/pi/piEventCollector.ts` 记录 runtime response。
 
 建议：
 

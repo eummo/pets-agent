@@ -92,12 +92,13 @@ channel adapters or gateway policy.
 
 Current examples:
 
-- `ClaudeSdkAgentRuntime` in `src/agent/claudeSdkAgentRuntime.ts`
-- `EchoAgentRuntime` for local fallback/testing
+- `ClaudeSdkAgentRuntime` in `src/agent/claude`
+- `CodebuddySdkAgentRuntime` in `src/agent/codebuddy`
+- `PiAgentRuntime` in `src/agent/pi`
+- `IntentAgentRuntime` in `src/agent/intent`
 
 Future examples:
 
-- `PiAgentRuntime`
 - `CodexSdkAgentRuntime`
 - another Claude-compatible or custom runtime
 
@@ -120,7 +121,8 @@ code should depend only on system contracts.
 
 ## System Contracts
 
-Stable system contracts live in `src/core/contracts.ts`.
+Stable system contracts are exported from `src/core/index.ts`. Module-specific public contracts are
+exported from each module's `index.ts`.
 
 Important contracts:
 
@@ -148,17 +150,18 @@ No role, permission, intent, or SDK logic should be added to the channel adapter
 
 ## Adding A New Agent SDK
 
-1. Create an adapter under `src/agent`, for example `piAgentRuntime.ts` or `codexSdkAgentRuntime.ts`.
+1. Create an adapter package under `src/agent`, for example `codex/codexSdkAgentRuntime.ts`.
 2. Implement `AgentRuntime`.
 3. Convert `AgentRequest` into the provider SDK request shape.
 4. Convert provider responses and streams into `AgentResponse` and `AgentStreamEvent`.
-5. Register the runtime in the composition root or runtime factory.
+5. Export the public runtime from the package `index.ts`.
+6. Register the runtime in the composition root or runtime factory.
 
 Do not import provider SDK types into `src/core`.
 
 ## Adding A New Permission Or Tool
 
-1. Add the smallest new `RoleCapability` in `src/core/contracts.ts`.
+1. Add the smallest new `RoleCapability` to the auth/core public contract that owns the capability.
 2. Store it in role configuration through `RoleConfigStore`.
 3. Map user intent or gateway actions to the capability in `AuthorizationService`.
 4. Add focused tests for allow and deny behavior.

@@ -1,4 +1,4 @@
-﻿import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import type { AgentConversationMessage, UserRole } from "../core/index.js";

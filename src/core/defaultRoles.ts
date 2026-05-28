@@ -1,4 +1,4 @@
-﻿import type { StoredRoleConfig } from "../auth/index.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 
 export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
   {

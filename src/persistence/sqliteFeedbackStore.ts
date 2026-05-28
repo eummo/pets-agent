@@ -1,4 +1,4 @@
-﻿import type Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import type { FeedbackEntry, FeedbackQuery, FeedbackStore, FeedbackStatus } from "./index.js";
 import type { UserIntent } from "../intent/index.js";
 

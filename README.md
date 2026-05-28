@@ -1,13 +1,13 @@
 # Pets Agent
 
-基于 Claude Agent SDK 的角色化知识库助手服务。
+基于可插拔 Agent SDK 的角色化知识库助手服务。
 
 ## 项目概述
 
 Pets Agent 提供两种角色化助手：
 
 - **文档助手（reviewer）**：基于知识库的问答助手，支持多轮对话，回答用户关于工作区内容的问题
-- **开发助手（developer）**：代码修改助手，使用 Claude Agent SDK 读取、编辑、创建代码并运行验证
+- **开发助手（developer）**：代码修改助手，使用配置的 Agent SDK 读取、编辑、创建代码并运行验证
 
 两种角色均通过 SSE 实时流式输出思维过程、文本和工具调用。
 
@@ -15,7 +15,7 @@ Pets Agent 提供两种角色化助手：
 
 - **运行时**: Node.js 22+ / TypeScript
 - **框架**: Fastify
-- **AI SDK**: Claude Agent SDK（`@anthropic-ai/claude-agent-sdk`）
+- **AI SDK**: 可配置 Claude Agent SDK、CodeBuddy Agent SDK 或 Pi Coding Agent SDK
 - **消息通道**: 企业微信（可扩展）+ 浏览器开发页面
 - **LLM 配置**: 支持 Anthropic 兼容 API（如 MiniMax）
 
@@ -36,14 +36,14 @@ npm run dev
 
 ## 可用命令
 
-| 命令 | 说明 |
-|------|------|
-| `npm run dev` | 启动开发服务 |
-| `npm run harness -- --reset` | 创建/重置本地知识库沙箱 |
-| `npm run smoke` | 运行时回归测试（需要服务运行中） |
-| `npm run check` | 类型检查 + lint + 单元测试 + 构建 |
-| `npm test` | 运行 Vitest 单元测试 |
-| `npm run build` | 编译生产版本 |
+| 命令                         | 说明                              |
+| ---------------------------- | --------------------------------- |
+| `npm run dev`                | 启动开发服务                      |
+| `npm run harness -- --reset` | 创建/重置本地知识库沙箱           |
+| `npm run smoke`              | 运行时回归测试（需要服务运行中）  |
+| `npm run check`              | 类型检查 + lint + 单元测试 + 构建 |
+| `npm test`                   | 运行 Vitest 单元测试              |
+| `npm run build`              | 编译生产版本                      |
 
 ## 架构
 
@@ -51,10 +51,16 @@ npm run dev
 src/
 ├── index.ts              入口：组装依赖、启动服务
 ├── core/                 核心层（纯业务逻辑，无外部依赖）
-│   ├── contracts.ts        系统契约
+│   ├── index.ts            系统契约
 │   └── orchestrator.ts     编排器：路由消息到对应角色 runtime
 ├── agent/                Agent 适配层
-│   └── claudeSdkAgentRuntime.ts  基于 SDK 的双角色 runtime
+│   ├── index.ts            Agent 模块公开契约
+│   ├── claude/             Claude SDK runtime 适配器
+│   ├── codebuddy/          CodeBuddy SDK runtime 适配器
+│   ├── pi/                 Pi Coding Agent runtime 适配器
+│   ├── intent/             意图识别 runtime 包装
+│   ├── policy/             工具权限策略
+│   └── shared/             SDK runtime 共享转换逻辑
 ├── server/               传输层（HTTP/SSE）
 │   ├── createServer.ts     Fastify 路由
 │   ├── dev-chat/           前端资源（html/css/js）
@@ -68,7 +74,7 @@ src/
 └── harness/              开发沙箱工具
 ```
 
-依赖方向：外层依赖内层，内层不依赖外层。`core/contracts.ts` 是系统契约层。
+依赖方向：外层依赖内层，内层不依赖外层。`core/index.ts` 和各模块 `index.ts` 是公开契约入口。
 
 ## LLM 配置
 

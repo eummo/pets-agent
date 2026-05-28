@@ -1,4 +1,4 @@
-﻿import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import {
   registerFauxProvider,
   fauxAssistantMessage,

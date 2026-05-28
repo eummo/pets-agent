@@ -1,4 +1,4 @@
-﻿import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { registerDevRoutes, type DevRoutesOptions } from "./devRoutes.js";
 
 export type CreateServerOptions = DevRoutesOptions & {

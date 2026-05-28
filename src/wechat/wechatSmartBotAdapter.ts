@@ -1,4 +1,4 @@
-﻿/**
+/**
  * WeChat Smart Bot adapter using @wecom/aibot-node-sdk (WebSocket long connection).
  *
  * This adapter replaces the previous HTTP callback (XML self-built app) approach.

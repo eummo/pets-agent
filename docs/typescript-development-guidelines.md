@@ -43,10 +43,10 @@
 
 ```typescript
 // ✓ 清晰，无需注释
-const units = 'μs';
+const units = "μs";
 
 // ✓ 不可打印字符用转义并注释
-const output = '\ufeff' + content;  // byte order mark
+const output = "\ufeff" + content; // byte order mark
 ```
 
 ### 源文件结构
@@ -71,7 +71,7 @@ export class XxxOrchestrator { ... }
 
 ## 模块边界
 
-- 稳定契约放在 `src/core/contracts.ts` 或邻近 core 模块。
+- 稳定契约从 `src/core/index.ts` 或对应模块的 `index.ts` 导出。
 - 通道、模型、数据库、工具和外部 SDK 实现放在适配器中，例如 `src/wechat`、`src/agent`、
   `src/server`、`src/persistence` 或未来供应商目录。
 - `src/core` 不导入供应商 SDK 类型，也不依赖适配器实现。
@@ -82,24 +82,25 @@ export class XxxOrchestrator { ... }
 
 ### interface 与 type
 
-对对象类型**优先使用 `interface`** 而非 `type` 别名。`interface` 支持声明合并和
-`extends`，IDE 提示更友好。
+对对象类型**使用 `type`**，与当前 ESLint `@typescript-eslint/consistent-type-definitions`
+配置保持一致。`interface` 只在确实需要声明合并或实现第三方扩展点时使用，并在评审中说明原因。
 
 ```typescript
-// ✓ 优先 interface
+// ✓ 对象类型使用 type
+type User = {
+  firstName: string;
+  lastName: string;
+};
+
+// ✗ 本项目默认不使用 interface 表达普通对象类型
 interface User {
   firstName: string;
   lastName: string;
 }
-
-// ✗ 对象类型不要用 type 别名
-type User = {
-  firstName: string;
-  lastName: string,
-}
 ```
 
 以下场景仍使用 `type`：
+
 - 联合类型（`type Result = Success | Failure`）
 - 交叉类型（`type Combined = A & B`）
 - 字面量联合（`type Status = "active" | "inactive"`）
@@ -150,13 +151,13 @@ type AuthorizationAction = "query" | "mutate" | "update_kb";
 
 ### Import 类型选择
 
-| 类型 | 示例 | 使用场景 |
-|------|------|----------|
-| 命名导入 | `import {Foo} from './foo'` | 大多数场景，推荐优先使用 |
-| 类型导入 | `import type {Foo} from './foo'` | 仅类型编译期使用 |
-| 命名空间导入 | `import * as foo from './foo'` | 大量符号的 API，需权衡可读性 |
-| 默认导入 | `import SomeThing from '...'` | 仅用于强制要求默认导出的第三方库 |
-| 副作用导入 | `import '...'` | 仅用于导入库的副作用 |
+| 类型         | 示例                             | 使用场景                         |
+| ------------ | -------------------------------- | -------------------------------- |
+| 命名导入     | `import {Foo} from './foo'`      | 大多数场景，推荐优先使用         |
+| 类型导入     | `import type {Foo} from './foo'` | 仅类型编译期使用                 |
+| 命名空间导入 | `import * as foo from './foo'`   | 大量符号的 API，需权衡可读性     |
+| 默认导入     | `import SomeThing from '...'`    | 仅用于强制要求默认导出的第三方库 |
+| 副作用导入   | `import '...'`                   | 仅用于导入库的副作用             |
 
 ```typescript
 // ✓ 优先命名导入，清晰且便于重构
@@ -180,6 +181,7 @@ import * as tableview from './tableview';
 ### 重命名导入
 
 仅在以下情况重命名：
+
 1. 消除命名冲突
 2. 符号名由工具生成、不够清晰
 3. 需要说明导入内容的业务含义
@@ -191,15 +193,15 @@ import * as tableview from './tableview';
 仅作为类型使用的符号必须用 `import type` 导入：
 
 ```typescript
-import type {Foo} from './foo';
-import {Bar} from './foo';
-import {type Foo, Bar} from './foo';  // 混合导入时内联 type
+import type { Foo } from "./foo";
+import { Bar } from "./foo";
+import { type Foo, Bar } from "./foo"; // 混合导入时内联 type
 ```
 
 重导出类型时使用 `export type`：
 
 ```typescript
-export type {SomeType} from './foo';
+export type { SomeType } from "./foo";
 ```
 
 ### 导出规范
@@ -303,10 +305,10 @@ const b = new Array(2, 3);
 // ✓ 使用字面量或 Array.from
 const a = [2];
 const b = [2, 3];
-Array.from({length: 5}).fill(0);
+Array.from({ length: 5 }).fill(0);
 
 // ✓ 复制/拼接使用展开语法
-const foo2 = [ ...foo, 6, 7 ];
+const foo2 = [...foo, 6, 7];
 
 // ✓ 使用解构
 const [first, ...rest] = items;
@@ -349,11 +351,11 @@ const clone = { ...original };
 
 ```typescript
 // ✗ 可能是 undefined
-const bar = {num: 5, ...(shouldUseFoo && foo)};
+const bar = { num: 5, ...(shouldUseFoo && foo) };
 
 // ✓
-const foo = shouldUseFoo ? {num: 7} : {};
-const bar = {num: 5, ...foo};
+const foo = shouldUseFoo ? { num: 7 } : {};
+const bar = { num: 5, ...foo };
 ```
 
 - 对象解构保持简单：单层无引号简写属性。默认值放在解构参数左侧。
@@ -361,7 +363,7 @@ const bar = {num: 5, ...foo};
 
 ## 字符串字面量
 
-- 普通字符串使用**单引号**（`'`）。包含单引号时考虑模板字符串避免转义。
+- 普通字符串使用**双引号**（`"`），与当前 Prettier 输出保持一致。包含双引号时考虑模板字符串避免转义。
 - 禁止行续行（字符串字面量内以反斜杠结尾换行）。
 - 复杂字符串拼接优先使用模板字面量。
 
@@ -410,11 +412,11 @@ let enabled = level !== SupportLevel.NONE;
 
 ### 命名风格
 
-| 风格 | 类别 |
-|------|------|
+| 风格             | 类别                                                   |
+| ---------------- | ------------------------------------------------------ |
 | `UpperCamelCase` | class / interface / type / enum / decorator / 类型参数 |
-| `lowerCamelCase` | 变量 / 参数 / 函数 / 方法 / 属性 / 模块别名 |
-| `CONSTANT_CASE` | 全局常量值，包括枚举值 |
+| `lowerCamelCase` | 变量 / 参数 / 函数 / 方法 / 属性 / 模块别名            |
+| `CONSTANT_CASE`  | 全局常量值，包括枚举值                                 |
 
 - 标识符只使用 ASCII 字母、数字、下划线（常量和结构化测试方法名）和（罕见）`$`。
 - 缩写作为完整单词处理：`loadHttpUrl` 而非 `loadHTTPURL`。
@@ -440,9 +442,9 @@ let enabled = level !== SupportLevel.NONE;
 - 导出函数和 public 方法的返回类型是否注解由作者决定。评审者可要求为复杂返回类型添加注解。
 
 ```typescript
-const x = 15;  // 类型可推断
-const x: boolean = true;  // ✗ 'boolean' 无助于可读性
-const x = new Set<string>();  // ✓ 空集合显式类型
+const x = 15; // 类型可推断
+const x: boolean = true; // ✗ 'boolean' 无助于可读性
+const x = new Set<string>(); // ✓ 空集合显式类型
 ```
 
 ## 错误处理与日志
@@ -506,26 +508,31 @@ const x = new Set<string>();  // ✓ 空集合显式类型
 
 每个功能模块有自己的公开 API 出口文件（barrel file），类型定义按以下原则分布：
 
-| 类型使用范围 | 存放位置 |
-|------------|----------|
-| 仅本模块使用 | `src/<module>/contracts.ts` |
-| 跨模块共享 | `src/core/contracts.ts` |
-| 模块公开类型 | `src/<module>/index.ts`（重导出） |
+| 类型使用范围 | 存放位置                                          |
+| ------------ | ------------------------------------------------- |
+| 仅本模块使用 | 模块内部文件，不从模块外导入                      |
+| 跨模块共享   | `src/core/index.ts` 或拥有该契约的模块 `index.ts` |
+| 模块公开类型 | `src/<module>/index.ts`（重导出）                 |
 
 ```typescript
 // src/agent/index.ts — 模块公开 API
-export type { AgentRequest, AgentResponse, AgentRuntime } from "./contracts.js";
-export type { ProgressReporter } from "./contracts.js";
+export type AgentRuntime = {
+  readonly name: string;
+  run(request: AgentRequest): Promise<AgentResponse>;
+};
 
-// src/core/contracts.ts — 真正的跨层共享基元
-export type { ChannelUser, InboundMessage, OutboundMessage, MessageGateway } from "./contracts.js";
-export type AgentConversationMessage = { ... };  // core 和 agent 共用
+// src/core/index.ts — 真正的跨层共享基元
+export type MessageGateway = {
+  handle(message: InboundMessage): Promise<OutboundMessage>;
+};
+export type AgentConversationMessage = { ... }; // core 和 agent 共用
 ```
 
 原则：
-- 只被少数模块使用的类型不要堆到 `core/contracts.ts`，放在对应领域模块
-- `core/contracts.ts` 只放真正跨层共享的基元类型
-- 导入方从对应模块的 `index.ts` import，不直接从 `contracts.ts` 导入（除非是 `core/contracts.ts` 的跨层类型）
+
+- 只被少数模块使用的类型不要堆到 `core/index.ts`，放在对应领域模块
+- `core/index.ts` 只放真正跨层共享的基元类型
+- 导入方从对应模块的 `index.ts` import，不跨模块直连内部实现文件
 
 ## 评审清单
 
@@ -538,7 +545,7 @@ export type AgentConversationMessage = { ... };  // core 和 agent 共用
 - 错误是否对用户安全，日志是否足够排查且不含敏感信息？
 - 是否添加或更新了合适的单元测试或 smoke 回归？每次改动后需同时评估是否需要新增冒烟测试案例。
 - `npm run check` 是否通过？涉及运行时行为时 `npm run smoke` 是否通过？
-- 对象类型是否优先使用了 `interface`？
+- 对象类型是否遵守当前 ESLint 约束使用了 `type`？
 
 ## 参考资料
 

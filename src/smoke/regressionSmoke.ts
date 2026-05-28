@@ -29,6 +29,11 @@ type ProgressEvent = {
   readonly message?: string;
 };
 
+type FetchTimeoutOptions = {
+  readonly label: string;
+  readonly timeoutMs: number;
+};
+
 const config = await loadRuntimeConfig();
 const agentSdkType = config.agentSdk.type;
 const baseUrl = process.env["SMOKE_BASE_URL"] ?? `http://127.0.0.1:${config.port}`;
@@ -38,13 +43,23 @@ const systemLogPath = path.resolve(config.logDir, "system.jsonl");
 const dbPath = config.dbPath;
 const firstCaseText = "What is the current project for?";
 const resetCaseText = "What is the current project after reset?";
+const smokeRequestTimeoutMs = readPositiveIntEnv("SMOKE_REQUEST_TIMEOUT_MS", 30_000);
+const smokeChatTimeoutMs = readPositiveIntEnv("SMOKE_CHAT_TIMEOUT_MS", 240_000);
+const smokePiAiTimeoutMs = readPositiveIntEnv("SMOKE_PI_AI_TIMEOUT_MS", 60_000);
 
 const cases = [
   {
     name: "project-purpose-grounding",
     text: firstCaseText,
     expectedIncludes: ["order"],
-    forbiddenIncludes: ["pet business", "pet application", "not a pet", "WeChat", "message channel", "agent runtime"]
+    forbiddenIncludes: [
+      "pet business",
+      "pet application",
+      "not a pet",
+      "WeChat",
+      "message channel",
+      "agent runtime"
+    ]
   },
   {
     name: "architecture-focuses-on-workspace",
@@ -70,7 +85,14 @@ const cases = [
     text: "有哪些反馈信息",
     userId: "smoke-user-cn-feedback",
     expectedIncludes: ["反馈"],
-    forbiddenIncludes: ["FeedbackEntry", "sqliteFeedbackStore", "/dev/feedback", "src/", "contracts.ts", "代码分析"]
+    forbiddenIncludes: [
+      "FeedbackEntry",
+      "sqliteFeedbackStore",
+      "/dev/feedback",
+      "src/",
+      "contracts.ts",
+      "代码分析"
+    ]
   }
 ] as const;
 
@@ -110,8 +132,16 @@ async function main(): Promise<void> {
   await resetChat(chineseMutationUserId);
   const chineseMutationText = "我想修改订单系统";
   const chineseMutationResult = await chat(chineseMutationText, chineseMutationUserId);
-  assertIncludes(chineseMutationResult.text, ["修改请求", "记录"], "reviewer-chinese-mutation-denied");
-  assertForbidden(chineseMutationResult.text, ["计划", "审批", "Express", "TypeScript"], "reviewer-chinese-mutation-denied");
+  assertIncludes(
+    chineseMutationResult.text,
+    ["修改请求", "记录"],
+    "reviewer-chinese-mutation-denied"
+  );
+  assertForbidden(
+    chineseMutationResult.text,
+    ["计划", "审批", "Express", "TypeScript"],
+    "reviewer-chinese-mutation-denied"
+  );
   assertFeedbackRecorded(chineseMutationUserId, chineseMutationText, "mutate");
   await assertNoAgentRuntimeLlmResponseForUser(chineseMutationUserId);
   console.info("[pass] reviewer-chinese-mutation-denied");
@@ -125,11 +155,18 @@ async function main(): Promise<void> {
 
   // Admin role can manage feedback
   await setRole("smoke-admin", "admin");
-  const feedbackListResponse = await fetch(`${baseUrl}/dev/feedback?userId=smoke-admin`);
+  const feedbackListResponse = await fetchWithTimeout(
+    `${baseUrl}/dev/feedback?userId=smoke-admin`,
+    {},
+    {
+      label: "Admin feedback list",
+      timeoutMs: smokeRequestTimeoutMs
+    }
+  );
   if (!feedbackListResponse.ok) {
     throw new Error(`Admin feedback list failed: ${feedbackListResponse.status}`);
   }
-  const feedbackData = await feedbackListResponse.json() as { feedback: unknown[] };
+  const feedbackData = (await feedbackListResponse.json()) as { feedback: unknown[] };
   if (!Array.isArray(feedbackData.feedback)) {
     throw new Error("Admin feedback list did not return an array");
   }
@@ -141,9 +178,18 @@ async function main(): Promise<void> {
 
   // Reviewer cannot access feedback
   await setRole("smoke-reviewer-no-feedback", "reviewer");
-  const deniedFeedbackResponse = await fetch(`${baseUrl}/dev/feedback?userId=smoke-reviewer-no-feedback`);
+  const deniedFeedbackResponse = await fetchWithTimeout(
+    `${baseUrl}/dev/feedback?userId=smoke-reviewer-no-feedback`,
+    {},
+    {
+      label: "Reviewer feedback denial check",
+      timeoutMs: smokeRequestTimeoutMs
+    }
+  );
   if (deniedFeedbackResponse.status !== 403) {
-    throw new Error(`Expected 403 for reviewer feedback access, got ${deniedFeedbackResponse.status}`);
+    throw new Error(
+      `Expected 403 for reviewer feedback access, got ${deniedFeedbackResponse.status}`
+    );
   }
   console.info("[pass] reviewer-denied-feedback-access");
 
@@ -152,7 +198,11 @@ async function main(): Promise<void> {
   assertIncludes(resetResult.text, ["New conversation started"], "new-conversation-command");
   const postResetResult = await chat(resetCaseText);
   assertIncludes(postResetResult.text, ["order"], "post-reset-starts-fresh-history");
-  assertForbidden(postResetResult.text, ["pet business", "pet-related", "pet application", "pet orders"], "post-reset-starts-fresh-history");
+  assertForbidden(
+    postResetResult.text,
+    ["pet business", "pet-related", "pet application", "pet orders"],
+    "post-reset-starts-fresh-history"
+  );
 
   // Verify logs
   await assertLogContains(conversationLogPath, ["conversation.turn", "smoke-user", firstCaseText]);
@@ -161,7 +211,7 @@ async function main(): Promise<void> {
     '"type":"llm.response"',
     '"operation":"intent_detection"',
     '"operation":"agent_runtime"',
-    '"type":"intent.result"',
+    '"type":"intent.result"'
   ]);
   await assertLogContainsAny(llmRawLogPath, ['"type":"agent.tool_call"', '"type":"llm.compact"']);
   await assertContextUsageLogged();
@@ -169,7 +219,10 @@ async function main(): Promise<void> {
 
   // Verify skills and settingSources are passed to the Codebuddy SDK
   if (agentSdkType === "codebuddy") {
-    await assertLogContains(llmRawLogPath, ['"skills":"all"', '"settingSources":["project","local"]']);
+    await assertLogContains(llmRawLogPath, [
+      '"skills":"all"',
+      '"settingSources":["project","local"]'
+    ]);
     console.info("[pass] sdk-options-include-skills-and-setting-sources");
   }
 
@@ -177,7 +230,11 @@ async function main(): Promise<void> {
   await resetChat("smoke-rules-user");
   const ruleResult = await chat("What is the scope of this workspace?", "smoke-rules-user");
   assertIncludes(ruleResult.text.toLowerCase(), ["workspace"], "workspace-rules-loaded");
-  assertForbidden(ruleResult.text, ["agent runtime", "model provider", "WeChat"], "workspace-rules-loaded");
+  assertForbidden(
+    ruleResult.text,
+    ["agent runtime", "model provider", "WeChat"],
+    "workspace-rules-loaded"
+  );
   console.info("[pass] workspace-rules-loaded");
 
   // Verify agent SDK type is reflected in runtime name logged by the orchestrator
@@ -212,7 +269,14 @@ async function main(): Promise<void> {
 }
 
 async function assertHealthy(): Promise<void> {
-  const response = await fetch(`${baseUrl}/health`);
+  const response = await fetchWithTimeout(
+    `${baseUrl}/health`,
+    {},
+    {
+      label: "Health check",
+      timeoutMs: smokeRequestTimeoutMs
+    }
+  );
   if (!response.ok) {
     throw new Error(`Health check failed: ${response.status}`);
   }
@@ -222,7 +286,7 @@ async function assertDevEventsStreamConnects(): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
   const response = await fetch(`${baseUrl}/dev/events?userId=smoke-events-user`, {
-    signal: controller.signal,
+    signal: controller.signal
   });
 
   try {
@@ -246,7 +310,14 @@ async function assertDevEventsStreamConnects(): Promise<void> {
 }
 
 async function assertDevChatPathTraversalDenied(): Promise<void> {
-  const response = await fetch(`${baseUrl}/dev/chat/..%2F..%2Fpackage.json`);
+  const response = await fetchWithTimeout(
+    `${baseUrl}/dev/chat/..%2F..%2Fpackage.json`,
+    {},
+    {
+      label: "Dev static path traversal check",
+      timeoutMs: smokeRequestTimeoutMs
+    }
+  );
   if (response.status !== 403) {
     throw new Error(`Expected dev static path traversal to return 403, got ${response.status}`);
   }
@@ -254,16 +325,23 @@ async function assertDevChatPathTraversalDenied(): Promise<void> {
 }
 
 async function chat(text: string, userId = "smoke-user"): Promise<ChatResult> {
-  const response = await fetch(`${baseUrl}/dev/chat`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json; charset=utf-8"
+  const response = await fetchWithTimeout(
+    `${baseUrl}/dev/chat`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        userId,
+        text
+      })
     },
-    body: JSON.stringify({
-      userId,
-      text
-    })
-  });
+    {
+      label: `Chat request for ${userId}: ${text}`,
+      timeoutMs: smokeChatTimeoutMs
+    }
+  );
 
   if (!response.ok) {
     throw new Error(`Chat request failed: ${response.status} ${await response.text()}`);
@@ -303,33 +381,51 @@ async function resetChat(userId: string): Promise<void> {
 }
 
 async function setRole(userId: string, role: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/dev/role`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json; charset=utf-8"
+  const response = await fetchWithTimeout(
+    `${baseUrl}/dev/role`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        userId,
+        role
+      })
     },
-    body: JSON.stringify({
-      userId,
-      role
-    })
-  });
+    {
+      label: `Role update for ${userId}`,
+      timeoutMs: smokeRequestTimeoutMs
+    }
+  );
 
   if (!response.ok) {
     throw new Error(`Role request failed: ${response.status} ${await response.text()}`);
   }
 }
 
-async function updateFeedbackStatus(id: number, status: "reviewed" | "resolved", userId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/dev/feedback/${id}`, {
-    method: "PATCH",
-    headers: {
-      "content-type": "application/json; charset=utf-8"
+async function updateFeedbackStatus(
+  id: number,
+  status: "reviewed" | "resolved",
+  userId: string
+): Promise<void> {
+  const response = await fetchWithTimeout(
+    `${baseUrl}/dev/feedback/${id}`,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        userId,
+        status
+      })
     },
-    body: JSON.stringify({
-      userId,
-      status
-    })
-  });
+    {
+      label: `Feedback status update for ${id}`,
+      timeoutMs: smokeRequestTimeoutMs
+    }
+  );
 
   if (!response.ok) {
     throw new Error(`Feedback status update failed: ${response.status} ${await response.text()}`);
@@ -371,7 +467,9 @@ function assertIncludes(text: string, expectedValues: readonly string[], caseNam
   const normalizedText = text.toLowerCase();
   for (const expected of expectedValues) {
     if (!normalizedText.includes(expected.toLowerCase())) {
-      throw new Error(`Smoke case ${caseName} expected response to include ${expected}. Response: ${text}`);
+      throw new Error(
+        `Smoke case ${caseName} expected response to include ${expected}. Response: ${text}`
+      );
     }
   }
 }
@@ -380,12 +478,63 @@ function assertForbidden(text: string, forbiddenValues: readonly string[], caseN
   const normalizedText = text.toLowerCase();
   for (const forbidden of forbiddenValues) {
     if (normalizedText.includes(forbidden.toLowerCase())) {
-      throw new Error(`Smoke case ${caseName} response included forbidden text ${forbidden}. Response: ${text}`);
+      throw new Error(
+        `Smoke case ${caseName} response included forbidden text ${forbidden}. Response: ${text}`
+      );
     }
   }
 }
 
-async function assertLogContains(filePath: string, expectedValues: readonly string[]): Promise<void> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  options: FetchTimeoutOptions
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`${options.label} timed out after ${options.timeoutMs}ms.`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim().length === 0) {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, got: ${raw}`);
+  }
+  return parsed;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+  if (error instanceof Error) {
+    return error.name === "AbortError";
+  }
+  return false;
+}
+
+async function assertLogContains(
+  filePath: string,
+  expectedValues: readonly string[]
+): Promise<void> {
   const content = await readFile(filePath, "utf8");
 
   for (const expected of expectedValues) {
@@ -395,7 +544,10 @@ async function assertLogContains(filePath: string, expectedValues: readonly stri
   }
 }
 
-async function assertLogContainsAny(filePath: string, expectedValues: readonly string[]): Promise<void> {
+async function assertLogContainsAny(
+  filePath: string,
+  expectedValues: readonly string[]
+): Promise<void> {
   const content = await readFile(filePath, "utf8");
 
   if (!expectedValues.some((expected) => content.includes(expected))) {
@@ -407,7 +559,9 @@ async function assertContextUsageLogged(): Promise<void> {
   const content = await readFile(systemLogPath, "utf8");
   const usageEvents = content
     .split(/\r?\n/)
-    .filter((line) => line.includes('"type":"context.usage"') && line.includes('"userId":"smoke-user"'));
+    .filter(
+      (line) => line.includes('"type":"context.usage"') && line.includes('"userId":"smoke-user"')
+    );
 
   if (usageEvents.length === 0) {
     throw new Error(`Expected ${systemLogPath} to include a context.usage event for smoke-user.`);
@@ -421,12 +575,14 @@ async function assertContextUsageLogged(): Promise<void> {
   };
 
   if (
-    typeof latest.inputTokens !== "number"
-    || typeof latest.outputTokens !== "number"
-    || typeof latest.contextWindow !== "number"
-    || typeof latest.usagePercent !== "number"
+    typeof latest.inputTokens !== "number" ||
+    typeof latest.outputTokens !== "number" ||
+    typeof latest.contextWindow !== "number" ||
+    typeof latest.usagePercent !== "number"
   ) {
-    throw new Error(`context.usage event is missing numeric token fields: ${JSON.stringify(latest)}.`);
+    throw new Error(
+      `context.usage event is missing numeric token fields: ${JSON.stringify(latest)}.`
+    );
   }
 }
 
@@ -435,27 +591,41 @@ async function assertNoAgentRuntimeLlmResponseForUser(userId: string): Promise<v
 
   const hasAgentRuntimeResponse = content
     .split(/\r?\n/)
-    .some((line) => (
-      line.includes(`"userId":"${userId}"`)
-      && line.includes('"type":"llm.response"')
-      && line.includes('"operation":"agent_runtime"')
-    ));
+    .some(
+      (line) =>
+        line.includes(`"userId":"${userId}"`) &&
+        line.includes('"type":"llm.response"') &&
+        line.includes('"operation":"agent_runtime"')
+    );
 
   if (hasAgentRuntimeResponse) {
-    throw new Error(`Expected no agent runtime LLM response for denied reviewer mutation user ${userId}.`);
+    throw new Error(
+      `Expected no agent runtime LLM response for denied reviewer mutation user ${userId}.`
+    );
   }
 }
 
 function assertFeedbackRecorded(userId: string, text: string, intentType: string): number {
   const db = new Database(dbPath, { readonly: true });
   try {
-    const row = db.prepare(`
+    const row = db
+      .prepare(
+        `
       SELECT id, user_message, intent_type, status
       FROM feedback
       WHERE user_id = ?
       ORDER BY id DESC
       LIMIT 1
-    `).get(userId) as { readonly id: number; readonly user_message: string; readonly intent_type: string; readonly status: string } | undefined;
+    `
+      )
+      .get(userId) as
+      | {
+          readonly id: number;
+          readonly user_message: string;
+          readonly intent_type: string;
+          readonly status: string;
+        }
+      | undefined;
 
     if (row === undefined) {
       throw new Error(`Expected feedback row for ${userId}.`);
@@ -472,17 +642,23 @@ function assertFeedbackRecorded(userId: string, text: string, intentType: string
 function assertFeedbackStatus(id: number, expectedStatus: string, caseName: string): void {
   const db = new Database(dbPath, { readonly: true });
   try {
-    const row = db.prepare(`
+    const row = db
+      .prepare(
+        `
       SELECT status
       FROM feedback
       WHERE id = ?
-    `).get(id) as { readonly status: string } | undefined;
+    `
+      )
+      .get(id) as { readonly status: string } | undefined;
 
     if (row === undefined) {
       throw new Error(`[${caseName}] Expected feedback row ${id}.`);
     }
     if (row.status !== expectedStatus) {
-      throw new Error(`[${caseName}] Expected feedback ${id} status ${expectedStatus}, got ${row.status}.`);
+      throw new Error(
+        `[${caseName}] Expected feedback ${id} status ${expectedStatus}, got ${row.status}.`
+      );
     }
   } finally {
     db.close();
@@ -496,16 +672,28 @@ async function assertPiAiReachable(): Promise<void> {
 
   const resolved = config.llm;
   const model = buildPiModel(resolved);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), smokePiAiTimeoutMs);
 
-  const response = await complete(model, {
-    systemPrompt: "Respond with any short acknowledgement.",
-    messages: [{ role: "user", content: "Reply with a short acknowledgement.", timestamp: Date.now() }],
-  }, {
-    apiKey: resolved.apiKey,
-  });
+  const response = await complete(
+    model,
+    {
+      systemPrompt: "Respond with any short acknowledgement.",
+      messages: [
+        { role: "user", content: "Reply with a short acknowledgement.", timestamp: Date.now() }
+      ]
+    },
+    {
+      apiKey: resolved.apiKey,
+      signal: controller.signal
+    }
+  ).finally(() => clearTimeout(timeout));
 
   if (response.stopReason === "error") {
     throw new Error(`pi-ai smoke: provider returned error response: ${JSON.stringify(response)}.`);
+  }
+  if (response.stopReason === "aborted") {
+    throw new Error(`pi-ai smoke: provider timed out after ${smokePiAiTimeoutMs}ms.`);
   }
   if (response.content.length === 0) {
     throw new Error(`pi-ai smoke: expected response content, got: ${JSON.stringify(response)}.`);
@@ -531,7 +719,7 @@ async function assertAgentSdkRuntimeMatchesConfig(): Promise<void> {
   const unexpected = runtimeNames.filter((runtimeName) => !runtimeName.startsWith(expectedPrefix));
   if (unexpected.length > 0) {
     throw new Error(
-      `Expected agentSdk.type=${agentSdkType} to use runtime prefix ${expectedPrefix}. Saw: ${[...new Set(runtimeNames)].join(", ")}.`,
+      `Expected agentSdk.type=${agentSdkType} to use runtime prefix ${expectedPrefix}. Saw: ${[...new Set(runtimeNames)].join(", ")}.`
     );
   }
 }
@@ -539,7 +727,7 @@ async function assertAgentSdkRuntimeMatchesConfig(): Promise<void> {
 const RUNTIME_PREFIX_FOR_SDK_TYPE: Record<string, string> = {
   claude: "claude-sdk",
   codebuddy: "codebuddy-sdk",
-  pi: "pi",
+  pi: "pi"
 };
 
 async function readAgentRuntimeNames(): Promise<readonly string[]> {
@@ -572,7 +760,9 @@ async function assertPiStreamEvents(): Promise<void> {
 
   const hasTextDelta = result.events.some((e) => e.type === "text_delta");
   if (!hasTextDelta) {
-    throw new Error(`Pi stream events: expected at least one text_delta event. Got types: ${result.events.map((e) => e.type).join(", ")}`);
+    throw new Error(
+      `Pi stream events: expected at least one text_delta event. Got types: ${result.events.map((e) => e.type).join(", ")}`
+    );
   }
 
   const hasCompleted = result.events.some((e) => e.type === "completed");
@@ -604,10 +794,14 @@ async function assertPiSessionPersistence(): Promise<void> {
   const content = await readFile(llmRawLogPath, "utf8");
   const piRuntimeLines = content
     .split(/\r?\n/)
-    .filter((line) => line.includes('"runtime":"pi-') && line.includes('"userId":"smoke-pi-session-user"'));
+    .filter(
+      (line) => line.includes('"runtime":"pi-') && line.includes('"userId":"smoke-pi-session-user"')
+    );
 
   if (piRuntimeLines.length === 0) {
-    throw new Error("Pi session persistence: no pi runtime log entries found for smoke-pi-session-user.");
+    throw new Error(
+      "Pi session persistence: no pi runtime log entries found for smoke-pi-session-user."
+    );
   }
 }
 
@@ -620,18 +814,23 @@ async function assertPiToolPermissionLogged(): Promise<void> {
 
   // Check llm-raw.jsonl for agent.tool_call entries with the pi runtime prefix
   const content = await readFile(llmRawLogPath, "utf8");
-  const newContent = content.startsWith(previousContent) ? content.slice(previousContent.length) : content;
+  const newContent = content.startsWith(previousContent)
+    ? content.slice(previousContent.length)
+    : content;
   const toolCallLines = newContent
     .split(/\r?\n/)
-    .filter((line) =>
-      line.includes('"type":"agent.tool_call"')
-      && line.includes('"runtime":"pi-')
-      && line.includes('"userId":"smoke-pi-tool-user"'),
+    .filter(
+      (line) =>
+        line.includes('"type":"agent.tool_call"') &&
+        line.includes('"runtime":"pi-') &&
+        line.includes('"userId":"smoke-pi-tool-user"')
     );
 
   // If the model made tool calls, they should be logged with permission info
   if (toolCallLines.length > 0) {
-    const firstCall = JSON.parse(toolCallLines[0] ?? "{}") as { readonly permittedByRole?: unknown };
+    const firstCall = JSON.parse(toolCallLines[0] ?? "{}") as {
+      readonly permittedByRole?: unknown;
+    };
     if (firstCall.permittedByRole === undefined) {
       throw new Error("Pi tool permission: agent.tool_call log missing permittedByRole field.");
     }
@@ -640,15 +839,18 @@ async function assertPiToolPermissionLogged(): Promise<void> {
   // Also verify the runtime name prefix is correct in the agent_runtime llm.response
   const runtimeResponseLines = newContent
     .split(/\r?\n/)
-    .filter((line) =>
-      line.includes('"type":"llm.response"')
-      && line.includes('"operation":"agent_runtime"')
-      && line.includes('"runtime":"pi-')
-      && line.includes('"userId":"smoke-pi-tool-user"'),
+    .filter(
+      (line) =>
+        line.includes('"type":"llm.response"') &&
+        line.includes('"operation":"agent_runtime"') &&
+        line.includes('"runtime":"pi-') &&
+        line.includes('"userId":"smoke-pi-tool-user"')
     );
 
   if (runtimeResponseLines.length === 0) {
-    throw new Error("Pi tool permission: no agent_runtime llm.response found for smoke-pi-tool-user.");
+    throw new Error(
+      "Pi tool permission: no agent_runtime llm.response found for smoke-pi-tool-user."
+    );
   }
 }
 
@@ -659,14 +861,17 @@ async function assertCodebuddyOptionsLogged(): Promise<void> {
   const content = await readFile(llmRawLogPath, "utf8");
   const requestLines = content
     .split(/\r?\n/)
-    .filter((line) =>
-      line.includes('"type":"llm.request"')
-      && line.includes('"operation":"agent_runtime"')
-      && line.includes('"runtime":"codebuddy-sdk-'),
+    .filter(
+      (line) =>
+        line.includes('"type":"llm.request"') &&
+        line.includes('"operation":"agent_runtime"') &&
+        line.includes('"runtime":"codebuddy-sdk-')
     );
 
   if (requestLines.length === 0) {
-    throw new Error("Codebuddy options: no agent_runtime llm.request found with codebuddy-sdk runtime prefix.");
+    throw new Error(
+      "Codebuddy options: no agent_runtime llm.request found with codebuddy-sdk runtime prefix."
+    );
   }
 
   const firstRequest = JSON.parse(requestLines[0] ?? "{}") as {
@@ -678,8 +883,13 @@ async function assertCodebuddyOptionsLogged(): Promise<void> {
   }
 
   // Codebuddy SDK should log skills and settingSources in its query options
-  if (firstRequest.options["skills"] === undefined && firstRequest.options["settingSources"] === undefined) {
-    throw new Error(`Codebuddy options: expected skills or settingSources in options. Got: ${JSON.stringify(Object.keys(firstRequest.options))}`);
+  if (
+    firstRequest.options["skills"] === undefined &&
+    firstRequest.options["settingSources"] === undefined
+  ) {
+    throw new Error(
+      `Codebuddy options: expected skills or settingSources in options. Got: ${JSON.stringify(Object.keys(firstRequest.options))}`
+    );
   }
 }
 
@@ -702,28 +912,35 @@ async function assertCodebuddySessionResume(): Promise<void> {
   const content = await readFile(llmRawLogPath, "utf8");
   const responseLines = content
     .split(/\r?\n/)
-    .filter((line) =>
-      line.includes('"type":"llm.response"')
-      && line.includes('"operation":"agent_runtime"')
-      && line.includes('"runtime":"codebuddy-sdk-')
-      && line.includes('"userId":"smoke-codebuddy-session-user"'),
+    .filter(
+      (line) =>
+        line.includes('"type":"llm.response"') &&
+        line.includes('"operation":"agent_runtime"') &&
+        line.includes('"runtime":"codebuddy-sdk-') &&
+        line.includes('"userId":"smoke-codebuddy-session-user"')
     );
 
   if (responseLines.length === 0) {
-    throw new Error("Codebuddy session resume: no codebuddy-sdk agent_runtime responses found for smoke-codebuddy-session-user.");
+    throw new Error(
+      "Codebuddy session resume: no codebuddy-sdk agent_runtime responses found for smoke-codebuddy-session-user."
+    );
   }
 }
 
 function assertFeedbackTimestampLocal(userId: string, caseName: string): void {
   const db = new Database(dbPath, { readonly: true });
   try {
-    const row = db.prepare(`
+    const row = db
+      .prepare(
+        `
       SELECT created_at
       FROM feedback
       WHERE user_id = ?
       ORDER BY id DESC
       LIMIT 1
-    `).get(userId) as { readonly created_at: string } | undefined;
+    `
+      )
+      .get(userId) as { readonly created_at: string } | undefined;
 
     if (row === undefined) {
       throw new Error(`[${caseName}] Expected feedback row for ${userId}.`);
@@ -740,7 +957,7 @@ function assertFeedbackTimestampLocal(userId: string, caseName: string): void {
     const toleranceMs = 5 * 60 * 1000;
     if (diffMs > toleranceMs) {
       throw new Error(
-        `[${caseName}] created_at (${createdAt}) is more than 5 min from local time (${localNow.toISOString()}). Diff: ${diffMs}ms`,
+        `[${caseName}] created_at (${createdAt}) is more than 5 min from local time (${localNow.toISOString()}). Diff: ${diffMs}ms`
       );
     }
   } finally {

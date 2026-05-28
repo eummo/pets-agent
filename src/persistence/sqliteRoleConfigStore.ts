@@ -1,4 +1,4 @@
-﻿import type Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { z } from "zod";
 import type { RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
 

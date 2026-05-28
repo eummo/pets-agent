@@ -1,4 +1,4 @@
-﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { AgentConversationMessage } from "../core/index.js";

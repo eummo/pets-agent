@@ -1,4 +1,4 @@
-﻿import path from "node:path";
+import path from "node:path";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import { FILE_MUTATION_TOOLS } from "../../auth/index.js";
 import { stringField } from "../../core/unknownRecord.js";

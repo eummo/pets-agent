@@ -1,4 +1,4 @@
-﻿import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
@@ -20,11 +20,7 @@ import {
   toClaudePermissionResult,
   type ToolPermissionDecider
 } from "./claudeToolPolicy.js";
-import {
-  isAssistantMessage,
-  isResultMessage,
-  isSystemMessage
-} from "./claudeSdkMessageMapper.js";
+import { isAssistantMessage, isResultMessage, isSystemMessage } from "./claudeSdkMessageMapper.js";
 import { buildWorkspacePrompt } from "../shared/workspacePromptBuilder.js";
 import {
   forwardAssistantContentEvents,
@@ -142,7 +138,14 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
           sessionId = message.session_id;
           const msgData = isRecord(message) ? recordField(message, "message") : undefined;
           const content = msgData === undefined ? [] : (arrayField(msgData, "content") ?? []);
-          await logToolEventsFromContent(content, this.name, request, sessionId, this.roleConfig, this.rawLogger);
+          await logToolEventsFromContent(
+            content,
+            this.name,
+            request,
+            sessionId,
+            this.roleConfig,
+            this.rawLogger
+          );
           forwardAssistantContentEvents(content, request, this.roleConfig);
         } else if (isResultMessage(message)) {
           const resultData: Record<string, unknown> = isRecord(message) ? message : {};
@@ -162,7 +165,9 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
         } else if (message.type === "stream_event") {
           forwardStreamEvent({ ...message }, request);
         } else if (isSystemMessage(message)) {
-          const compactData = isRecord(message) ? forwardSystemContentEvents(message, request) : undefined;
+          const compactData = isRecord(message)
+            ? forwardSystemContentEvents(message, request)
+            : undefined;
           if (compactData !== undefined) {
             await this.rawLogger?.write({
               type: "llm.compact",

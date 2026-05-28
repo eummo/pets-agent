@@ -1,4 +1,4 @@
-﻿import type { ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import type { ChannelUser } from "../core/index.js";
 import type { AgentProgressEvent, ProgressReporter } from "../agent/index.js";
 import { toLocalIsoString } from "../logging/jsonlLogger.js";

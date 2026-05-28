@@ -1,4 +1,4 @@
-﻿import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
+import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
 import type { UserIntent } from "../../intent/index.js";
 import { isValidIntentType } from "../../intent/index.js";
 import { LlmIntentDetectionService } from "../../intent/llmIntentDetectionService.js";

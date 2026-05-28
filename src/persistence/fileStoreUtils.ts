@@ -1,4 +1,4 @@
-﻿import path from "node:path";
+import path from "node:path";
 import type { ConversationSessionKey } from "./index.js";
 import { AsyncMutex } from "../core/asyncMutex.js";
 

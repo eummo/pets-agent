@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { InMemoryRoleAuthorizationService } from "./inMemoryRoleAuthorizationService.js";
 import type { RoleCapability, RoleConfigStore } from "./index.js";
 

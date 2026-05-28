@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { createSqliteConnection } from "./sqliteConnection.js";
 import { SqliteRoleConfigStore } from "./sqliteRoleConfigStore.js";
 import type { StoredRoleConfig } from "../auth/index.js";

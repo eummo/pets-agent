@@ -6,10 +6,10 @@
 
 上下文管理涉及两层历史系统的协同：
 
-| 层 | 存储位置 | 用途 | 管理 |
-|---|---|---|---|
-| 应用层历史 | `ConversationHistoryStore` (`.harness/state/history.json`) | 意图检测（最近 4 条）、反馈上下文 | `maxMessages` 可配，压缩时通过 `compact()` 同步 |
-| SDK 层历史 | Claude Agent SDK 内部 session | LLM 对话上下文 | SDK 自动压缩，通过 PostCompact hook 同步到应用层 |
+| 层         | 存储位置                                                   | 用途                              | 管理                                                    |
+| ---------- | ---------------------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| 应用层历史 | `ConversationHistoryStore` (`.harness/state/history.json`) | 意图检测（最近 4 条）、反馈上下文 | `maxMessages` 可配，压缩时通过 `compact()` 同步         |
+| SDK 层历史 | Agent SDK 内部 session                                     | LLM 对话上下文                    | SDK 自动压缩或压缩事件，通过 runtime 适配器同步到应用层 |
 
 **数据流**：
 
@@ -20,10 +20,10 @@
     → runtime.run(AgentRequest)
       → AgentRequest.onCompact → PostCompact hook 回调
       → buildWorkspacePrompt(request, workspaceMaxChars)
-      → Claude SDK query({ resume, settings: { autoCompactEnabled, autoCompactWindow }, hooks: { PostCompact } })
+      → Agent runtime adapter
         → SDK 自行管理上下文，接近阈值时自动压缩
-        → PostCompact hook → onCompact(summary) → historyStore.compact()
-        → SDKCompactBoundaryMessage → forwardSystemMessageEvents() → compact_complete 流事件
+        → compact hook/event → onCompact(summary) → historyStore.compact()
+        → SDK compact/status event → compact_complete 流事件
       → 提取 result.usage → ContextUsageReport
     → historyStore.append([user, assistant])
     → logEvent("context.usage", contextUsage)
@@ -46,12 +46,12 @@
 }
 ```
 
-| 配置项 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `autoCompactEnabled` | `boolean` | `true` | 是否启用 SDK 自动压缩 |
-| `autoCompactWindow` | `number` | `150000` | 触发压缩的 token 阈值（contextWindow 200k - 50k 余量） |
-| `workspaceMaxChars` | `number` | `8000` | CLAUDE.md 最大字符数（按 markdown 章节边界截断） |
-| `historyMaxMessages` | `number` | `20` | 应用层对话历史最大条数 |
+| 配置项               | 类型      | 默认值   | 说明                                                   |
+| -------------------- | --------- | -------- | ------------------------------------------------------ |
+| `autoCompactEnabled` | `boolean` | `true`   | 是否启用 SDK 自动压缩                                  |
+| `autoCompactWindow`  | `number`  | `150000` | 触发压缩的 token 阈值（contextWindow 200k - 50k 余量） |
+| `workspaceMaxChars`  | `number`  | `8000`   | CLAUDE.md 最大字符数（按 markdown 章节边界截断）       |
+| `historyMaxMessages` | `number`  | `20`     | 应用层对话历史最大条数                                 |
 
 所有字段均可省略，使用默认值。`ContextConfig` 类型定义在 `src/config/runtimeConfig.ts`。
 
@@ -61,13 +61,14 @@
 
 ### 启用方式
 
-`ClaudeSdkAgentRuntime` 在构建 `query()` 选项时传入（`src/agent/claudeSdkAgentRuntime.ts`）：
+`ClaudeSdkAgentRuntime` 和 `CodebuddySdkAgentRuntime` 在构建 `query()` 选项时传入
+（`src/agent/claude/claudeSdkAgentRuntime.ts`、`src/agent/codebuddy/codebuddySdkAgentRuntime.ts`）：
 
 ```typescript
 if (this.contextConfig.autoCompactEnabled) {
   queryOptions["settings"] = {
     autoCompactEnabled: true,
-    autoCompactWindow: this.contextConfig.autoCompactWindow,
+    autoCompactWindow: this.contextConfig.autoCompactWindow
   };
 }
 ```
@@ -90,25 +91,25 @@ SDK 在对话 token 数接近 `autoCompactWindow` 时自动触发：
 
 ### 流事件
 
-`AgentStreamEvent` 扩展了两种压缩事件（`src/core/contracts.ts`）：
+`AgentStreamEvent` 扩展了两种压缩事件（`src/agent/index.ts`）：
 
 ```typescript
 | { type: "compact_start" }
 | { type: "compact_complete"; preTokens: number; postTokens?: number; durationMs?: number }
 ```
 
-事件来源（`src/agent/claudeSdkMessageMapper.ts`）：
+事件来源（`src/agent/shared/sdkMessageMapper.ts`、`src/agent/pi/piEventCollector.ts`）：
 
-| SDK 消息 | 映射 |
-|---|---|
-| `SDKStatusMessage`（`status: 'compacting'`） | → `compact_start` |
+| SDK 消息                                                     | 映射                                                             |
+| ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `SDKStatusMessage`（`status: 'compacting'`）                 | → `compact_start`                                                |
 | `SDKCompactBoundaryMessage`（`subtype: 'compact_boundary'`） | → `compact_complete`（含 `preTokens`/`postTokens`/`durationMs`） |
 
 前端通过 SSE 流可收到这些事件，展示"正在压缩上下文..."状态。
 
 ### 日志
 
-压缩完成时写入 `llm-raw.jsonl`（`src/agent/claudeSdkAgentRuntime.ts`）：
+压缩完成时写入 `llm-raw.jsonl`（对应 runtime 适配器）：
 
 ```json
 {
@@ -130,7 +131,7 @@ SDK 在对话 token 数接近 `autoCompactWindow` 时自动触发：
 
 ### compact() 方法
 
-`ConversationHistoryStore` 契约新增 `compact()` 方法（`src/core/contracts.ts`）：
+`ConversationHistoryStore` 契约新增 `compact()` 方法（`src/core/index.ts`）：
 
 ```typescript
 compact(key: ConversationSessionKey, summary: string): Promise<void>;
@@ -144,23 +145,27 @@ compact(key: ConversationSessionKey, summary: string): Promise<void>;
 
 ### PostCompact hook 注册
 
-`AgentRequest` 新增 `onCompact` 回调（`src/core/contracts.ts`）：
+`AgentRequest` 新增 `onCompact` 回调（`src/agent/index.ts`）：
 
 ```typescript
 readonly onCompact?: (summary: string) => Promise<void>;
 ```
 
-`ClaudeSdkAgentRuntime` 在 `request.onCompact` 存在时注册 SDK hook（`src/agent/claudeSdkAgentRuntime.ts`）：
+Claude/CodeBuddy runtime 在 `request.onCompact` 存在时注册 SDK hook（对应子包 runtime）：
 
 ```typescript
 if (request.onCompact !== undefined) {
   queryOptions["hooks"] = {
-    PostCompact: [{
-      hooks: [async (input: Record<string, unknown>) => {
-        const summary = input["compact_summary"] as string;
-        await request.onCompact?.(summary);
-      }],
-    }],
+    PostCompact: [
+      {
+        hooks: [
+          async (input: Record<string, unknown>) => {
+            const summary = input["compact_summary"] as string;
+            await request.onCompact?.(summary);
+          }
+        ]
+      }
+    ]
   };
 }
 ```
@@ -176,9 +181,9 @@ const request: AgentRequest = {
     await this.dependencies.historyStore?.compact(sessionKey, summary);
     await this.logEvent("context.compacted", message, {
       workspacePath,
-      summaryLength: summary.length,
+      summaryLength: summary.length
     });
-  },
+  }
 };
 ```
 
@@ -188,7 +193,7 @@ const request: AgentRequest = {
 
 ## 工作区上下文智能截断
 
-CLAUDE.md 内容通过按 markdown 章节边界截断，替代硬字符截断（`src/agent/workspacePromptBuilder.ts`）。
+CLAUDE.md 内容通过按 markdown 章节边界截断，替代硬字符截断（`src/agent/shared/workspacePromptBuilder.ts`）。
 
 ### 截断算法
 
@@ -216,7 +221,7 @@ export function truncateToBudget(content: string, maxChars: number): string {
 
 ### ContextUsageReport
 
-每次 LLM 调用后提取 token 用量（`src/core/contracts.ts`）：
+每次 LLM 调用后提取 token 用量（`src/agent/index.ts`）：
 
 ```typescript
 export type ContextUsageReport = {
@@ -224,28 +229,36 @@ export type ContextUsageReport = {
   readonly outputTokens: number;
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
-  readonly contextWindow: number;       // 等于 autoCompactWindow
-  readonly usagePercent: number;        // inputTokens / contextWindow * 100
+  readonly contextWindow: number; // 等于 autoCompactWindow
+  readonly usagePercent: number; // inputTokens / contextWindow * 100
 };
 ```
 
 ### 提取逻辑
 
-从 SDK `result` 消息的 `usage` 字段提取（`src/agent/claudeSdkAgentRuntime.ts`）：
+从 SDK `result` 消息的 `usage` 字段提取（`src/agent/shared/sdkMessageMapper.ts`）：
 
 ```typescript
-function extractContextUsage(usage: unknown, contextWindow: number): ContextUsageReport | undefined {
+function extractContextUsage(
+  usage: unknown,
+  contextWindow: number
+): ContextUsageReport | undefined {
   if (usage === null || usage === undefined || typeof usage !== "object") return undefined;
   const u = usage as Record<string, unknown>;
   const inputTokens = u["input_tokens"];
   const outputTokens = u["output_tokens"];
   if (typeof inputTokens !== "number" || typeof outputTokens !== "number") return undefined;
   return {
-    inputTokens, outputTokens,
-    ...(typeof u["cache_read_input_tokens"] === "number" ? { cacheReadTokens: u["cache_read_input_tokens"] } : {}),
-    ...(typeof u["cache_creation_input_tokens"] === "number" ? { cacheCreationTokens: u["cache_creation_input_tokens"] } : {}),
+    inputTokens,
+    outputTokens,
+    ...(typeof u["cache_read_input_tokens"] === "number"
+      ? { cacheReadTokens: u["cache_read_input_tokens"] }
+      : {}),
+    ...(typeof u["cache_creation_input_tokens"] === "number"
+      ? { cacheCreationTokens: u["cache_creation_input_tokens"] }
+      : {}),
     contextWindow,
-    usagePercent: contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 100) : 0,
+    usagePercent: contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 100) : 0
   };
 }
 ```
@@ -299,15 +312,18 @@ SDK 检测上下文接近 autoCompactWindow 阈值
 
 ## 文件索引
 
-| 文件 | 职责 |
-|---|---|
-| `src/config/runtimeConfig.ts` | `ContextConfig` 类型和 Zod schema，注入 `RuntimeConfig` |
-| `src/agent/claudeSdkAgentRuntime.ts` | 传 settings/hooks 给 SDK query()，处理 system 消息，提取 usage，PostCompact hook |
-| `src/agent/claudeSdkMessageMapper.ts` | `isSystemMessage`、`forwardSystemMessageEvents`（compact_boundary/status → 流事件） |
-| `src/agent/workspacePromptBuilder.ts` | `splitAtHeadings`、`truncateToBudget` 智能截断 |
-| `src/core/contracts.ts` | `AgentStreamEvent`（compact_start/complete）、`AgentRequest.onCompact`、`ConversationHistoryStore.compact`、`ContextUsageReport`、`AgentResponse.contextUsage` |
-| `src/core/orchestrator.ts` | `onCompact` 回调绑定、`context.usage`/`context.compacted` 事件日志 |
-| `src/core/streamProgressMapper.ts` | compact_start/complete → progress event stage 映射 |
-| `src/persistence/fileConversationHistoryStore.ts` | `compact()` 实现 |
-| `src/agent/createAgentRuntimes.ts` | `contextConfig` 透传 |
-| `src/index.ts` | `config.context` 传入 setupAgentRuntimes 和 FileConversationHistoryStore |
+| 文件                                              | 职责                                                                                                                       |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/config/runtimeConfig.ts`                     | `ContextConfig` 类型和 Zod schema，注入 `RuntimeConfig`                                                                    |
+| `src/agent/claude/claudeSdkAgentRuntime.ts`       | 传 settings/hooks 给 Claude SDK query()，处理 system 消息，PostCompact hook                                                |
+| `src/agent/codebuddy/codebuddySdkAgentRuntime.ts` | 传 settings/hooks 给 CodeBuddy SDK query()，处理 system 消息，PostCompact hook                                             |
+| `src/agent/pi/piEventCollector.ts`                | 处理 Pi compact 事件并映射为项目流事件                                                                                     |
+| `src/agent/shared/sdkMessageMapper.ts`            | `isSystemMessage`、`forwardSystemMessageEvents`、usage 提取                                                                |
+| `src/agent/shared/workspacePromptBuilder.ts`      | `splitAtHeadings`、`truncateToBudget` 智能截断                                                                             |
+| `src/agent/index.ts`                              | `AgentStreamEvent`（compact_start/complete）、`AgentRequest.onCompact`、`ContextUsageReport`、`AgentResponse.contextUsage` |
+| `src/core/index.ts`                               | `ConversationHistoryStore.compact`                                                                                         |
+| `src/core/orchestrator.ts`                        | `onCompact` 回调绑定、`context.usage`/`context.compacted` 事件日志                                                         |
+| `src/core/streamProgressMapper.ts`                | compact_start/complete → progress event stage 映射                                                                         |
+| `src/persistence/fileConversationHistoryStore.ts` | `compact()` 实现                                                                                                           |
+| `src/agent/createAgentRuntimes.ts`                | `contextConfig` 透传                                                                                                       |
+| `src/index.ts`                                    | `config.context` 传入 setupAgentRuntimes 和 FileConversationHistoryStore                                                   |

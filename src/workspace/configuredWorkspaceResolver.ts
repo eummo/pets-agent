@@ -1,4 +1,4 @@
-﻿import { readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { InboundMessage } from "../core/index.js";

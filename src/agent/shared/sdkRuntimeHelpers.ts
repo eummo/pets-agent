@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @fileoverview Shared helpers for SDK-based agent runtimes.
  *
  * Claude SDK and Codebuddy SDK runtimes share identical serialization, error
