@@ -1,17 +1,14 @@
 import { query } from "@tencent-ai/agent-sdk";
 import type { PermissionResult } from "@tencent-ai/agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime, ContextUsageReport } from "../index.js";
+import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
-import { isRecord, stringArrayField, stringField } from "../../core/unknownRecord.js";
+import { isRecord } from "../../core/unknownRecord.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
 import { DEFAULT_CONTEXT_CONFIG } from "../../config/runtimeConfig.js";
 import type { JsonlLogger } from "../../logging/jsonlLogger.js";
 import type { ResolvedAgentSdkConfig } from "../../config/llmConfig.js";
 import {
-  autoAllowedToolsForRole,
-  availableToolsForRole,
   decideToolPermission,
-  disallowedToolsForRole,
   type ToolPermissionDecider
 } from "../policy/toolPolicy.js";
 import { buildWorkspacePrompt } from "../shared/workspacePromptBuilder.js";
@@ -22,8 +19,10 @@ import {
   logToolEventsFromContent
 } from "../shared/sdkMessageMapper.js";
 import {
-  extractContextUsage,
+  buildSdkQueryOptions,
   formatUnknownError,
+  handleSdkResultMessage,
+  logCompactEvent,
   serializeQueryOptions,
   serializeSdkResult
 } from "../shared/sdkRuntimeHelpers.js";
@@ -58,56 +57,19 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
     const prompt = await buildWorkspacePrompt(request, this.contextConfig.workspaceMaxChars);
+    const baseOptions = buildSdkQueryOptions({
+      request,
+      roleConfig: this.roleConfig,
+      contextConfig: this.contextConfig,
+      model: this.model,
+      canUseTool: (toolName, input) => this.canUseTool(toolName, input, request.workspacePath)
+    });
     const queryOptions: Record<string, unknown> = {
-      cwd: request.workspacePath,
-      tools: availableToolsForRole(this.roleConfig),
-      allowedTools: autoAllowedToolsForRole(this.roleConfig),
-      disallowedTools: disallowedToolsForRole(this.roleConfig),
-      permissionMode: this.roleConfig.permissionMode,
-      allowDangerouslySkipPermissions: this.roleConfig.permissionMode === "bypassPermissions",
-      systemPrompt: this.roleConfig.systemPrompt,
-      includePartialMessages: true,
-      canUseTool: (toolName: string, input: Record<string, unknown>) =>
-        this.canUseTool(toolName, input, request.workspacePath),
+      ...baseOptions,
       env: {
         CODEBUDDY_API_KEY: this.agentSdkConfig.apiKey
       }
     };
-    if (this.roleConfig.maxTurns !== undefined) {
-      queryOptions["maxTurns"] = this.roleConfig.maxTurns;
-    }
-    if (this.model !== undefined) {
-      queryOptions["model"] = this.model;
-    }
-    if (request.sessionId !== undefined) {
-      queryOptions["resume"] = request.sessionId;
-    }
-    if (this.contextConfig.autoCompactEnabled) {
-      queryOptions["settings"] = {
-        autoCompactEnabled: true,
-        autoCompactWindow: this.contextConfig.autoCompactWindow
-      };
-    }
-    queryOptions["settingSources"] = this.roleConfig.settingSources ?? ["project", "local"];
-    if (this.roleConfig.skills !== undefined) {
-      queryOptions["skills"] = this.roleConfig.skills;
-    }
-    if (request.onCompact !== undefined) {
-      queryOptions["hooks"] = {
-        PostCompact: [
-          {
-            hooks: [
-              async (input: Record<string, unknown>) => {
-                const summary = stringField(input, "compact_summary");
-                if (summary !== undefined) {
-                  await request.onCompact?.(summary);
-                }
-              }
-            ]
-          }
-        ]
-      };
-    }
 
     const startTime = Date.now();
     await this.rawLogger?.write({
@@ -127,7 +89,7 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
 
     let finalText = "";
     let sessionId: string | undefined;
-    let contextUsage: ContextUsageReport | undefined;
+    let contextUsage = undefined;
     let sdkResult: Record<string, unknown> | undefined;
 
     try {
@@ -145,20 +107,11 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
           );
           forwardAssistantContentEvents(content, request, this.roleConfig);
         } else if (message.type === "result") {
-          const resultData: Record<string, unknown> = isRecord(message) ? message : {};
-          sdkResult = resultData;
-          sessionId = stringField(resultData, "session_id");
-          const subtype = stringField(resultData, "subtype");
-          if (subtype === "success") {
-            finalText = stringField(resultData, "result") ?? "";
-            contextUsage = extractContextUsage(
-              resultData["usage"],
-              this.contextConfig.autoCompactWindow
-            );
-          } else {
-            const errors = stringArrayField(resultData, "errors");
-            finalText = `Agent error: ${errors?.[0] ?? "Unknown error"}`;
-          }
+          const outcome = handleSdkResultMessage(message, this.contextConfig.autoCompactWindow);
+          sdkResult = outcome.sdkResult;
+          sessionId = outcome.sessionId;
+          finalText = outcome.finalText;
+          contextUsage = outcome.contextUsage;
         } else if (message.type === "stream_event") {
           if (isRecord(message)) {
             forwardStreamEvent(message, request);
@@ -168,21 +121,7 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
             ? forwardSystemContentEvents(message, request)
             : undefined;
           if (compactData !== undefined) {
-            await this.rawLogger?.write({
-              type: "llm.compact",
-              runtime: this.name,
-              userId: request.user.id,
-              workspacePath: request.workspacePath,
-              sessionId: compactData.sessionId ?? sessionId,
-              trigger: compactData.trigger,
-              preTokens: compactData.preTokens,
-              ...(compactData.postTokens !== undefined
-                ? { postTokens: compactData.postTokens }
-                : {}),
-              ...(compactData.durationMs !== undefined
-                ? { durationMs: compactData.durationMs }
-                : {})
-            });
+            await logCompactEvent(this.rawLogger, compactData, sessionId, this.name, request);
           }
         }
       }

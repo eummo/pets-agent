@@ -1,10 +1,14 @@
 export {
+  buildSdkQueryOptions,
   extractContextUsage,
   extractToolResultText,
   formatUnknownError,
+  handleSdkResultMessage,
+  logCompactEvent,
   serializeQueryOptions,
   serializeSdkResult
 } from "./sdkRuntimeHelpers.js";
+export type { SdkQueryOptionsInput, SdkResultOutcome } from "./sdkRuntimeHelpers.js";
 export {
   forwardAssistantContentEvents,
   forwardStreamEvent,
