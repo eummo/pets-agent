@@ -1,13 +1,8 @@
-import type { AgentRequest, AgentResponse, AgentRuntime } from "./index.js";
-import type { UserIntent } from "../intent/index.js";
-import { LlmIntentDetectionService } from "../intent/llmIntentDetectionService.js";
-import { fallbackIntentFor } from "../core/intentHeuristics.js";
-
-const VALID_INTENT_LABELS = new Set<string>(["query", "mutate", "update_kb"]);
-
-function isValidIntentType(label: string): label is UserIntent["type"] {
-  return VALID_INTENT_LABELS.has(label);
-}
+﻿import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
+import type { UserIntent } from "../../intent/index.js";
+import { isValidIntentType } from "../../intent/index.js";
+import { LlmIntentDetectionService } from "../../intent/llmIntentDetectionService.js";
+import { fallbackIntentFor } from "../../core/intentHeuristics.js";
 
 export class IntentAgentRuntime implements AgentRuntime {
   public readonly name = "intent";

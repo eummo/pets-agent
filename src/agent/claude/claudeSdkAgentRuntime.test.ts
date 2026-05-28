@@ -2,9 +2,9 @@
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStreamEvent } from "./index.js";
-import type { StoredRoleConfig } from "../auth/index.js";
-import type { JsonlLogger } from "../logging/jsonlLogger.js";
+import type { AgentStreamEvent } from "../index.js";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import type { JsonlLogger } from "../../logging/jsonlLogger.js";
 import { ClaudeSdkAgentRuntime } from "./claudeSdkAgentRuntime.js";
 
 const sdkMocks = vi.hoisted(() => ({
@@ -61,9 +61,9 @@ describe("ClaudeSdkAgentRuntime", () => {
       resume: "session-1",
       settings: {
         autoCompactEnabled: true,
-        autoCompactWindow: 150_000,
+        autoCompactWindow: 150_000
       },
-      settingSources: ["project", "local"],
+      settingSources: ["project", "local"]
     };
 
     expect(runtime.name).toBe("claude-sdk-tester");
@@ -93,7 +93,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       await runtime.run({
         user: { id: "user-1" },
         text: "What is the current architecture?",
-        workspacePath,
+        workspacePath
       });
     } finally {
       await rm(workspacePath, { recursive: true, force: true });
@@ -118,14 +118,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "misconfigured-reviewer",
         allowedTools: ["Read", "Bash", "Edit", "Write"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
+        systemPrompt: "Read only."
       }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Inspect files",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -150,14 +150,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "reviewer",
         allowedTools: ["Read", "Bash"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
+        systemPrompt: "Read only."
       }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "List files",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -180,7 +180,7 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "reviewer",
         allowedTools: ["Read", "Bash"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
+        systemPrompt: "Read only."
       },
       toolPermissionDecider(roleConfig, toolName, input) {
         decisions.push({ roleName: roleConfig.name, toolName, input });
@@ -191,7 +191,7 @@ describe("ClaudeSdkAgentRuntime", () => {
     await runtime.run({
       user: { id: "user-1" },
       text: "List files",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -219,14 +219,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "reviewer",
         allowedTools: ["Read", "Grep"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
-      },
+        systemPrompt: "Read only."
+      }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Inspect files",
-      workspacePath: "D:/code/pets-agent/.harness/knowledge-base",
+      workspacePath: "D:/code/pets-agent/.harness/knowledge-base"
     });
 
     const call = firstQueryCall();
@@ -235,16 +235,20 @@ describe("ClaudeSdkAgentRuntime", () => {
       throw new Error("Expected canUseTool callback.");
     }
 
-    await expect(canUseTool("Read", {
-      file_path: "D:/code/pets-agent/src/core/contracts.ts",
-    })).resolves.toMatchObject({
+    await expect(
+      canUseTool("Read", {
+        file_path: "D:/code/pets-agent/src/core/contracts.ts"
+      })
+    ).resolves.toMatchObject({
       behavior: "deny",
-      message: expect.stringContaining("outside the selected workspace") as string,
+      message: expect.stringContaining("outside the selected workspace") as string
     });
-    await expect(canUseTool("Grep", {
-      path: "D:/code/pets-agent/.harness/knowledge-base/docs",
-    })).resolves.toMatchObject({
-      behavior: "allow",
+    await expect(
+      canUseTool("Grep", {
+        path: "D:/code/pets-agent/.harness/knowledge-base/docs"
+      })
+    ).resolves.toMatchObject({
+      behavior: "allow"
     });
   });
 
@@ -261,14 +265,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "editor",
         allowedTools: ["Read", "Edit"],
         permissionMode: "acceptEdits",
-        systemPrompt: "Edit when needed.",
+        systemPrompt: "Edit when needed."
       }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Edit files",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -371,14 +375,14 @@ describe("ClaudeSdkAgentRuntime", () => {
       "llm.request",
       "agent.tool_call",
       "agent.tool_result",
-      "llm.response",
+      "llm.response"
     ]);
     expect(rawEvents[0]).toMatchObject({
       type: "llm.request",
       operation: "agent_runtime",
       runtime: "claude-sdk-tester",
       userId: "user-1",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
     expect(String(rawEvents[0]?.["prompt"])).toContain("Inspect files");
     const loggedOptions = asRecord(rawEvents[0]?.["options"]);
@@ -393,7 +397,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       toolName: "Read",
       toolUseId: "tool-1",
       permittedByRole: true,
-      input: { file_path: "README.md" },
+      input: { file_path: "README.md" }
     });
     expect(rawEvents[2]).toMatchObject({
       type: "agent.tool_result",
@@ -403,7 +407,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       userInput: "Inspect files",
       toolUseId: "tool-1",
       isError: false,
-      result: "file content",
+      result: "file content"
     });
     const rawEvent = rawEvents[3];
     expect(rawEvent).toMatchObject({
@@ -413,7 +417,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       userId: "user-1",
       workspacePath: "D:/workspace",
       sessionId: "session-2",
-      extractedText: "final answer",
+      extractedText: "final answer"
     });
     if (rawEvent !== undefined) {
       expect(typeof rawEvent["durationMs"]).toBe("number");
@@ -451,7 +455,7 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "reviewer",
         allowedTools: ["Read", "Edit"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
+        systemPrompt: "Read only."
       }
     });
 
@@ -459,7 +463,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       user: { id: "user-1" },
       text: "Inspect files",
       workspacePath: "D:/workspace",
-      stream: (event) => streamEvents.push(event),
+      stream: (event) => streamEvents.push(event)
     });
 
     expect(streamEvents).toEqual([
@@ -509,20 +513,20 @@ describe("ClaudeSdkAgentRuntime", () => {
         autoCompactEnabled: true,
         autoCompactWindow: 100_000,
         workspaceMaxChars: 6_000,
-        historyMaxMessages: 30,
-      },
+        historyMaxMessages: 30
+      }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
     expect(call.options["settings"]).toEqual({
       autoCompactEnabled: true,
-      autoCompactWindow: 100_000,
+      autoCompactWindow: 100_000
     });
   });
 
@@ -540,14 +544,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         autoCompactEnabled: false,
         autoCompactWindow: 100_000,
         workspaceMaxChars: 6_000,
-        historyMaxMessages: 30,
-      },
+        historyMaxMessages: 30
+      }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -560,7 +564,7 @@ describe("ClaudeSdkAgentRuntime", () => {
         {
           type: "system",
           subtype: "status",
-          status: "compacting",
+          status: "compacting"
         },
         {
           type: "system",
@@ -569,14 +573,14 @@ describe("ClaudeSdkAgentRuntime", () => {
             trigger: "auto",
             pre_tokens: 180_000,
             post_tokens: 45_000,
-            duration_ms: 1200,
-          },
+            duration_ms: 1200
+          }
         },
         {
           type: "result",
           subtype: "success",
           session_id: "session-compact",
-          result: "answer after compaction",
+          result: "answer after compaction"
         }
       )
     );
@@ -587,7 +591,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       user: { id: "user-1" },
       text: "Continue",
       workspacePath: "D:/workspace",
-      stream: (event) => streamEvents.push(event),
+      stream: (event) => streamEvents.push(event)
     });
 
     expect(response.text).toBe("answer after compaction");
@@ -597,8 +601,8 @@ describe("ClaudeSdkAgentRuntime", () => {
         type: "compact_complete",
         preTokens: 180_000,
         postTokens: 45_000,
-        durationMs: 1200,
-      },
+        durationMs: 1200
+      }
     ]);
   });
 
@@ -612,14 +616,14 @@ describe("ClaudeSdkAgentRuntime", () => {
           compact_metadata: {
             trigger: "auto",
             pre_tokens: 160_000,
-            duration_ms: 800,
-          },
+            duration_ms: 800
+          }
         },
         {
           type: "result",
           subtype: "success",
           session_id: "session-2",
-          result: "done",
+          result: "done"
         }
       )
     );
@@ -629,14 +633,14 @@ describe("ClaudeSdkAgentRuntime", () => {
       write(event) {
         rawEvents.push(event);
         return Promise.resolve();
-      },
+      }
     };
     const runtime = new ClaudeSdkAgentRuntime({ roleConfig, rawLogger });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Continue",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const compactLog = rawEvents.find((e) => e["type"] === "llm.compact");
@@ -648,7 +652,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       sessionId: "session-compact",
       trigger: "auto",
       preTokens: 160_000,
-      durationMs: 800,
+      durationMs: 800
     });
   });
 
@@ -663,8 +667,8 @@ describe("ClaudeSdkAgentRuntime", () => {
           input_tokens: 120_000,
           output_tokens: 500,
           cache_creation_input_tokens: 30_000,
-          cache_read_input_tokens: 80_000,
-        },
+          cache_read_input_tokens: 80_000
+        }
       })
     );
     const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
@@ -672,7 +676,7 @@ describe("ClaudeSdkAgentRuntime", () => {
     const response = await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     expect(response.contextUsage).toEqual({
@@ -681,7 +685,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       cacheCreationTokens: 30_000,
       cacheReadTokens: 80_000,
       contextWindow: 150_000,
-      usagePercent: 80,
+      usagePercent: 80
     });
   });
 
@@ -690,7 +694,7 @@ describe("ClaudeSdkAgentRuntime", () => {
       streamMessages({
         type: "result",
         subtype: "success",
-        result: "answer",
+        result: "answer"
       })
     );
     const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
@@ -698,7 +702,7 @@ describe("ClaudeSdkAgentRuntime", () => {
     const response = await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     expect(response.contextUsage).toBeUndefined();
@@ -715,14 +719,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         permissionMode: "dontAsk",
         systemPrompt: "Read only.",
         skills: "all",
-        settingSources: ["project"],
-      },
+        settingSources: ["project"]
+      }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -741,14 +745,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         permissionMode: "dontAsk",
         systemPrompt: "Custom.",
         skills: ["order-check"],
-        settingSources: ["project"],
-      },
+        settingSources: ["project"]
+      }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -765,14 +769,14 @@ describe("ClaudeSdkAgentRuntime", () => {
         name: "minimal",
         allowedTools: ["Read"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
-      },
+        systemPrompt: "Read only."
+      }
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
@@ -803,7 +807,9 @@ function firstQueryCall(): { readonly prompt: string; readonly options: Record<s
   return call;
 }
 
-function isCanUseTool(value: unknown): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
+function isCanUseTool(
+  value: unknown
+): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
   return typeof value === "function";
 }
 

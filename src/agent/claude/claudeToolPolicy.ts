@@ -1,5 +1,8 @@
-import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolPermissionResult, ToolPermissionDecider as NeutralToolPermissionDecider } from "./toolPolicy.js";
+﻿import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  ToolPermissionResult,
+  ToolPermissionDecider as NeutralToolPermissionDecider
+} from "../policy/toolPolicy.js";
 
 // Re-export provider-neutral types and functions for backward compatibility.
 // New code should import directly from toolPolicy.ts.
@@ -11,9 +14,9 @@ export {
   canUseConfiguredTool,
   isToolInputWithinWorkspace,
   roleCanUseFileMutationTools,
-  decideToolPermission,
-} from "./toolPolicy.js";
-export type { ToolPermissionResult } from "./toolPolicy.js";
+  decideToolPermission
+} from "../policy/toolPolicy.js";
+export type { ToolPermissionResult } from "../policy/toolPolicy.js";
 
 /**
  * Maps a provider-neutral ToolPermissionResult to the Claude SDK's PermissionResult.
@@ -24,11 +27,15 @@ export function toClaudePermissionResult(result: ToolPermissionResult): Permissi
     return {
       behavior: "deny",
       message: result.message ?? "Permission denied.",
-      ...(result.decisionClassification !== undefined ? { decisionClassification: result.decisionClassification } : {}),
+      ...(result.decisionClassification !== undefined
+        ? { decisionClassification: result.decisionClassification }
+        : {})
     };
   }
   return {
     behavior: "allow",
-    ...(result.decisionClassification !== undefined ? { decisionClassification: result.decisionClassification } : {}),
+    ...(result.decisionClassification !== undefined
+      ? { decisionClassification: result.decisionClassification }
+      : {})
   };
 }

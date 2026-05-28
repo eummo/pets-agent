@@ -22,17 +22,20 @@ export type ResolvedLlmConfig = LlmConfig & {
   readonly apiKey: string;
 };
 
-export function resolveLlmConfig(config: LlmConfig, env: NodeJS.ProcessEnv = process.env): ResolvedLlmConfig {
+// ── API Key Resolution ───────────────────────────────────────────────────────
+
+function resolveApiKey(config: { readonly apiKeyEnv: string }, errorLabel: string, env: NodeJS.ProcessEnv): string {
   const apiKey = env[config.apiKeyEnv];
 
   if (apiKey === undefined || apiKey.trim().length === 0) {
-    throw new Error(`Missing LLM API key environment variable: ${config.apiKeyEnv}`);
+    throw new Error(`Missing ${errorLabel} API key environment variable: ${config.apiKeyEnv}`);
   }
 
-  return {
-    ...config,
-    apiKey
-  };
+  return apiKey;
+}
+
+export function resolveLlmConfig(config: LlmConfig, env: NodeJS.ProcessEnv = process.env): ResolvedLlmConfig {
+  return { ...config, apiKey: resolveApiKey(config, "LLM", env) };
 }
 
 export function summarizeLlmConfig(config: LlmConfig): Pick<LlmConfig, "baseUrl" | "apiKeyEnv" | "modelId"> {
@@ -81,16 +84,7 @@ export type ResolvedAgentSdkConfig = AgentSdkConfig & {
 };
 
 export function resolveAgentSdkConfig(config: AgentSdkConfig, env: NodeJS.ProcessEnv = process.env): ResolvedAgentSdkConfig {
-  const apiKey = env[config.apiKeyEnv];
-
-  if (apiKey === undefined || apiKey.trim().length === 0) {
-    throw new Error(`Missing Agent SDK API key environment variable: ${config.apiKeyEnv}`);
-  }
-
-  return {
-    ...config,
-    apiKey
-  };
+  return { ...config, apiKey: resolveApiKey(config, "Agent SDK", env) };
 }
 
 export function summarizeAgentSdkConfig(config: AgentSdkConfig): { readonly type: AgentSdkType; readonly baseUrl: string; readonly apiKeyEnv: string; readonly modelId: string } {

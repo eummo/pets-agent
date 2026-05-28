@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @fileoverview Shared helpers for SDK-based agent runtimes.
  *
  * Claude SDK and Codebuddy SDK runtimes share identical serialization, error
@@ -6,8 +6,10 @@
  * source of truth so both adapters stay in sync.
  */
 
-import { isRecord, stringField } from "../core/unknownRecord.js";
-import type { ContextUsageReport } from "./index.js";
+import { isRecord, stringField, formatUnknownError } from "../../core/unknownRecord.js";
+import type { ContextUsageReport } from "../index.js";
+
+export { formatUnknownError };
 
 // ── Serialization Helpers ────────────────────────────────────────────────────
 
@@ -25,18 +27,23 @@ const SERIALIZABLE_QUERY_KEYS: readonly string[] = [
   "resume",
   "settings",
   "skills",
-  "settingSources",
+  "settingSources"
 ];
 
-export function serializeQueryOptions(queryOptions: Record<string, unknown>): Record<string, unknown> {
+export function serializeQueryOptions(
+  queryOptions: Record<string, unknown>
+): Record<string, unknown> {
   return Object.fromEntries(
-    SERIALIZABLE_QUERY_KEYS
-      .filter((key) => queryOptions[key] !== undefined)
-      .map((key) => [key, queryOptions[key]])
+    SERIALIZABLE_QUERY_KEYS.filter((key) => queryOptions[key] !== undefined).map((key) => [
+      key,
+      queryOptions[key]
+    ])
   );
 }
 
-export function serializeSdkResult(result: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+export function serializeSdkResult(
+  result: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
   if (result === undefined) return undefined;
 
   return {
@@ -44,7 +51,7 @@ export function serializeSdkResult(result: Record<string, unknown> | undefined):
     sessionId: result["session_id"],
     result: result["result"],
     errors: result["errors"],
-    usage: result["usage"],
+    usage: result["usage"]
   };
 }
 
@@ -63,16 +70,12 @@ export function extractToolResultText(block: Record<string, unknown>): string {
     .join("");
 }
 
-// ── Error Formatting ─────────────────────────────────────────────────────────
-
-export function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 // ── Context Usage ────────────────────────────────────────────────────────────
 
-export function extractContextUsage(usage: unknown, contextWindow: number): ContextUsageReport | undefined {
+export function extractContextUsage(
+  usage: unknown,
+  contextWindow: number
+): ContextUsageReport | undefined {
   if (!isRecord(usage)) return undefined;
 
   const inputTokens = usage["input_tokens"];
@@ -89,6 +92,6 @@ export function extractContextUsage(usage: unknown, contextWindow: number): Cont
     ...(typeof cacheReadTokens === "number" ? { cacheReadTokens } : {}),
     ...(typeof cacheCreationTokens === "number" ? { cacheCreationTokens } : {}),
     contextWindow,
-    usagePercent,
+    usagePercent
   };
 }

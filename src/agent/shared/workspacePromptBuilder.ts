@@ -1,10 +1,13 @@
-import { readFile } from "node:fs/promises";
+﻿import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentRequest } from "./index.js";
+import type { AgentRequest } from "../index.js";
 
 export const DEFAULT_WORKSPACE_MAX_CHARS = 8_000;
 
-export async function buildWorkspacePrompt(request: AgentRequest, maxChars = DEFAULT_WORKSPACE_MAX_CHARS): Promise<string> {
+export async function buildWorkspacePrompt(
+  request: AgentRequest,
+  maxChars = DEFAULT_WORKSPACE_MAX_CHARS
+): Promise<string> {
   const workspaceContext = await readWorkspaceContext(request.workspacePath, maxChars);
   if (workspaceContext === undefined) {
     return request.text;
@@ -20,11 +23,14 @@ export async function buildWorkspacePrompt(request: AgentRequest, maxChars = DEF
     "Do not infer the business domain from names such as Pets Agent unless the workspace context explicitly defines that domain.",
     "",
     "User request:",
-    request.text,
+    request.text
   ].join("\n");
 }
 
-async function readWorkspaceContext(workspacePath: string, maxChars: number): Promise<string | undefined> {
+async function readWorkspaceContext(
+  workspacePath: string,
+  maxChars: number
+): Promise<string | undefined> {
   try {
     const content = await readFile(path.join(workspacePath, "CLAUDE.md"), "utf8");
     const normalized = content.trim();

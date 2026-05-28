@@ -1,25 +1,25 @@
-/**
+﻿/**
  * Translates pi-coding-agent AgentSessionEvents into the project's AgentStreamEvent format
  * and records structured logs to llm-raw.jsonl.
  */
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { AgentRequest, AgentResponse, ContextUsageReport } from "./index.js";
-import type { StoredRoleConfig } from "../auth/index.js";
-import type { JsonlLogger } from "../logging/jsonlLogger.js";
-import { canUseConfiguredTool } from "./toolPolicy.js";
-import { extractToolResultText } from "./sdkRuntimeHelpers.js";
-import { isRecord, numberField, stringField } from "../core/unknownRecord.js";
+import type { AgentRequest, AgentResponse, ContextUsageReport } from "../index.js";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import type { JsonlLogger } from "../../logging/jsonlLogger.js";
+import { canUseConfiguredTool } from "../policy/toolPolicy.js";
+import { extractToolResultText } from "../shared/sdkRuntimeHelpers.js";
+import { isRecord, numberField, stringField } from "../../core/unknownRecord.js";
 
 const CONTEXT_WINDOW = 200_000;
 
 const REVERSE_TOOL_NAME_MAP: Readonly<Record<string, string>> = {
-  "read": "Read",
-  "bash": "Bash",
-  "edit": "Edit",
-  "write": "Write",
-  "find": "Glob",
-  "grep": "Grep",
-  "ls": "Glob",
+  read: "Read",
+  bash: "Bash",
+  edit: "Edit",
+  write: "Write",
+  find: "Glob",
+  grep: "Grep",
+  ls: "Glob"
 };
 
 export class PiEventCollector {
@@ -39,7 +39,7 @@ export class PiEventCollector {
     request: AgentRequest,
     rawLogger: JsonlLogger | undefined,
     runtimeName: string,
-    roleConfig: StoredRoleConfig,
+    roleConfig: StoredRoleConfig
   ) {
     this.request = request;
     this.rawLogger = rawLogger;
@@ -79,7 +79,7 @@ export class PiEventCollector {
               input,
               output,
               ...(cacheRead !== undefined ? { cacheRead } : {}),
-              ...(cacheWrite !== undefined ? { cacheWrite } : {}),
+              ...(cacheWrite !== undefined ? { cacheWrite } : {})
             });
           }
 
@@ -91,7 +91,7 @@ export class PiEventCollector {
             workspacePath: this.request.workspacePath,
             sessionId: this.sessionId,
             turn: this.turnCount,
-            durationMs: Date.now() - this.startTime,
+            durationMs: Date.now() - this.startTime
           });
         }
         break;
@@ -102,7 +102,7 @@ export class PiEventCollector {
           type: "tool_use_start",
           toolName: event.toolName,
           toolUseId: event.toolCallId,
-          input: isRecord(event.args) ? event.args : {},
+          input: isRecord(event.args) ? event.args : {}
         });
 
         // Log tool call with permission info derived from role config
@@ -115,18 +115,20 @@ export class PiEventCollector {
           toolName: projectToolName,
           toolUseId: event.toolCallId,
           permittedByRole: canUseConfiguredTool(this.roleConfig, projectToolName),
-          input: isRecord(event.args) ? event.args : {},
+          input: isRecord(event.args) ? event.args : {}
         });
         break;
       }
 
       case "tool_execution_end": {
-        const resultText = isRecord(event.result) ? extractToolResultText(event.result) : String(event.result);
+        const resultText = isRecord(event.result)
+          ? extractToolResultText(event.result)
+          : String(event.result);
         this.request.stream?.({
           type: "tool_use_result",
           toolUseId: event.toolCallId,
           result: resultText,
-          isError: event.isError,
+          isError: event.isError
         });
 
         void this.rawLogger?.write({
@@ -136,7 +138,7 @@ export class PiEventCollector {
           workspacePath: this.request.workspacePath,
           toolUseId: event.toolCallId,
           isError: event.isError,
-          result: resultText.slice(0, 500),
+          result: resultText.slice(0, 500)
         });
         break;
       }
@@ -153,7 +155,7 @@ export class PiEventCollector {
 
         this.request.stream?.({
           type: "compact_complete",
-          preTokens: this.preCompactTokens ?? 0,
+          preTokens: this.preCompactTokens ?? 0
         });
 
         void this.rawLogger?.write({
@@ -163,7 +165,7 @@ export class PiEventCollector {
           workspacePath: this.request.workspacePath,
           sessionId: this.sessionId,
           trigger: event.reason,
-          preTokens: this.preCompactTokens,
+          preTokens: this.preCompactTokens
         });
 
         if (event.result !== undefined && isRecord(event.result)) {
@@ -186,7 +188,7 @@ export class PiEventCollector {
           sessionId: this.sessionId,
           extractedText: this.finalText,
           turnCount: this.turnCount,
-          durationMs: Date.now() - this.startTime,
+          durationMs: Date.now() - this.startTime
         });
         break;
       }
@@ -205,11 +207,16 @@ export class PiEventCollector {
     return {
       text: this.finalText.length > 0 ? this.finalText : "Agent completed without text output.",
       sessionId,
-      ...(this.contextUsage !== undefined ? { contextUsage: this.contextUsage } : {}),
+      ...(this.contextUsage !== undefined ? { contextUsage: this.contextUsage } : {})
     };
   }
 
-  private extractContextUsage(usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }): ContextUsageReport {
+  private extractContextUsage(usage: {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  }): ContextUsageReport {
     const usagePercent = Math.round((usage.input / CONTEXT_WINDOW) * 100);
 
     return {
@@ -218,7 +225,7 @@ export class PiEventCollector {
       ...(typeof usage.cacheRead === "number" ? { cacheReadTokens: usage.cacheRead } : {}),
       ...(typeof usage.cacheWrite === "number" ? { cacheCreationTokens: usage.cacheWrite } : {}),
       contextWindow: CONTEXT_WINDOW,
-      usagePercent,
+      usagePercent
     };
   }
 }

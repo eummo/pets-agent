@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStreamEvent } from "./index.js";
-import type { StoredRoleConfig } from "../auth/index.js";
-import type { JsonlLogger } from "../logging/jsonlLogger.js";
+﻿import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentStreamEvent } from "../index.js";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import type { JsonlLogger } from "../../logging/jsonlLogger.js";
 import { CodebuddySdkAgentRuntime } from "./codebuddySdkAgentRuntime.js";
 
 const sdkMocks = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ const agentSdkConfig = {
   baseUrl: "https://api.example.com",
   apiKeyEnv: "CODEBUDDY_API_KEY",
   modelId: "test-model",
-  apiKey: "test-api-key",
+  apiKey: "test-api-key"
 };
 
 const roleConfig: StoredRoleConfig = {
@@ -67,8 +67,8 @@ describe("CodebuddySdkAgentRuntime", () => {
       model: "model-1",
       resume: "session-1",
       env: {
-        CODEBUDDY_API_KEY: "test-api-key",
-      },
+        CODEBUDDY_API_KEY: "test-api-key"
+      }
     });
   });
 
@@ -81,13 +81,13 @@ describe("CodebuddySdkAgentRuntime", () => {
     await runtime.run({
       user: { id: "user-1" },
       text: "Test",
-      workspacePath: "D:/workspace",
+      workspacePath: "D:/workspace"
     });
 
     const call = firstQueryCall();
     expect(call.options).toBeDefined();
     expect(call.options["env"]).toEqual({
-      CODEBUDDY_API_KEY: "test-api-key",
+      CODEBUDDY_API_KEY: "test-api-key"
     });
   });
 
@@ -100,15 +100,15 @@ describe("CodebuddySdkAgentRuntime", () => {
         name: "reviewer",
         allowedTools: ["Read", "Grep"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
+        systemPrompt: "Read only."
       },
-      agentSdkConfig,
+      agentSdkConfig
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Inspect files",
-      workspacePath: "D:/code/pets-agent/.harness/knowledge-base",
+      workspacePath: "D:/code/pets-agent/.harness/knowledge-base"
     });
 
     const call = firstQueryCall();
@@ -117,19 +117,23 @@ describe("CodebuddySdkAgentRuntime", () => {
       throw new Error("Expected canUseTool callback.");
     }
 
-    await expect(canUseTool("Read", {
-      file_path: "D:/code/pets-agent/src/core/contracts.ts",
-    })).resolves.toMatchObject({
+    await expect(
+      canUseTool("Read", {
+        file_path: "D:/code/pets-agent/src/core/contracts.ts"
+      })
+    ).resolves.toMatchObject({
       behavior: "deny",
-      message: expect.stringContaining("outside the selected workspace") as string,
+      message: expect.stringContaining("outside the selected workspace") as string
     });
-    await expect(canUseTool("Grep", {
-      path: "D:/code/pets-agent/.harness/knowledge-base/docs",
-    })).resolves.toMatchObject({
+    await expect(
+      canUseTool("Grep", {
+        path: "D:/code/pets-agent/.harness/knowledge-base/docs"
+      })
+    ).resolves.toMatchObject({
       behavior: "allow",
       updatedInput: {
-        path: "D:/code/pets-agent/.harness/knowledge-base/docs",
-      },
+        path: "D:/code/pets-agent/.harness/knowledge-base/docs"
+      }
     });
   });
 
@@ -185,7 +189,7 @@ describe("CodebuddySdkAgentRuntime", () => {
       user: { id: "user-1" },
       text: "Inspect files",
       workspacePath: "D:/workspace",
-      stream: (event) => streamEvents.push(event),
+      stream: (event) => streamEvents.push(event)
     });
 
     expect(response).toEqual({ text: "final answer", sessionId: "session-2" });
@@ -201,13 +205,13 @@ describe("CodebuddySdkAgentRuntime", () => {
         toolUseId: "tool-1",
         result: "file content"
       },
-      { type: "text_delta", text: "partial" },
+      { type: "text_delta", text: "partial" }
     ]);
     expect(rawEvents.map((event) => event["type"])).toEqual([
       "llm.request",
       "agent.tool_call",
       "agent.tool_result",
-      "llm.response",
+      "llm.response"
     ]);
   });
 
@@ -267,16 +271,16 @@ describe("CodebuddySdkAgentRuntime", () => {
         name: "reviewer",
         allowedTools: ["Read", "Edit"],
         permissionMode: "dontAsk",
-        systemPrompt: "Read only.",
+        systemPrompt: "Read only."
       },
-      agentSdkConfig,
+      agentSdkConfig
     });
 
     await runtime.run({
       user: { id: "user-1" },
       text: "Inspect files",
       workspacePath: "D:/workspace",
-      stream: (event) => streamEvents.push(event),
+      stream: (event) => streamEvents.push(event)
     });
 
     expect(streamEvents).toEqual([
@@ -293,7 +297,7 @@ describe("CodebuddySdkAgentRuntime", () => {
         {
           type: "system",
           subtype: "status",
-          status: "compacting",
+          status: "compacting"
         },
         {
           type: "system",
@@ -302,14 +306,14 @@ describe("CodebuddySdkAgentRuntime", () => {
             trigger: "auto",
             pre_tokens: 180_000,
             post_tokens: 45_000,
-            duration_ms: 1200,
-          },
+            duration_ms: 1200
+          }
         },
         {
           type: "result",
           subtype: "success",
           session_id: "session-compact",
-          result: "answer after compaction",
+          result: "answer after compaction"
         }
       )
     );
@@ -320,7 +324,7 @@ describe("CodebuddySdkAgentRuntime", () => {
       user: { id: "user-1" },
       text: "Continue",
       workspacePath: "D:/workspace",
-      stream: (event) => streamEvents.push(event),
+      stream: (event) => streamEvents.push(event)
     });
 
     expect(response.text).toBe("answer after compaction");
@@ -330,8 +334,8 @@ describe("CodebuddySdkAgentRuntime", () => {
         type: "compact_complete",
         preTokens: 180_000,
         postTokens: 45_000,
-        durationMs: 1200,
-      },
+        durationMs: 1200
+      }
     ]);
   });
 });
@@ -358,6 +362,8 @@ function firstQueryCall(): { readonly prompt: string; readonly options: Record<s
   return call;
 }
 
-function isCanUseTool(value: unknown): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
+function isCanUseTool(
+  value: unknown
+): value is (toolName: string, input: Record<string, unknown>) => Promise<unknown> {
   return typeof value === "function";
 }

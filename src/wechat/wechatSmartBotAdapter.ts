@@ -8,7 +8,7 @@
  * Architecture: channel adapter -> core contracts.
  */
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
-import { formatUnknownError } from "../agent/sdkRuntimeHelpers.js";
+import { formatUnknownError } from "../core/unknownRecord.js";
 import type { WsFrame, TextMessage, EventMessage } from "@wecom/aibot-node-sdk";
 import type { ConversationLogger, InboundMessage, MessageGateway } from "../core/index.js";
 import type { AgentStreamPublisher } from "../agent/index.js";
@@ -49,8 +49,12 @@ export class WechatSmartBotAdapter {
       botId: config.botId,
       secret: config.secret,
       ...(config.wsUrl !== undefined ? { wsUrl: config.wsUrl } : {}),
-      ...(config.reconnectInterval !== undefined ? { reconnectInterval: config.reconnectInterval } : {}),
-      ...(config.maxReconnectAttempts !== undefined ? { maxReconnectAttempts: config.maxReconnectAttempts } : {}),
+      ...(config.reconnectInterval !== undefined
+        ? { reconnectInterval: config.reconnectInterval }
+        : {}),
+      ...(config.maxReconnectAttempts !== undefined
+        ? { maxReconnectAttempts: config.maxReconnectAttempts }
+        : {})
     });
 
     this.registerHandlers();
@@ -117,7 +121,14 @@ export class WechatSmartBotAdapter {
     const streamCallback: AgentStreamPublisher = (event) => {
       if (event.type === "text_delta" && streamState.inbound !== undefined) {
         accumulated += event.text;
-        void this.replyStreamBestEffort(frame, streamId, accumulated, false, streamState.inbound, "delta");
+        void this.replyStreamBestEffort(
+          frame,
+          streamId,
+          accumulated,
+          false,
+          streamState.inbound,
+          "delta"
+        );
       }
     };
 
@@ -126,11 +137,9 @@ export class WechatSmartBotAdapter {
       channel: "wechat-work",
       user: { id: userId },
       text: cleanContent,
-      receivedAt: body.create_time !== undefined
-        ? new Date(body.create_time * 1000)
-        : new Date(),
+      receivedAt: body.create_time !== undefined ? new Date(body.create_time * 1000) : new Date(),
       stream: streamCallback,
-      ...(chatId !== undefined ? { chatId } : {}),
+      ...(chatId !== undefined ? { chatId } : {})
     };
     streamState.inbound = inbound;
 
@@ -147,7 +156,14 @@ export class WechatSmartBotAdapter {
     // Reject immediately if too many inflight messages for this session
     const maxInflight = this.config.maxInflightPerSession ?? 3;
     if (this.sessionLock.inflightFor(lockKey) >= maxInflight) {
-      await this.sendReply(frame, streamId, replyTarget, inbound, "请稍等，您还有消息正在处理中，请等我回复后再发送新消息。", "rejection");
+      await this.sendReply(
+        frame,
+        streamId,
+        replyTarget,
+        inbound,
+        "请稍等，您还有消息正在处理中，请等我回复后再发送新消息。",
+        "rejection"
+      );
       await this.logConversation(inbound, "rejected: too many inflight messages");
       return;
     }
@@ -161,9 +177,16 @@ export class WechatSmartBotAdapter {
       await this.sendReply(frame, streamId, replyTarget, inbound, finalContent, "final");
       await this.logConversation(inbound, response.text);
     } catch (error) {
-      await this.logConversation(inbound, `WeChat adapter error: ${error instanceof Error ? error.message : String(error)}`);
+      await this.logConversation(inbound, `WeChat adapter error: ${formatUnknownError(error)}`);
       // Try to send an error reply
-      await this.sendReply(frame, streamId, replyTarget, inbound, "抱歉，处理消息时出错，请稍后重试。", "error");
+      await this.sendReply(
+        frame,
+        streamId,
+        replyTarget,
+        inbound,
+        "抱歉，处理消息时出错，请稍后重试。",
+        "error"
+      );
     } finally {
       release();
     }
@@ -172,7 +195,7 @@ export class WechatSmartBotAdapter {
   private handleEnterChat(frame: WsFrame<EventMessage>): void {
     void this.wsClient.replyWelcome(frame, {
       msgtype: "text",
-      text: { content: "您好！我是知识库助手，可以帮您查询知识库内容。请问有什么可以帮您的？" },
+      text: { content: "您好！我是知识库助手，可以帮您查询知识库内容。请问有什么可以帮您的？" }
     });
   }
 
@@ -184,14 +207,14 @@ export class WechatSmartBotAdapter {
       userId: message.user.id,
       chatId: message.chatId,
       input: message.text,
-      output,
+      output
     });
   }
 
   private async logEvent(type: string, data: Record<string, unknown>): Promise<void> {
     await this.config.eventLogger?.write({
       type,
-      ...data,
+      ...data
     });
   }
 
@@ -201,9 +224,16 @@ export class WechatSmartBotAdapter {
     replyTarget: string,
     message: InboundMessage,
     content: string,
-    phase: "rejection" | "final" | "error",
+    phase: "rejection" | "final" | "error"
   ): Promise<void> {
-    const streamed = await this.replyStreamBestEffort(frame, streamId, content, true, message, phase);
+    const streamed = await this.replyStreamBestEffort(
+      frame,
+      streamId,
+      content,
+      true,
+      message,
+      phase
+    );
     if (streamed) {
       return;
     }
@@ -216,7 +246,7 @@ export class WechatSmartBotAdapter {
     content: string,
     finish: boolean,
     message: InboundMessage,
-    phase: "initial" | "delta" | "rejection" | "final" | "error",
+    phase: "initial" | "delta" | "rejection" | "final" | "error"
   ): Promise<boolean> {
     try {
       await this.wsClient.replyStream(frame, streamId, content, finish);
@@ -224,7 +254,7 @@ export class WechatSmartBotAdapter {
     } catch (error) {
       await this.logMessageEvent("wechat.reply_stream_failed", message, {
         phase,
-        error: formatUnknownError(error),
+        error: formatUnknownError(error)
       });
       return false;
     }
@@ -234,19 +264,19 @@ export class WechatSmartBotAdapter {
     replyTarget: string,
     message: InboundMessage,
     content: string,
-    phase: "rejection" | "final" | "error",
+    phase: "rejection" | "final" | "error"
   ): Promise<void> {
     try {
       await this.wsClient.sendMessage(replyTarget, {
         msgtype: "markdown",
-        markdown: { content },
+        markdown: { content }
       });
       await this.logMessageEvent("wechat.fallback_message_sent", message, { phase, replyTarget });
     } catch (error) {
       await this.logMessageEvent("wechat.fallback_message_failed", message, {
         phase,
         replyTarget,
-        error: formatUnknownError(error),
+        error: formatUnknownError(error)
       });
     }
   }
@@ -254,14 +284,14 @@ export class WechatSmartBotAdapter {
   private async logMessageEvent(
     type: string,
     message: InboundMessage,
-    data: Record<string, unknown>,
+    data: Record<string, unknown>
   ): Promise<void> {
     await this.logEvent(type, {
       channel: message.channel,
       messageId: message.id,
       userId: message.user.id,
       chatId: message.chatId,
-      ...data,
+      ...data
     });
   }
 }

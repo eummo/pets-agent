@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AgentStreamEvent } from "../agent/index.js";
 import type { DevRoutesOptions } from "./devRouteOptions.js";
 import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
-import { writeSse } from "./sseUtils.js";
+import { setupSseResponse, writeSse } from "./sseUtils.js";
 
 type DevChatBody = {
   readonly userId?: string;
@@ -12,7 +12,9 @@ type DevChatBody = {
 export function registerDevChatRoutes(server: FastifyInstance, options: DevRoutesOptions): void {
   server.post<{ Body: DevChatBody }>("/dev/chat", async (request, reply) => {
     if (!isLocalRequest(request.ip)) {
-      return reply.status(403).send({ error: "Development chat is only available from localhost." });
+      return reply
+        .status(403)
+        .send({ error: "Development chat is only available from localhost." });
     }
 
     const text = request.body.text?.trim();
@@ -22,13 +24,7 @@ export function registerDevChatRoutes(server: FastifyInstance, options: DevRoute
       return reply.status(400).send({ error: "Message text is required." });
     }
 
-    reply.raw.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no"
-    });
-    reply.raw.write("\n");
+    setupSseResponse(reply);
 
     const streamCallback = (event: AgentStreamEvent): void => {
       writeSse(reply.raw, "agent", event);
@@ -41,18 +37,18 @@ export function registerDevChatRoutes(server: FastifyInstance, options: DevRoute
         user: { id: userId },
         text,
         receivedAt: new Date(),
-        stream: streamCallback,
+        stream: streamCallback
       });
 
       writeSse(reply.raw, "agent", {
         type: "completed",
         sessionId: response.sessionId,
-        text: response.text,
+        text: response.text
       });
     } catch (error) {
       writeSse(reply.raw, "agent", {
         type: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: error instanceof Error ? error.message : String(error)
       });
     } finally {
       reply.raw.end();

@@ -1,18 +1,25 @@
-import { createAgentSession, DefaultResourceLoader, SessionManager, AuthStorage, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { ResolvedAgentSdkConfig } from "../config/llmConfig.js";
-import { AGENT_SDK_DEFAULTS } from "../config/llmConfig.js";
-import type { AgentRequest, AgentResponse, AgentRuntime } from "./index.js";
-import type { StoredRoleConfig } from "../auth/index.js";
-import type { ContextConfig } from "../config/runtimeConfig.js";
-import type { JsonlLogger } from "../logging/jsonlLogger.js";
-import { buildWorkspacePrompt } from "./workspacePromptBuilder.js";
+﻿import {
+  createAgentSession,
+  DefaultResourceLoader,
+  SessionManager,
+  AuthStorage,
+  type AgentSession,
+  type AgentSessionEvent
+} from "@earendil-works/pi-coding-agent";
+import type { ResolvedAgentSdkConfig } from "../../config/llmConfig.js";
+import { AGENT_SDK_DEFAULTS } from "../../config/llmConfig.js";
+import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import type { ContextConfig } from "../../config/runtimeConfig.js";
+import type { JsonlLogger } from "../../logging/jsonlLogger.js";
+import { buildWorkspacePrompt } from "../shared/workspacePromptBuilder.js";
 import {
   availableToolsForRole,
   roleCanUseFileMutationTools,
-  type ToolPermissionDecider,
-} from "./toolPolicy.js";
+  type ToolPermissionDecider
+} from "../policy/toolPolicy.js";
 import { PiEventCollector } from "./piEventCollector.js";
-import { formatUnknownError } from "./sdkRuntimeHelpers.js";
+import { formatUnknownError } from "../shared/sdkRuntimeHelpers.js";
 
 // ── Runtime ──────────────────────────────────────────────────────────────────
 
@@ -26,12 +33,12 @@ export type PiAgentRuntimeOptions = {
 };
 
 const TOOL_NAME_MAP: Readonly<Record<string, string>> = {
-  "Read": "read",
-  "Bash": "bash",
-  "Edit": "edit",
-  "Write": "write",
-  "Glob": "find",
-  "Grep": "grep",
+  Read: "read",
+  Bash: "bash",
+  Edit: "edit",
+  Write: "write",
+  Glob: "find",
+  Grep: "grep"
 };
 
 export class PiAgentRuntime implements AgentRuntime {
@@ -49,7 +56,7 @@ export class PiAgentRuntime implements AgentRuntime {
     autoCompactEnabled: true,
     autoCompactWindow: 150_000,
     workspaceMaxChars: 8_000,
-    historyMaxMessages: 20,
+    historyMaxMessages: 20
   };
 
   private static readonly DEFAULT_AGENT_DIR = "~/.pi/agent";
@@ -83,7 +90,7 @@ export class PiAgentRuntime implements AgentRuntime {
       workspacePath: request.workspacePath,
       sessionId,
       prompt,
-      turn: 0,
+      turn: 0
     });
 
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
@@ -101,7 +108,7 @@ export class PiAgentRuntime implements AgentRuntime {
         workspacePath: request.workspacePath,
         sessionId,
         error: formatUnknownError(error),
-        durationMs: Date.now() - startTime,
+        durationMs: Date.now() - startTime
       });
       throw error;
     } finally {
@@ -124,7 +131,10 @@ export class PiAgentRuntime implements AgentRuntime {
 
   // ── Session management ─────────────────────────────────────────────────
 
-  private async getOrCreateSession(request: AgentRequest, sessionId: string): Promise<AgentSession> {
+  private async getOrCreateSession(
+    request: AgentRequest,
+    sessionId: string
+  ): Promise<AgentSession> {
     const existing = this.sessionCache.get(sessionId);
     if (existing !== undefined) {
       return existing;
@@ -147,7 +157,7 @@ export class PiAgentRuntime implements AgentRuntime {
       input: cfg.input ? [...cfg.input] : [...AGENT_SDK_DEFAULTS.input],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: cfg.contextWindow ?? AGENT_SDK_DEFAULTS.contextWindow,
-      maxTokens: this.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens,
+      maxTokens: this.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens
     };
 
     const resourceLoader = new DefaultResourceLoader({
@@ -155,7 +165,7 @@ export class PiAgentRuntime implements AgentRuntime {
       agentDir: cfg.agentDir ?? PiAgentRuntime.DEFAULT_AGENT_DIR,
       systemPrompt: this.roleConfig.systemPrompt,
       noExtensions: true,
-      noThemes: true,
+      noThemes: true
     });
     await resourceLoader.reload();
 
@@ -171,7 +181,7 @@ export class PiAgentRuntime implements AgentRuntime {
       model,
       resourceLoader,
       sessionManager: SessionManager.inMemory(),
-      authStorage,
+      authStorage
     };
     sessionOptions.tools = toolNames;
 

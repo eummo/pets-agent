@@ -3,9 +3,9 @@ import { complete } from "@earendil-works/pi-ai";
 import { withRetry } from "../config/retry.js";
 import type { AgentConversationMessage, UserRole } from "../core/index.js";
 import type { UserIntent } from "./index.js";
+import { isValidIntentType } from "./index.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
-import { isRecord, stringField } from "../core/unknownRecord.js";
-import { formatUnknownError } from "../agent/sdkRuntimeHelpers.js";
+import { isRecord, stringField, formatUnknownError } from "../core/unknownRecord.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
@@ -46,20 +46,18 @@ Respond with ONLY the intent label, nothing else.`;
 const INTENT_TIMEOUT_MS = 5000;
 const INTENT_MAX_RETRIES = 2;
 
-const VALID_INTENTS = new Set<string>(["query", "mutate", "update_kb"]);
-
-function isValidIntentType(label: string): label is UserIntent["type"] {
-  return VALID_INTENTS.has(label);
-}
-
 export class LlmIntentDetectionService {
   public constructor(
     private readonly model: Model<Api>,
     private readonly apiKey: string,
-    private readonly rawLogger?: JsonlLogger,
+    private readonly rawLogger?: JsonlLogger
   ) {}
 
-  public async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
+  public async detectIntent(
+    userMessage: string,
+    role: UserRole,
+    history?: readonly AgentConversationMessage[]
+  ): Promise<UserIntent> {
     const startTime = Date.now();
     const requestContent = buildIntentUserContent(userMessage, role, history);
     await this.rawLogger?.write({
@@ -68,50 +66,69 @@ export class LlmIntentDetectionService {
       role,
       userMessage,
       systemPrompt: INTENT_SYSTEM_PROMPT,
-      messages: [{
-        role: "user",
-        content: requestContent,
-      }],
+      messages: [
+        {
+          role: "user",
+          content: requestContent
+        }
+      ]
     });
 
     try {
-      const response = await withRetry(async () => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), INTENT_TIMEOUT_MS);
+      const response = await withRetry(
+        async () => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), INTENT_TIMEOUT_MS);
 
-        return complete(this.model, {
-          systemPrompt: INTENT_SYSTEM_PROMPT,
-          messages: [{
-            role: "user",
-            content: requestContent,
-            timestamp: Date.now(),
-          }],
-        }, {
-          apiKey: this.apiKey,
-          signal: controller.signal,
-        }).then((response) => {
-          if (response.stopReason === "error" && isRetryableProviderResponse(response)) {
-            throw new Error(errorMessageForResponse(response));
-          }
-          return response;
-        }).finally(() => clearTimeout(timeout));
-      }, {
-        retries: INTENT_MAX_RETRIES,
-        shouldRetry: (error) => isAbortError(error) || isRetryableError(error),
-        onRetry: ({ attempt, delayMs, error }) => {
-          void this.rawLogger?.write({
-            type: "intent.retry",
-            role,
-            userMessage,
-            attempt,
-            delayMs,
-            error: formatUnknownError(error),
-          });
+          return complete(
+            this.model,
+            {
+              systemPrompt: INTENT_SYSTEM_PROMPT,
+              messages: [
+                {
+                  role: "user",
+                  content: requestContent,
+                  timestamp: Date.now()
+                }
+              ]
+            },
+            {
+              apiKey: this.apiKey,
+              signal: controller.signal
+            }
+          )
+            .then((response) => {
+              if (response.stopReason === "error" && isRetryableProviderResponse(response)) {
+                throw new Error(errorMessageForResponse(response));
+              }
+              return response;
+            })
+            .finally(() => clearTimeout(timeout));
         },
-      });
+        {
+          retries: INTENT_MAX_RETRIES,
+          shouldRetry: (error) => isAbortError(error) || isRetryableError(error),
+          onRetry: ({ attempt, delayMs, error }) => {
+            void this.rawLogger?.write({
+              type: "intent.retry",
+              role,
+              userMessage,
+              attempt,
+              delayMs,
+              error: formatUnknownError(error)
+            });
+          }
+        }
+      );
 
       if (response.stopReason === "error") {
-        return await this.logFallbackResult(userMessage, role, startTime, "provider_error", serializePiResponse(response));
+        return await this.logFallbackResult(
+          userMessage,
+          role,
+          startTime,
+          "provider_error",
+          serializePiResponse(response)
+        );
       }
 
       const text = response.content
@@ -128,12 +145,18 @@ export class LlmIntentDetectionService {
           response: serializePiResponse(response),
           intent,
           source: "model",
-          durationMs: Date.now() - startTime,
+          durationMs: Date.now() - startTime
         });
         return intent;
       }
 
-      return await this.logFallbackResult(userMessage, role, startTime, "invalid_label", serializePiResponse(response));
+      return await this.logFallbackResult(
+        userMessage,
+        role,
+        startTime,
+        "invalid_label",
+        serializePiResponse(response)
+      );
     } catch (error) {
       await this.rawLogger?.write({
         type: "llm.error",
@@ -141,7 +164,7 @@ export class LlmIntentDetectionService {
         role,
         userMessage,
         error: formatUnknownError(error),
-        durationMs: Date.now() - startTime,
+        durationMs: Date.now() - startTime
       });
       return await this.logFallbackResult(userMessage, role, startTime, "exception");
     }
@@ -152,7 +175,7 @@ export class LlmIntentDetectionService {
     role: UserRole,
     startTime: number,
     reason: string,
-    response?: Record<string, unknown>,
+    response?: Record<string, unknown>
   ): Promise<UserIntent> {
     const intent = fallbackIntentFor(userMessage);
     await this.logResponseAndResult({
@@ -162,7 +185,7 @@ export class LlmIntentDetectionService {
       source: "fallback",
       reason,
       durationMs: Date.now() - startTime,
-      ...(response !== undefined ? { response } : {}),
+      ...(response !== undefined ? { response } : {})
     });
     return intent;
   }
@@ -183,7 +206,7 @@ export class LlmIntentDetectionService {
         role: event.role,
         userMessage: event.userMessage,
         response: event.response,
-        durationMs: event.durationMs,
+        durationMs: event.durationMs
       });
     }
 
@@ -194,12 +217,16 @@ export class LlmIntentDetectionService {
       intentType: event.intent.type,
       source: event.source,
       ...(event.reason !== undefined ? { reason: event.reason } : {}),
-      durationMs: event.durationMs,
+      durationMs: event.durationMs
     });
   }
 }
 
-function buildIntentUserContent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): string {
+function buildIntentUserContent(
+  userMessage: string,
+  role: UserRole,
+  history?: readonly AgentConversationMessage[]
+): string {
   if (history === undefined || history.length === 0) {
     return `User role: ${role}\nUser message: ${userMessage}`;
   }
@@ -211,14 +238,16 @@ function buildIntentUserContent(userMessage: string, role: UserRole, history?: r
     ...history.map((m) => `${m.role}: ${m.content}`),
     "",
     "Current user message:",
-    userMessage,
+    userMessage
   ].join("\n");
 }
 
-function serializePiResponse(response: Awaited<ReturnType<typeof complete>>): Record<string, unknown> {
+function serializePiResponse(
+  response: Awaited<ReturnType<typeof complete>>
+): Record<string, unknown> {
   return {
     stopReason: response.stopReason,
-    content: response.content,
+    content: response.content
   };
 }
 function isAbortError(error: unknown): boolean {
@@ -230,7 +259,13 @@ function isAbortError(error: unknown): boolean {
 function isRetryableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
-  return message.includes("abort") || message.includes("rate") || message.includes("overload") || message.includes("429") || message.includes("503");
+  return (
+    message.includes("abort") ||
+    message.includes("rate") ||
+    message.includes("overload") ||
+    message.includes("429") ||
+    message.includes("503")
+  );
 }
 
 function isRetryableProviderResponse(response: Awaited<ReturnType<typeof complete>>): boolean {

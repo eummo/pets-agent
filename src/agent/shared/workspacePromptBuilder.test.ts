@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { splitAtHeadings, truncateToBudget } from "./workspacePromptBuilder.js";
 
 describe("splitAtHeadings", () => {
@@ -11,7 +11,7 @@ describe("splitAtHeadings", () => {
       "### Subsection",
       "Sub content",
       "## Section B",
-      "Content B",
+      "Content B"
     ].join("\n");
 
     const sections = splitAtHeadings(content);
@@ -73,7 +73,8 @@ describe("truncateToBudget", () => {
   });
 
   it("falls back to hard truncation when the first section exceeds the budget", () => {
-    const content = "This is a very long first section with no headings at all that goes well beyond the budget limit.";
+    const content =
+      "This is a very long first section with no headings at all that goes well beyond the budget limit.";
 
     const result = truncateToBudget(content, 20);
 

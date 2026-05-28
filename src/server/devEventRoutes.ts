@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { DevRoutesOptions } from "./devRouteOptions.js";
 import { isLocalRequest, normalizeOptionalText } from "./serverUtils.js";
+import { setupSseResponse } from "./sseUtils.js";
 
 type DevEventsQuery = {
   readonly userId?: string;
@@ -13,13 +14,7 @@ export function registerDevEventRoutes(server: FastifyInstance, options: DevRout
     }
 
     const userId = normalizeOptionalText(request.query.userId) ?? "browser-user";
-    reply.raw.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no"
-    });
-    reply.raw.write("\n");
+    setupSseResponse(reply);
 
     const unsubscribe = options.progressBroker?.subscribe(userId, reply.raw);
     request.raw.on("close", () => {

@@ -14,15 +14,21 @@ import type {
   ProgressReporter
 } from "../agent/index.js";
 import type { AuthorizationService } from "../auth/index.js";
-import type { ConversationHistoryStore, ConversationSessionKey, ConversationSessionStore, FeedbackStore } from "../persistence/index.js";
+import type {
+  ConversationHistoryStore,
+  ConversationSessionKey,
+  ConversationSessionStore,
+  FeedbackStore
+} from "../persistence/index.js";
 import type { KnowledgeWorkspace, KnowledgeWorkspaceResolver } from "../workspace/index.js";
 import type { UserIntent } from "../intent/index.js";
 import { handleCommandWithoutWorkspace, isNewConversationCommand } from "./conversationCommands.js";
 import { actionForIntent, responseForDeniedIntent } from "./intentAuthorization.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
-import { parseIntentResponse } from "../agent/intentAgentRuntime.js";
+import { parseIntentResponse } from "../agent/intent/intentAgentRuntime.js";
 import { RuntimeCache } from "./runtimeCache.js";
 import { formatInternalError, formatSafeRuntimeError } from "./runtimeErrorFormatter.js";
+import { formatUnknownError } from "./unknownRecord.js";
 import { progressEventForAgentStreamEvent } from "./streamProgressMapper.js";
 
 export type OrchestratorDependencies = {
@@ -42,7 +48,10 @@ export class AgentOrchestrator implements MessageGateway {
   private readonly runtimeCache: RuntimeCache;
 
   public constructor(private readonly dependencies: OrchestratorDependencies) {
-    this.runtimeCache = new RuntimeCache(dependencies.initialRuntimes ?? {}, dependencies.runtimeFactory);
+    this.runtimeCache = new RuntimeCache(
+      dependencies.initialRuntimes ?? {},
+      dependencies.runtimeFactory
+    );
   }
 
   public async handle(message: InboundMessage): Promise<OutboundMessage> {
@@ -58,7 +67,11 @@ export class AgentOrchestrator implements MessageGateway {
       await this.logConversation(message, response.text);
       return response;
     }
-    await this.logEvent("workspace.resolved", message, { workspaceId: workspace.id, workspaceKind: workspace.kind, workspacePath: workspace.path });
+    await this.logEvent("workspace.resolved", message, {
+      workspaceId: workspace.id,
+      workspaceKind: workspace.kind,
+      workspacePath: workspace.path
+    });
 
     if (isNewConversationCommand(message)) {
       const response = await this.startNewConversation(message, workspace.path);
@@ -68,14 +81,17 @@ export class AgentOrchestrator implements MessageGateway {
 
     const readDecision = await this.dependencies.authorization.can(message.user, "read", workspace);
     if (!readDecision.allowed) {
-      const response = { text: readDecision.reason ?? "You do not have permission to access this workspace." };
+      const response = {
+        text: readDecision.reason ?? "You do not have permission to access this workspace."
+      };
       await this.logConversation(message, response.text, workspace.path);
       return response;
     }
 
     const role = await this.dependencies.authorization.roleFor(message.user);
     await this.logEvent("role.resolved", message, { role });
-    const intentCheck = await this.checkIntentAuthorization(message, workspace, role);    if (intentCheck !== undefined) {
+    const intentCheck = await this.checkIntentAuthorization(message, workspace, role);
+    if (intentCheck !== undefined) {
       return intentCheck;
     }
 
@@ -98,21 +114,34 @@ export class AgentOrchestrator implements MessageGateway {
   private async checkIntentAuthorization(
     message: InboundMessage,
     workspace: KnowledgeWorkspace,
-    role: UserRole,
+    role: UserRole
   ): Promise<OutboundMessage | undefined> {
     const sessionKey = this.createSessionKey(message, workspace.path);
     const history = await this.dependencies.historyStore?.get(sessionKey);
     const recentHistory = history?.slice(-4);
 
     const intent = await this.detectIntent(message.text, role, recentHistory);
-    await this.logEvent("intent.classified", message, { role, intentType: intent.type, workspacePath: workspace.path });
+    await this.logEvent("intent.classified", message, {
+      role,
+      intentType: intent.type,
+      workspacePath: workspace.path
+    });
     const requiredAction = actionForIntent(intent);
 
     if (requiredAction !== undefined) {
-      const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace);
+      const intentDecision = await this.dependencies.authorization.can(
+        message.user,
+        requiredAction,
+        workspace
+      );
       if (!intentDecision.allowed) {
         await this.saveFeedback(message, workspace.path, intent, role);
-        await this.logEvent("permission.denied", message, { role, action: requiredAction, intentType: intent.type, workspacePath: workspace.path });
+        await this.logEvent("permission.denied", message, {
+          role,
+          action: requiredAction,
+          intentType: intent.type,
+          workspacePath: workspace.path
+        });
         const response = { text: responseForDeniedIntent(intent) };
         await this.logConversation(message, response.text, workspace.path);
         return response;
@@ -130,7 +159,7 @@ export class AgentOrchestrator implements MessageGateway {
     message: InboundMessage,
     workspacePath: string,
     role: string,
-    runtime: AgentRuntime,
+    runtime: AgentRuntime
   ): Promise<OutboundMessage> {
     const sessionKey = this.createSessionKey(message, workspacePath);
     const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
@@ -146,10 +175,10 @@ export class AgentOrchestrator implements MessageGateway {
         await this.dependencies.historyStore?.compact(sessionKey, summary);
         await this.logEvent("context.compacted", message, {
           workspacePath,
-          summaryLength: summary.length,
+          summaryLength: summary.length
         });
       },
-      ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(sessionId !== undefined ? { sessionId } : {})
     };
 
     try {
@@ -160,19 +189,19 @@ export class AgentOrchestrator implements MessageGateway {
       }
       await this.dependencies.historyStore?.append(sessionKey, [
         { role: "user", content: message.text },
-        { role: "assistant", content: response.text },
+        { role: "assistant", content: response.text }
       ]);
       if (response.contextUsage !== undefined) {
         await this.logEvent("context.usage", message, {
           workspacePath,
-          ...response.contextUsage,
+          ...response.contextUsage
         });
       }
       await this.logConversation(message, response.text, workspacePath);
 
       return {
         text: response.text,
-        ...(response.sessionId !== undefined ? { sessionId: response.sessionId } : {}),
+        ...(response.sessionId !== undefined ? { sessionId: response.sessionId } : {})
       };
     } catch (error) {
       const safeMessage = formatSafeRuntimeError(error);
@@ -182,7 +211,11 @@ export class AgentOrchestrator implements MessageGateway {
     }
   }
 
-  private async detectIntent(userMessage: string, role: UserRole, history?: readonly AgentConversationMessage[]): Promise<UserIntent> {
+  private async detectIntent(
+    userMessage: string,
+    role: UserRole,
+    history?: readonly AgentConversationMessage[]
+  ): Promise<UserIntent> {
     try {
       const intentRuntime = await this.runtimeCache.resolve("intent");
       if (intentRuntime !== undefined) {
@@ -191,7 +224,7 @@ export class AgentOrchestrator implements MessageGateway {
           text: userMessage,
           workspacePath: "",
           role,
-          ...(history !== undefined ? { history } : {}),
+          ...(history !== undefined ? { history } : {})
         };
         const response = await intentRuntime.run(request);
         return parseIntentResponse(response.text);
@@ -202,9 +235,9 @@ export class AgentOrchestrator implements MessageGateway {
         channel: "",
         messageId: "",
         userId: "system",
-        reason: error instanceof Error ? error.message : String(error),
+        reason: formatUnknownError(error),
         userMessage,
-        role,
+        role
       });
     }
     return fallbackIntentFor(userMessage);
@@ -214,7 +247,7 @@ export class AgentOrchestrator implements MessageGateway {
     message: InboundMessage,
     workspacePath: string,
     intent: UserIntent,
-    role: UserRole,
+    role: UserRole
   ): Promise<void> {
     if (this.dependencies.feedbackStore === undefined) return;
 
@@ -237,11 +270,14 @@ export class AgentOrchestrator implements MessageGateway {
       roleName: role,
       userMessage: message.text,
       conversationContext,
-      status: "pending",
+      status: "pending"
     });
   }
 
-  private async startNewConversation(message: InboundMessage, workspacePath: string): Promise<OutboundMessage> {
+  private async startNewConversation(
+    message: InboundMessage,
+    workspacePath: string
+  ): Promise<OutboundMessage> {
     const sessionKey = this.createSessionKey(message, workspacePath);
     const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
 
@@ -265,7 +301,7 @@ export class AgentOrchestrator implements MessageGateway {
       channel: message.channel,
       userId: message.user.id,
       workspacePath,
-      ...(message.chatId !== undefined ? { chatId: message.chatId } : {}),
+      ...(message.chatId !== undefined ? { chatId: message.chatId } : {})
     };
   }
 
@@ -289,7 +325,7 @@ export class AgentOrchestrator implements MessageGateway {
   private async logEvent(
     type: string,
     message: InboundMessage,
-    data: Record<string, unknown>,
+    data: Record<string, unknown>
   ): Promise<void> {
     await this.dependencies.eventLogger?.write({
       type,
@@ -297,11 +333,14 @@ export class AgentOrchestrator implements MessageGateway {
       messageId: message.id,
       userId: message.user.id,
       chatId: message.chatId,
-      ...data,
+      ...data
     });
   }
 
-  private async publishProgress(message: InboundMessage, event: Parameters<ProgressReporter["publish"]>[1]): Promise<void> {
+  private async publishProgress(
+    message: InboundMessage,
+    event: Parameters<ProgressReporter["publish"]>[1]
+  ): Promise<void> {
     await this.dependencies.progressReporter?.publish(message.user, event);
   }
 

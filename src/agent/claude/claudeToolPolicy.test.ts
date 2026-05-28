@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
-import type { StoredRoleConfig } from "../auth/index.js";
-import { autoAllowedToolsForRole, decideToolPermission, isToolInputWithinWorkspace } from "./claudeToolPolicy.js";
+﻿import { describe, expect, it } from "vitest";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import {
+  autoAllowedToolsForRole,
+  decideToolPermission,
+  isToolInputWithinWorkspace
+} from "./claudeToolPolicy.js";
 
 const reviewerConfig: StoredRoleConfig = {
   name: "reviewer",
   allowedTools: ["Read", "Glob", "Grep", "Bash"],
   permissionMode: "dontAsk",
-  systemPrompt: "Read only.",
+  systemPrompt: "Read only."
 };
 
 describe("claudeToolPolicy", () => {
@@ -15,7 +19,9 @@ describe("claudeToolPolicy", () => {
   });
 
   it("allows read-only tool paths inside the selected workspace", () => {
-    expect(isToolInputWithinWorkspace("Read", { file_path: "D:/kb/docs/order.md" }, "D:/kb")).toBe(true);
+    expect(isToolInputWithinWorkspace("Read", { file_path: "D:/kb/docs/order.md" }, "D:/kb")).toBe(
+      true
+    );
     expect(isToolInputWithinWorkspace("Grep", { path: "D:/kb/docs" }, "D:/kb")).toBe(true);
     expect(isToolInputWithinWorkspace("Glob", { path: "docs" }, "D:/kb")).toBe(true);
   });
@@ -26,7 +32,7 @@ describe("claudeToolPolicy", () => {
       "Read",
       { file_path: "D:/code/pets-agent/src/core/contracts.ts" },
       undefined,
-      "D:/code/pets-agent/.harness/knowledge-base",
+      "D:/code/pets-agent/.harness/knowledge-base"
     );
 
     expect(result.behavior).toBe("deny");

@@ -1,11 +1,11 @@
 ﻿import type { Api, Model } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
-import { withRetry } from "../config/retry.js";
-import type { StoredRoleConfig } from "../auth/index.js";
-import type { JsonlLogger } from "../logging/jsonlLogger.js";
+import { withRetry } from "../../config/retry.js";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import type { JsonlLogger } from "../../logging/jsonlLogger.js";
 import type { ToolPermissionDecider, ToolPermissionResult } from "./toolPolicy.js";
 import { denyTool } from "./toolPolicy.js";
-import { formatUnknownError } from "./sdkRuntimeHelpers.js";
+import { formatUnknownError } from "../shared/sdkRuntimeHelpers.js";
 
 const BASH_PERMISSION_SYSTEM_PROMPT = `You are a Bash command permission classifier.
 Decide whether a Bash command is read-only inspection.
@@ -22,16 +22,20 @@ export class LlmBashPermissionDecider {
   public constructor(
     private readonly model: Model<Api>,
     private readonly apiKey: string,
-    private readonly rawLogger?: JsonlLogger,
+    private readonly rawLogger?: JsonlLogger
   ) {}
 
   public readonly decide: ToolPermissionDecider = async (
     roleConfig: StoredRoleConfig,
     toolName: string,
-    input: Record<string, unknown>,
+    input: Record<string, unknown>
   ) => {
     if (toolName !== "Bash") {
-      return denyTool(roleConfig.name, toolName, "Only Bash commands are classified by this decider.");
+      return denyTool(
+        roleConfig.name,
+        toolName,
+        "Only Bash commands are classified by this decider."
+      );
     }
 
     const command = input["command"];
@@ -51,10 +55,12 @@ export class LlmBashPermissionDecider {
       role: roleName,
       command,
       systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
-      messages: [{
-        role: "user",
-        content: userContent,
-      }],
+      messages: [
+        {
+          role: "user",
+          content: userContent
+        }
+      ]
     });
 
     try {
@@ -62,22 +68,34 @@ export class LlmBashPermissionDecider {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), BASH_PERMISSION_TIMEOUT_MS);
 
-        return complete(this.model, {
-          systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
-          messages: [{
-            role: "user",
-            content: userContent,
-            timestamp: Date.now(),
-          }],
-        }, {
-          apiKey: this.apiKey,
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeout));
+        return complete(
+          this.model,
+          {
+            systemPrompt: BASH_PERMISSION_SYSTEM_PROMPT,
+            messages: [
+              {
+                role: "user",
+                content: userContent,
+                timestamp: Date.now()
+              }
+            ]
+          },
+          {
+            apiKey: this.apiKey,
+            signal: controller.signal
+          }
+        ).finally(() => clearTimeout(timeout));
       });
 
       if (response.stopReason === "error") {
         const result = denyTool(roleName, "Bash", "Bash permission classifier failed.");
-        await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
+        await this.logResponseAndDecision(
+          roleName,
+          command,
+          response,
+          result,
+          Date.now() - startTime
+        );
         return result;
       }
 
@@ -87,10 +105,17 @@ export class LlmBashPermissionDecider {
         .join("");
       const label = text.trim().toLowerCase();
 
-      const result: ToolPermissionResult = label === "allow"
-        ? { behavior: "allow", decisionClassification: "user_temporary" }
-        : denyTool(roleName, "Bash", "Bash command is not read-only.");
-      await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
+      const result: ToolPermissionResult =
+        label === "allow"
+          ? { behavior: "allow", decisionClassification: "user_temporary" }
+          : denyTool(roleName, "Bash", "Bash command is not read-only.");
+      await this.logResponseAndDecision(
+        roleName,
+        command,
+        response,
+        result,
+        Date.now() - startTime
+      );
       return result;
     } catch (error) {
       const result = denyTool(roleName, "Bash", "Bash permission classifier failed.");
@@ -100,7 +125,7 @@ export class LlmBashPermissionDecider {
         role: roleName,
         command,
         error: formatUnknownError(error),
-        durationMs: Date.now() - startTime,
+        durationMs: Date.now() - startTime
       });
       await this.logDecision(roleName, command, result, Date.now() - startTime);
       return result;
@@ -112,7 +137,7 @@ export class LlmBashPermissionDecider {
     command: string,
     response: Awaited<ReturnType<typeof complete>>,
     result: ToolPermissionResult,
-    durationMs: number,
+    durationMs: number
   ): Promise<void> {
     await this.rawLogger?.write({
       type: "llm.response",
@@ -121,9 +146,9 @@ export class LlmBashPermissionDecider {
       command,
       response: {
         stopReason: response.stopReason,
-        content: response.content,
+        content: response.content
       },
-      durationMs,
+      durationMs
     });
     await this.logDecision(roleName, command, result, durationMs);
   }
@@ -132,7 +157,7 @@ export class LlmBashPermissionDecider {
     roleName: string,
     command: string,
     result: ToolPermissionResult,
-    durationMs: number,
+    durationMs: number
   ): Promise<void> {
     await this.rawLogger?.write({
       type: "tool.permission_result",
@@ -141,8 +166,7 @@ export class LlmBashPermissionDecider {
       command,
       behavior: result.behavior,
       message: result.behavior === "deny" ? result.message : undefined,
-      durationMs,
+      durationMs
     });
   }
 }
-

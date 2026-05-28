@@ -2,10 +2,7 @@
 import path from "node:path";
 import { z } from "zod";
 import type { InboundMessage } from "../core/index.js";
-import type {
-  KnowledgeWorkspace,
-  KnowledgeWorkspaceResolver
-} from "./index.js";
+import type { KnowledgeWorkspace, KnowledgeWorkspaceResolver } from "./index.js";
 
 export type ConfiguredWorkspaceResolverOptions = {
   readonly knowledgeBasePath: string;
@@ -87,7 +84,7 @@ export class ConfiguredWorkspaceResolver implements KnowledgeWorkspaceResolver {
       await this.options.logger?.write({
         type: "workspace.repositories_config_error",
         configPath,
-        message: error instanceof Error ? error.message : String(error),
+        message: error instanceof Error ? error.message : String(error)
       });
       this.cachedRepositories = [];
       this.cachedMtimeMs = fileStat.mtimeMs;
@@ -101,7 +98,8 @@ export class ConfiguredWorkspaceResolver implements KnowledgeWorkspaceResolver {
 }
 
 function normalizeSearchText(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
 }
-
-

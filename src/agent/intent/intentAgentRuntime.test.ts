@@ -1,21 +1,15 @@
-import { describe, expect, it } from "vitest";
-import type { AgentRequest } from "./index.js";
+﻿import { describe, expect, it } from "vitest";
+import type { AgentRequest } from "../index.js";
 import { IntentAgentRuntime, parseIntentResponse } from "./intentAgentRuntime.js";
-import { LlmIntentDetectionService } from "../intent/llmIntentDetectionService.js";
-import {
-  registerFauxProvider,
-  fauxAssistantMessage,
-  fauxText,
-} from "@earendil-works/pi-ai";
+import { LlmIntentDetectionService } from "../../intent/llmIntentDetectionService.js";
+import { registerFauxProvider, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 
 describe("IntentAgentRuntime", () => {
   it("returns intent label from detector as response text", async () => {
     const registration = registerFauxProvider({ tokensPerSecond: 50 });
     try {
       const model = registration.getModel();
-      registration.setResponses([
-        fauxAssistantMessage([fauxText("mutate")]),
-      ]);
+      registration.setResponses([fauxAssistantMessage([fauxText("mutate")])]);
       const detector = new LlmIntentDetectionService(model, "test-key");
       const runtime = new IntentAgentRuntime(detector);
 
@@ -23,7 +17,7 @@ describe("IntentAgentRuntime", () => {
         user: { id: "user-1" },
         text: "修改代码",
         workspacePath: "/workspace",
-        role: "reviewer",
+        role: "reviewer"
       };
       const response = await runtime.run(request);
 

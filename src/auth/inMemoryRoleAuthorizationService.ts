@@ -15,7 +15,7 @@ const ACTION_CAPABILITY_MAP: Record<AuthorizationAction, RoleCapability> = {
   read: "workspace_read",
   suggest: "workspace_read",
   mutate: "workspace_mutate",
-  update_kb: "knowledge_base_update",
+  update_kb: "knowledge_base_update"
 };
 
 export class InMemoryRoleAuthorizationService implements AuthorizationService {
@@ -23,7 +23,7 @@ export class InMemoryRoleAuthorizationService implements AuthorizationService {
 
   public constructor(
     private readonly roleConfigStore?: RoleConfigStore,
-    initialRoles: ReadonlyMap<string, string> = new Map(),
+    initialRoles: ReadonlyMap<string, string> = new Map()
   ) {
     this.roles = new Map(initialRoles);
   }
@@ -91,5 +91,3 @@ function configAllowsMutation(config: StoredRoleConfig): boolean {
 
   return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
 }
-
-

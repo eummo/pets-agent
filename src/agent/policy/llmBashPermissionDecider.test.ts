@@ -3,16 +3,16 @@ import {
   registerFauxProvider,
   fauxAssistantMessage,
   fauxText,
-  fauxThinking,
+  fauxThinking
 } from "@earendil-works/pi-ai";
-import type { StoredRoleConfig } from "../auth/index.js";
+import type { StoredRoleConfig } from "../../auth/index.js";
 import { LlmBashPermissionDecider } from "./llmBashPermissionDecider.js";
 
 const roleConfig: StoredRoleConfig = {
   name: "reviewer",
   allowedTools: ["Read", "Bash"],
   permissionMode: "dontAsk",
-  systemPrompt: "Read only.",
+  systemPrompt: "Read only."
 };
 
 describe("LlmBashPermissionDecider", () => {
@@ -26,17 +26,16 @@ describe("LlmBashPermissionDecider", () => {
     registration.unregister();
   });
 
-  function createDecider(responses: ReturnType<typeof fauxAssistantMessage>[]): LlmBashPermissionDecider {
+  function createDecider(
+    responses: ReturnType<typeof fauxAssistantMessage>[]
+  ): LlmBashPermissionDecider {
     registration.setResponses(responses);
     return new LlmBashPermissionDecider(registration.getModel(), "test-key");
   }
 
   it("allows commands when the model classifies them as read-only", async () => {
     const decider = createDecider([
-      fauxAssistantMessage([
-        fauxThinking("This only lists files."),
-        fauxText("allow"),
-      ]),
+      fauxAssistantMessage([fauxThinking("This only lists files."), fauxText("allow")])
     ]);
     const result = await decider.decide(roleConfig, "Bash", { command: "ls -la" });
 
@@ -44,16 +43,14 @@ describe("LlmBashPermissionDecider", () => {
   });
 
   it("logs bash permission model request, response, and decision", async () => {
-    registration.setResponses([
-      fauxAssistantMessage([fauxText("allow")]),
-    ]);
+    registration.setResponses([fauxAssistantMessage([fauxText("allow")])]);
     const rawEvents: Record<string, unknown>[] = [];
     const decider = new LlmBashPermissionDecider(registration.getModel(), "test-key", {
       filePath: "memory.jsonl",
       write(event) {
         rawEvents.push(event);
         return Promise.resolve();
-      },
+      }
     });
 
     const result = await decider.decide(roleConfig, "Bash", { command: "ls -la" });
@@ -62,19 +59,19 @@ describe("LlmBashPermissionDecider", () => {
     expect(rawEvents.map((event) => event["type"])).toEqual([
       "llm.request",
       "llm.response",
-      "tool.permission_result",
+      "tool.permission_result"
     ]);
     expect(rawEvents[0]).toMatchObject({
       type: "llm.request",
       operation: "bash_permission",
       role: "reviewer",
-      command: "ls -la",
+      command: "ls -la"
     });
     expect(rawEvents[1]).toMatchObject({
       type: "llm.response",
       operation: "bash_permission",
       role: "reviewer",
-      command: "ls -la",
+      command: "ls -la"
     });
     expect(asRecord(rawEvents[1]?.["response"])["stopReason"]).toBe("stop");
     expect(rawEvents[2]).toMatchObject({
@@ -82,14 +79,12 @@ describe("LlmBashPermissionDecider", () => {
       operation: "bash_permission",
       role: "reviewer",
       command: "ls -la",
-      behavior: "allow",
+      behavior: "allow"
     });
   });
 
   it("denies commands when the model does not classify them as read-only", async () => {
-    const decider = createDecider([
-      fauxAssistantMessage([fauxText("deny")]),
-    ]);
+    const decider = createDecider([fauxAssistantMessage([fauxText("deny")])]);
     const result = await decider.decide(roleConfig, "Bash", { command: "rm -rf dist" });
 
     expect(result.behavior).toBe("deny");
@@ -121,8 +116,8 @@ describe("LlmBashPermissionDecider", () => {
     const decider = createDecider([
       fauxAssistantMessage([fauxText("allow")], {
         stopReason: "error",
-        errorMessage: "provider rejected request",
-      }),
+        errorMessage: "provider rejected request"
+      })
     ]);
     const result = await decider.decide(roleConfig, "Bash", { command: "ls" });
 
@@ -136,4 +131,3 @@ function asRecord(value: unknown): Record<string, unknown> {
   }
   return value as Record<string, unknown>;
 }
-

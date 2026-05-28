@@ -1,7 +1,7 @@
-import path from "node:path";
-import type { StoredRoleConfig } from "../auth/index.js";
-import { FILE_MUTATION_TOOLS } from "../auth/index.js";
-import { stringField } from "../core/unknownRecord.js";
+﻿import path from "node:path";
+import type { StoredRoleConfig } from "../../auth/index.js";
+import { FILE_MUTATION_TOOLS } from "../../auth/index.js";
+import { stringField } from "../../core/unknownRecord.js";
 
 // ── Provider-Neutral Permission Result ──────────────────────────────────────
 // This type replaces the Claude SDK's PermissionResult so that tool policy
@@ -17,7 +17,7 @@ export type ToolPermissionResult = {
 export type ToolPermissionDecider = (
   roleConfig: StoredRoleConfig,
   toolName: string,
-  input: Record<string, unknown>,
+  input: Record<string, unknown>
 ) => Promise<ToolPermissionResult>;
 
 // ── Tool Availability ───────────────────────────────────────────────────────
@@ -53,19 +53,25 @@ export async function decideToolPermission(
   toolName: string,
   input: Record<string, unknown>,
   toolPermissionDecider: ToolPermissionDecider | undefined,
-  workspacePath: string,
+  workspacePath: string
 ): Promise<ToolPermissionResult> {
   if (!canUseConfiguredTool(config, toolName)) {
     return denyTool(config.name, toolName);
   }
 
-  if (!roleCanUseFileMutationTools(config) && !isToolInputWithinWorkspace(toolName, input, workspacePath)) {
-    return denyTool(config.name, toolName, `Tool ${toolName} path is outside the selected workspace.`);
+  if (
+    !roleCanUseFileMutationTools(config) &&
+    !isToolInputWithinWorkspace(toolName, input, workspacePath)
+  ) {
+    return denyTool(
+      config.name,
+      toolName,
+      `Tool ${toolName} path is outside the selected workspace.`
+    );
   }
 
   if (toolName === "Bash" && !roleCanUseFileMutationTools(config)) {
-    return toolPermissionDecider?.(config, toolName, input)
-      ?? denyTool(config.name, toolName);
+    return toolPermissionDecider?.(config, toolName, input) ?? denyTool(config.name, toolName);
   }
 
   return { behavior: "allow" };
@@ -79,7 +85,11 @@ export function canUseConfiguredTool(config: StoredRoleConfig, toolName: string)
   return !FILE_MUTATION_TOOLS.has(toolName) || roleCanUseFileMutationTools(config);
 }
 
-export function isToolInputWithinWorkspace(toolName: string, input: Record<string, unknown>, workspacePath: string): boolean {
+export function isToolInputWithinWorkspace(
+  toolName: string,
+  input: Record<string, unknown>,
+  workspacePath: string
+): boolean {
   const pathValue = pathValueForTool(toolName, input);
   if (pathValue === undefined || pathValue.trim().length === 0) {
     return true;
@@ -125,10 +135,14 @@ export function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
   return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
 }
 
-export function denyTool(roleName: string, toolName: string, message?: string): ToolPermissionResult {
+export function denyTool(
+  roleName: string,
+  toolName: string,
+  message?: string
+): ToolPermissionResult {
   return {
     behavior: "deny",
     message: message ?? `Tool ${toolName} is not permitted for role ${roleName}.`,
-    decisionClassification: "user_reject",
+    decisionClassification: "user_reject"
   };
 }

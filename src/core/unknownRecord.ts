@@ -29,7 +29,17 @@ export function booleanField(record: UnknownRecord, key: string): boolean | unde
   return typeof value === "boolean" ? value : undefined;
 }
 
-export function stringArrayField(record: UnknownRecord, key: string): readonly string[] | undefined {
+export function stringArrayField(
+  record: UnknownRecord,
+  key: string
+): readonly string[] | undefined {
   const value = record[key];
-  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : undefined;
+}
+
+export function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
