@@ -4,6 +4,8 @@ import { withRetry } from "../config/retry.js";
 import type { StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import type { ToolPermissionDecider, ToolPermissionResult } from "./toolPolicy.js";
+import { denyTool } from "./toolPolicy.js";
+import { formatUnknownError } from "./sdkRuntimeHelpers.js";
 
 const BASH_PERMISSION_SYSTEM_PROMPT = `You are a Bash command permission classifier.
 Decide whether a Bash command is read-only inspection.
@@ -29,12 +31,12 @@ export class LlmBashPermissionDecider {
     input: Record<string, unknown>,
   ) => {
     if (toolName !== "Bash") {
-      return deny(toolName, "Only Bash commands are classified by this decider.");
+      return denyTool(roleConfig.name, toolName, "Only Bash commands are classified by this decider.");
     }
 
     const command = input["command"];
     if (typeof command !== "string" || command.trim().length === 0) {
-      return deny(toolName, "Bash command is missing.");
+      return denyTool(roleConfig.name, toolName, "Bash command is missing.");
     }
 
     return await this.classify(roleConfig.name, command);
@@ -74,7 +76,7 @@ export class LlmBashPermissionDecider {
       });
 
       if (response.stopReason === "error") {
-        const result = deny("Bash", "Bash permission classifier failed.");
+        const result = denyTool(roleName, "Bash", "Bash permission classifier failed.");
         await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
         return result;
       }
@@ -87,11 +89,11 @@ export class LlmBashPermissionDecider {
 
       const result: ToolPermissionResult = label === "allow"
         ? { behavior: "allow", decisionClassification: "user_temporary" }
-        : deny("Bash", "Bash command is not read-only.");
+        : denyTool(roleName, "Bash", "Bash command is not read-only.");
       await this.logResponseAndDecision(roleName, command, response, result, Date.now() - startTime);
       return result;
     } catch (error) {
-      const result = deny("Bash", "Bash permission classifier failed.");
+      const result = denyTool(roleName, "Bash", "Bash permission classifier failed.");
       await this.rawLogger?.write({
         type: "llm.error",
         operation: "bash_permission",
@@ -138,22 +140,9 @@ export class LlmBashPermissionDecider {
       role: roleName,
       command,
       behavior: result.behavior,
-      message: "message" in result ? result.message : undefined,
+      message: result.behavior === "deny" ? result.message : undefined,
       durationMs,
     });
   }
-}
-
-function deny(toolName: string, message: string): ToolPermissionResult {
-  return {
-    behavior: "deny",
-    message: `Tool ${toolName} denied: ${message}`,
-    decisionClassification: "user_reject",
-  };
-}
-
-function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
 }
 

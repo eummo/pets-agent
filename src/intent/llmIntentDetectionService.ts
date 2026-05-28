@@ -47,6 +47,10 @@ const INTENT_MAX_RETRIES = 2;
 
 const VALID_INTENTS = new Set<string>(["query", "mutate", "update_kb"]);
 
+function isValidIntentType(label: string): label is UserIntent["type"] {
+  return VALID_INTENTS.has(label);
+}
+
 export class LlmIntentDetectionService {
   public constructor(
     private readonly model: Model<Api>,
@@ -115,8 +119,8 @@ export class LlmIntentDetectionService {
         .join("");
       const label = text.trim().toLowerCase();
 
-      if (VALID_INTENTS.has(label)) {
-        const intent = { type: label as UserIntent["type"] };
+      if (isValidIntentType(label)) {
+        const intent = { type: label };
         await this.logResponseAndResult({
           role,
           userMessage,

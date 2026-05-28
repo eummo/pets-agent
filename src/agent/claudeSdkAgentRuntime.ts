@@ -23,6 +23,13 @@ import {
   isSystemMessage,
 } from "./claudeSdkMessageMapper.js";
 import { buildWorkspacePrompt } from "./workspacePromptBuilder.js";
+import {
+  extractContextUsage,
+  extractToolResultText,
+  formatUnknownError,
+  serializeQueryOptions,
+  serializeSdkResult,
+} from "./sdkRuntimeHelpers.js";
 
 export type ClaudeSdkAgentRuntimeOptions = {
   readonly roleConfig: StoredRoleConfig;
@@ -101,7 +108,7 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
       };
     }
 
-    const sdkOptions = buildSdkOptions(queryOptions);
+    const sdkOptions = queryOptions as NonNullable<Parameters<typeof query>[0]["options"]>;
     const startTime = Date.now();
     await this.rawLogger?.write({
       type: "llm.request",
@@ -126,13 +133,11 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     try {
       for await (const message of stream) {
         if (isAssistantMessage(message)) {
-          const assistantMsg = message as Extract<SDKMessage, { type: "assistant" }>;
-          sessionId = assistantMsg.session_id;
-          await this.logToolEvents(assistantMsg, request, sessionId);
-          forwardAssistantMessageEvents(assistantMsg, request, this.roleConfig);
+          sessionId = message.session_id;
+          await this.logToolEvents(message, request, sessionId);
+          forwardAssistantMessageEvents(message, request, this.roleConfig);
         } else if (isResultMessage(message)) {
-          const resultMsg = message as Extract<SDKMessage, { type: "result" }>;
-          const resultData: Record<string, unknown> = isRecord(resultMsg) ? resultMsg : {};
+          const resultData: Record<string, unknown> = isRecord(message) ? message : {};
           sdkResult = resultData;
           sessionId = stringField(resultData, "session_id");
           const subtype = stringField(resultData, "subtype");
@@ -253,84 +258,4 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     const result = decideToolPermission(this.roleConfig, toolName, input, this.toolPermissionDecider, workspacePath);
     return toClaudePermissionResult(await result);
   }
-}
-
-function buildSdkOptions(opts: Record<string, unknown>): NonNullable<Parameters<typeof query>[0]["options"]> {
-  return opts;
-}
-
-function serializeQueryOptions(queryOptions: Record<string, unknown>): Record<string, unknown> {
-  const serializableKeys = [
-    "cwd",
-    "tools",
-    "allowedTools",
-    "disallowedTools",
-    "permissionMode",
-    "allowDangerouslySkipPermissions",
-    "systemPrompt",
-    "includePartialMessages",
-    "maxTurns",
-    "model",
-    "resume",
-    "settings",
-    "skills",
-    "settingSources",
-  ];
-
-  return Object.fromEntries(
-    serializableKeys
-      .filter((key) => queryOptions[key] !== undefined)
-      .map((key) => [key, queryOptions[key]])
-  );
-}
-
-function serializeSdkResult(result: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (result === undefined) return undefined;
-
-  return {
-    subtype: result["subtype"],
-    sessionId: result["session_id"],
-    result: result["result"],
-    errors: result["errors"],
-    usage: result["usage"],
-  };
-}
-
-function extractToolResultText(block: Record<string, unknown>): string {
-  const content = block["content"];
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .map((part: unknown) => {
-      if (typeof part === "string") return part;
-      if (!isRecord(part)) return "";
-      return stringField(part, "text") ?? "";
-    })
-    .join("");
-}
-
-function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function extractContextUsage(usage: unknown, contextWindow: number): ContextUsageReport | undefined {
-  if (!isRecord(usage)) return undefined;
-  const u = usage;
-  const inputTokens = u["input_tokens"];
-  const outputTokens = u["output_tokens"];
-  if (typeof inputTokens !== "number" || typeof outputTokens !== "number") return undefined;
-
-  const cacheReadTokens = u["cache_read_input_tokens"];
-  const cacheCreationTokens = u["cache_creation_input_tokens"];
-  const usagePercent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 100) : 0;
-
-  return {
-    inputTokens,
-    outputTokens,
-    ...(typeof cacheReadTokens === "number" ? { cacheReadTokens } : {}),
-    ...(typeof cacheCreationTokens === "number" ? { cacheCreationTokens } : {}),
-    contextWindow,
-    usagePercent,
-  };
 }

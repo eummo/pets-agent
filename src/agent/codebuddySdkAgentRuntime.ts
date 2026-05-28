@@ -14,6 +14,13 @@ import {
   type ToolPermissionDecider,
 } from "./toolPolicy.js";
 import { buildWorkspacePrompt } from "./workspacePromptBuilder.js";
+import {
+  extractContextUsage,
+  extractToolResultText,
+  formatUnknownError,
+  serializeQueryOptions,
+  serializeSdkResult,
+} from "./sdkRuntimeHelpers.js";
 
 export type CodebuddySdkAgentRuntimeOptions = {
   readonly roleConfig: StoredRoleConfig;
@@ -256,7 +263,6 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
     }
   }
 }
-
 // ── Message Mapping (Codebuddy SDK) ──────────────────────────────────────────
 // The Codebuddy SDK message types are structurally identical to Claude SDK
 // messages, so the mapping logic is the same.
@@ -401,82 +407,4 @@ function forwardSystemMessageEvents(
   }
 
   return undefined;
-}
-
-// ── Serialization Helpers ────────────────────────────────────────────────────
-
-function serializeQueryOptions(queryOptions: Record<string, unknown>): Record<string, unknown> {
-  const serializableKeys = [
-    "cwd",
-    "tools",
-    "allowedTools",
-    "disallowedTools",
-    "permissionMode",
-    "allowDangerouslySkipPermissions",
-    "systemPrompt",
-    "includePartialMessages",
-    "maxTurns",
-    "model",
-    "resume",
-    "settings",
-    "skills",
-    "settingSources",
-  ];
-
-  return Object.fromEntries(
-    serializableKeys
-      .filter((key) => queryOptions[key] !== undefined)
-      .map((key) => [key, queryOptions[key]])
-  );
-}
-
-function serializeSdkResult(result: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (result === undefined) return undefined;
-
-  return {
-    subtype: result["subtype"],
-    sessionId: result["session_id"],
-    result: result["result"],
-    errors: result["errors"],
-    usage: result["usage"],
-  };
-}
-
-function extractToolResultText(block: Record<string, unknown>): string {
-  const content = block["content"];
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .map((part: unknown) => {
-      if (typeof part === "string") return part;
-      if (!isRecord(part)) return "";
-      return stringField(part, "text") ?? "";
-    })
-    .join("");
-}
-
-function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function extractContextUsage(usage: unknown, contextWindow: number): ContextUsageReport | undefined {
-  if (!isRecord(usage)) return undefined;
-  const u = usage;
-  const inputTokens = u["input_tokens"];
-  const outputTokens = u["output_tokens"];
-  if (typeof inputTokens !== "number" || typeof outputTokens !== "number") return undefined;
-
-  const cacheReadTokens = u["cache_read_input_tokens"];
-  const cacheCreationTokens = u["cache_creation_input_tokens"];
-  const usagePercent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 100) : 0;
-
-  return {
-    inputTokens,
-    outputTokens,
-    ...(typeof cacheReadTokens === "number" ? { cacheReadTokens } : {}),
-    ...(typeof cacheCreationTokens === "number" ? { cacheCreationTokens } : {}),
-    contextWindow,
-    usagePercent,
-  };
 }

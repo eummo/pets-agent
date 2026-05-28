@@ -49,7 +49,7 @@ describe("IntentAgentRuntime", () => {
     try {
       const detector = new LlmIntentDetectionService(registration.getModel(), "test-key");
       const runtime = new IntentAgentRuntime(detector);
-      await expect(runtime.disposeSession()).resolves.toBeUndefined();
+      await expect(runtime.disposeSession("test-session")).resolves.toBeUndefined();
     } finally {
       registration.unregister();
     }

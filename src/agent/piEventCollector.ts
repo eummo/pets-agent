@@ -7,6 +7,8 @@ import type { AgentRequest, AgentResponse, ContextUsageReport } from "./index.js
 import type { StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { canUseConfiguredTool } from "./toolPolicy.js";
+import { extractToolResultText } from "./sdkRuntimeHelpers.js";
+import { isRecord } from "../core/unknownRecord.js";
 
 const CONTEXT_WINDOW = 200_000;
 
@@ -109,7 +111,7 @@ export class PiEventCollector {
       }
 
       case "tool_execution_end": {
-        const resultText = extractToolResultText(event.result);
+        const resultText = isRecord(event.result) ? extractToolResultText(event.result) : String(event.result);
         this.request.stream?.({
           type: "tool_use_result",
           toolUseId: event.toolCallId,
@@ -210,22 +212,4 @@ export class PiEventCollector {
       usagePercent,
     };
   }
-}
-
-function extractToolResultText(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (isRecord(result)) {
-    const content = result["content"];
-    if (Array.isArray(content)) {
-      return content
-        .filter((block: unknown): block is { type: "text"; text: string } => isRecord(block) && block["type"] === "text" && typeof block["text"] === "string")
-        .map((block) => block.text)
-        .join("");
-    }
-  }
-  return String(result);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

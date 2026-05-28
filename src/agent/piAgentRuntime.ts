@@ -12,6 +12,7 @@ import {
   type ToolPermissionDecider,
 } from "./toolPolicy.js";
 import { PiEventCollector } from "./piEventCollector.js";
+import { formatUnknownError } from "./sdkRuntimeHelpers.js";
 
 // ── Runtime ──────────────────────────────────────────────────────────────────
 
@@ -183,11 +184,6 @@ export class PiAgentRuntime implements AgentRuntime {
 
 function generateSessionId(): string {
   return `pi-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
 }
 
 function piToolsForRole(roleConfig: StoredRoleConfig): readonly string[] {

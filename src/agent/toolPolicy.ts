@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { StoredRoleConfig } from "../auth/index.js";
 import { FILE_MUTATION_TOOLS } from "../auth/index.js";
+import { stringField } from "../core/unknownRecord.js";
 
 // ── Provider-Neutral Permission Result ──────────────────────────────────────
 // This type replaces the Claude SDK's PermissionResult so that tool policy
@@ -96,11 +97,7 @@ export function isToolInputWithinWorkspace(toolName: string, input: Record<strin
 
 // ── Internal Helpers ────────────────────────────────────────────────────────
 
-/**
- * Returns true for absolute paths on any platform.
- * Handles Windows paths (e.g. "D:/code") even when running on Linux/WSL,
- * where `path.isAbsolute` does not recognize them.
- */
+/** Returns true for absolute paths on any platform, including Windows drive-letter paths on Linux/WSL. */
 function isAbsolutePath(p: string): boolean {
   if (path.isAbsolute(p)) return true;
   // Windows drive-letter absolute path on a non-Windows system
@@ -120,11 +117,6 @@ function pathValueForTool(toolName: string, input: Record<string, unknown>): str
   return undefined;
 }
 
-function stringField(input: Record<string, unknown>, key: string): string | undefined {
-  const value = input[key];
-  return typeof value === "string" ? value : undefined;
-}
-
 export function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
   if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
     return false;
@@ -133,7 +125,7 @@ export function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
   return config.allowedTools.some((tool) => FILE_MUTATION_TOOLS.has(tool));
 }
 
-function denyTool(roleName: string, toolName: string, message?: string): ToolPermissionResult {
+export function denyTool(roleName: string, toolName: string, message?: string): ToolPermissionResult {
   return {
     behavior: "deny",
     message: message ?? `Tool ${toolName} is not permitted for role ${roleName}.`,

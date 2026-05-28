@@ -5,6 +5,10 @@ import { fallbackIntentFor } from "../core/intentHeuristics.js";
 
 const VALID_INTENT_LABELS = new Set<string>(["query", "mutate", "update_kb"]);
 
+function isValidIntentType(label: string): label is UserIntent["type"] {
+  return VALID_INTENT_LABELS.has(label);
+}
+
 export class IntentAgentRuntime implements AgentRuntime {
   public readonly name = "intent";
   private readonly detector: LlmIntentDetectionService;
@@ -20,15 +24,16 @@ export class IntentAgentRuntime implements AgentRuntime {
     return { text: intent.type };
   }
 
-  public disposeSession(): Promise<void> {
+  public disposeSession(sessionId: string): Promise<void> {
+    void sessionId;
     return Promise.resolve();
   }
 }
 
 export function parseIntentResponse(text: string): UserIntent {
   const label = text.trim().toLowerCase();
-  if (VALID_INTENT_LABELS.has(label)) {
-    return { type: label as UserIntent["type"] };
+  if (isValidIntentType(label)) {
+    return { type: label };
   }
   return fallbackIntentFor(text);
 }
