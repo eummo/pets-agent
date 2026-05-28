@@ -6,7 +6,7 @@ export const AGENT_SDK_DEFAULTS = {
   api: "anthropic-messages",
   provider: "pets-agent",
   contextWindow: 200000,
-  maxTokens: 256,
+  maxTokens: 8192,
   reasoning: false,
   input: ["text"] as readonly ("text" | "image")[],
 } as const;

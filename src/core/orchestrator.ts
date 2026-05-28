@@ -46,6 +46,7 @@ export type OrchestratorDependencies = {
 
 export class AgentOrchestrator implements MessageGateway {
   private readonly runtimeCache: RuntimeCache;
+  private readonly lastRoleForSession = new Map<string, string>();
 
   public constructor(private readonly dependencies: OrchestratorDependencies) {
     this.runtimeCache = new RuntimeCache(
@@ -162,7 +163,25 @@ export class AgentOrchestrator implements MessageGateway {
     runtime: AgentRuntime
   ): Promise<OutboundMessage> {
     const sessionKey = this.createSessionKey(message, workspacePath);
-    const sessionId = await this.dependencies.sessionStore?.get(sessionKey);
+    let sessionId = await this.dependencies.sessionStore?.get(sessionKey);
+    let priorHistory: readonly AgentConversationMessage[] | undefined;
+
+    // When the role changes, the old sessionId belongs to a different runtime
+    // instance that cannot be reused. Dispose the old session and start a new
+    // one, but carry the conversation history so the new role can see context.
+    const sessionKeyText = JSON.stringify(sessionKey);
+    const previousRole = this.lastRoleForSession.get(sessionKeyText);
+    if (previousRole !== undefined && previousRole !== role) {
+      if (sessionId !== undefined) {
+        const oldRuntime = await this.resolveRuntime(previousRole);
+        if (oldRuntime !== undefined) {
+          await oldRuntime.disposeSession(sessionId);
+        }
+        await this.dependencies.sessionStore?.delete(sessionKey);
+      }
+      priorHistory = await this.dependencies.historyStore?.get(sessionKey);
+      sessionId = undefined;
+    }
 
     const request: AgentRequest = {
       user: message.user,
@@ -178,12 +197,14 @@ export class AgentOrchestrator implements MessageGateway {
           summaryLength: summary.length
         });
       },
-      ...(sessionId !== undefined ? { sessionId } : {})
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(priorHistory !== undefined && priorHistory.length > 0 ? { history: priorHistory } : {})
     };
 
     try {
       const response = await runtime.run(request);
 
+      this.lastRoleForSession.set(sessionKeyText, role);
       if (response.sessionId !== undefined) {
         await this.dependencies.sessionStore?.set(sessionKey, response.sessionId);
       }

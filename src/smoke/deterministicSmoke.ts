@@ -11,7 +11,7 @@ import type {
   AgentRuntimeFactory
 } from "../agent/index.js";
 import type { AuthorizationAction, AuthorizationDecision, AuthorizationService } from "../auth/index.js";
-import type { FeedbackEntry, FeedbackStore } from "../persistence/index.js";
+import type { ConversationHistoryStore, ConversationSessionKey, ConversationSessionStore, FeedbackEntry, FeedbackStore } from "../persistence/index.js";
 import { AgentOrchestrator } from "../core/orchestrator.js";
 import { ConfiguredWorkspaceResolver } from "../workspace/configuredWorkspaceResolver.js";
 import { createServer } from "../server/createServer.js";
@@ -111,6 +111,7 @@ async function main(): Promise<void> {
   await assertHealth(server);
   await assertReviewerMutationDeniedWithoutIntentLlm(server, feedbackStore);
   await assertPathTraversalRejected(server);
+  await assertRoleSwitchCarriesHistory();
   assertNoContractsTsRemnants();
 
   await server.close();
@@ -189,6 +190,193 @@ class MemoryFeedbackStore implements FeedbackStore {
 
   public getAll(): Promise<readonly FeedbackEntry[]> {
     return Promise.resolve(this.entries);
+  }
+}
+
+async function assertRoleSwitchCarriesHistory(): Promise<void> {
+  // Use two runtimes that record whether they received history on creation.
+  const disposedSessions: string[] = [];
+  const receivedHistory: (readonly import("../core/index.js").AgentConversationMessage[])[] = [];
+  const reviewerRuntime: AgentRuntime = {
+    name: "stub-reviewer",
+    run(request: AgentRequest): Promise<AgentResponse> {
+      return Promise.resolve({ text: `reviewer: ${request.text}`, sessionId: "reviewer-s-1" });
+    },
+    disposeSession(sessionId: string): Promise<void> {
+      disposedSessions.push(sessionId);
+      return Promise.resolve();
+    },
+  };
+  const adminRuntime: AgentRuntime = {
+    name: "stub-admin",
+    run(request: AgentRequest): Promise<AgentResponse> {
+      if (request.history !== undefined) {
+        receivedHistory.push(request.history);
+      }
+      return Promise.resolve({ text: `admin: ${request.text}`, sessionId: "admin-s-1" });
+    },
+    disposeSession(): Promise<void> {
+      return Promise.resolve();
+    },
+  };
+  const switchingAuth = new SwitchableAuthorization("reviewer");
+  const switchRuntimes: Record<string, AgentRuntime> = {
+    reviewer: reviewerRuntime,
+    admin: adminRuntime,
+    intent: {
+      name: "intent",
+      run(): Promise<AgentResponse> {
+        return Promise.resolve({ text: "query" });
+      },
+      disposeSession(): Promise<void> {
+        return Promise.resolve();
+      },
+    },
+  };
+  const switchOrchestrator = new AgentOrchestrator({
+    workspaceResolver: new ConfiguredWorkspaceResolver({ knowledgeBasePath: path.join(await mkdtemp(path.join(tmpdir(), "pets-agent-role-switch-")), "kb") }),
+    authorization: switchingAuth,
+    runtimeFactory: {
+      warmup() { return Promise.resolve(switchRuntimes); },
+      createRuntime(role: string) { return Promise.resolve(switchRuntimes[role]); },
+    },
+    initialRuntimes: switchRuntimes,
+    sessionStore: new InMemorySessionStore(),
+    historyStore: new InMemoryHistoryStore(),
+  });
+  const switchServer = createServer({
+    messageHandler: switchOrchestrator,
+    feedbackStore: new MemoryFeedbackStore(),
+    authorization: switchingAuth,
+    enableDevRoutes: true,
+  });
+
+  // First message as reviewer
+  const first = await switchServer.inject({
+    method: "POST",
+    url: "/dev/chat",
+    payload: { userId: "switch-user", text: "hello" },
+  });
+  if (first.statusCode !== 200) {
+    throw new Error(`Role switch first chat failed: ${first.statusCode}`);
+  }
+
+  // Switch to admin
+  switchingAuth.setRole("admin");
+  const second = await switchServer.inject({
+    method: "POST",
+    url: "/dev/chat",
+    payload: { userId: "switch-user", text: "admin task" },
+  });
+  if (second.statusCode !== 200) {
+    throw new Error(`Role switch second chat failed: ${second.statusCode}`);
+  }
+
+  // Verify old session was disposed
+  if (!disposedSessions.includes("reviewer-s-1")) {
+    throw new Error(`Role switch: expected reviewer-s-1 to be disposed. Got: ${disposedSessions.join(", ")}`);
+  }
+
+  // Verify the admin runtime received the prior conversation history
+  if (receivedHistory.length === 0) {
+    throw new Error("Role switch: expected admin runtime to receive prior history.");
+  }
+  const history = receivedHistory[0];
+  if (history === undefined) {
+    throw new Error("Role switch: first history entry is undefined.");
+  }
+  if (history.length < 2) {
+    throw new Error(`Role switch: expected at least 2 history messages, got ${history.length}.`);
+  }
+  const firstMsg = history[0];
+  const secondMsg = history[1];
+  if (firstMsg === undefined) {
+    throw new Error("Role switch: first history message is undefined.");
+  }
+  if (secondMsg === undefined) {
+    throw new Error("Role switch: second history message is undefined.");
+  }
+  if (firstMsg.role !== "user" || firstMsg.content !== "hello") {
+    throw new Error(`Role switch: expected first history message to be user:hello, got ${JSON.stringify(firstMsg)}`);
+  }
+  if (secondMsg.role !== "assistant" || !secondMsg.content.includes("reviewer")) {
+    throw new Error(`Role switch: expected second history message to be assistant with reviewer response, got ${JSON.stringify(secondMsg)}`);
+  }
+
+  await switchServer.close();
+  console.info("[pass] deterministic-role-switch-carries-history");
+}
+
+class SwitchableAuthorization implements AuthorizationService {
+  private currentRole: string;
+
+  public constructor(initialRole: string) {
+    this.currentRole = initialRole;
+  }
+
+  public setRole(role: string): void {
+    this.currentRole = role;
+  }
+
+  public roleFor(): Promise<string> {
+    return Promise.resolve(this.currentRole);
+  }
+
+  public can(_user: ChannelUser, action: AuthorizationAction): Promise<AuthorizationDecision> {
+    return Promise.resolve(action === "mutate" ? { allowed: this.currentRole !== "reviewer" } : { allowed: true });
+  }
+
+  public hasCapability(): Promise<boolean> {
+    return Promise.resolve(this.currentRole !== "reviewer");
+  }
+}
+
+class InMemorySessionStore implements ConversationSessionStore {
+  private readonly sessions = new Map<string, string>();
+
+  public get(key: ConversationSessionKey): Promise<string | undefined> {
+    return Promise.resolve(this.sessions.get(JSON.stringify(key)));
+  }
+
+  public set(key: ConversationSessionKey, sessionId: string): Promise<void> {
+    this.sessions.set(JSON.stringify(key), sessionId);
+    return Promise.resolve();
+  }
+
+  public delete(key: ConversationSessionKey): Promise<void> {
+    this.sessions.delete(JSON.stringify(key));
+    return Promise.resolve();
+  }
+}
+
+class InMemoryHistoryStore implements ConversationHistoryStore {
+  private readonly histories = new Map<string, { readonly role: "user" | "assistant"; readonly content: string }[]>();
+
+  public get(key: ConversationSessionKey): Promise<readonly { readonly role: "user" | "assistant"; readonly content: string }[]> {
+    return Promise.resolve(this.histories.get(JSON.stringify(key)) ?? []);
+  }
+
+  public append(
+    key: ConversationSessionKey,
+    messages: readonly { readonly role: "user" | "assistant"; readonly content: string }[]
+  ): Promise<void> {
+    const keyText = JSON.stringify(key);
+    this.histories.set(keyText, [...(this.histories.get(keyText) ?? []), ...messages]);
+    return Promise.resolve();
+  }
+
+  public compact(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public delete(key: ConversationSessionKey): Promise<void> {
+    this.histories.delete(JSON.stringify(key));
+    return Promise.resolve();
+  }
+
+  public archive(key: ConversationSessionKey): Promise<void> {
+    this.histories.delete(JSON.stringify(key));
+    return Promise.resolve();
   }
 }
 

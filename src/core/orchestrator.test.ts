@@ -799,6 +799,92 @@ describe("AgentOrchestrator", () => {
     expect(historyB).toHaveLength(2);
   });
 
+  it("carries conversation history to the new runtime when the role changes", async () => {
+    const store = new MemorySessionStore();
+    const historyStore = new MemoryHistoryStore();
+    const sessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
+    const disposedSessions: string[] = [];
+    const adminCalls: AgentRequest[] = [];
+    let currentRole = "reviewer";
+    const roleAuthorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve(currentRole);
+      },
+      can() {
+        return Promise.resolve({ allowed: true });
+      },
+      hasCapability() {
+        return Promise.resolve(true);
+      }
+    };
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          return Promise.resolve({ text: "reviewer response", sessionId: "reviewer-session-1" });
+        },
+        disposeSession(sessionId: string) {
+          disposedSessions.push(sessionId);
+          return Promise.resolve();
+        }
+      },
+      admin: {
+        name: "admin",
+        run(request: AgentRequest) {
+          adminCalls.push(request);
+          return Promise.resolve({ text: "admin response", sessionId: request.sessionId ?? "admin-session-1" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: roleAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
+      sessionStore: store,
+      historyStore,
+    });
+
+    // First message as reviewer
+    await orchestrator.handle(testMessage("hello", "user-1", "1"));
+
+    // Verify reviewer session and history exist
+    await expect(store.get(sessionKey)).resolves.toBe("reviewer-session-1");
+    await expect(historyStore.get(sessionKey)).resolves.toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "reviewer response" }
+    ]);
+
+    // Switch role to admin
+    currentRole = "admin";
+    await orchestrator.handle(testMessage("admin task", "user-1", "2"));
+
+    // Old reviewer session should be disposed
+    expect(disposedSessions).toEqual(["reviewer-session-1"]);
+    // Session store should have the new admin session
+    await expect(store.get(sessionKey)).resolves.toBe("admin-session-1");
+    // The admin runtime should receive the prior history
+    expect(adminCalls).toHaveLength(1);
+    expect(adminCalls[0]?.sessionId).toBeUndefined();
+    expect(adminCalls[0]?.history).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "reviewer response" }
+    ]);
+    // History should continue to accumulate (not archived)
+    await expect(historyStore.get(sessionKey)).resolves.toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "reviewer response" },
+      { role: "user", content: "admin task" },
+      { role: "assistant", content: "admin response" }
+    ]);
+    // No history should be archived
+    expect(historyStore.archivedMessages).toEqual([]);
+  });
+
   it("isolates group chat session from single chat session for the same user", async () => {
     const store = new MemorySessionStore();
     const historyStore = new MemoryHistoryStore();

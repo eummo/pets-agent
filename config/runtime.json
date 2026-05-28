@@ -16,7 +16,8 @@
   "llm": {
     "baseUrl": "https://api.minimaxi.com/anthropic",
     "apiKeyEnv": "LOCAL_LLM_API_KEY",
-    "modelId": "MiniMax-M2.7"
+    "modelId": "MiniMax-M2.7",
+    "maxTokens": 8192
   },
   "agentSdk": {
     "type": "pi",

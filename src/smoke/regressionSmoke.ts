@@ -254,6 +254,10 @@ async function main(): Promise<void> {
     // Pi runtime logs tool calls with permission info in llm-raw.jsonl
     await assertPiToolPermissionLogged();
     console.info("[pass] pi-agent-tool-permission-logged");
+
+    // Role switch carries conversation history to the new runtime session
+    await assertRoleSwitchCarriesHistory();
+    console.info("[pass] role-switch-carries-conversation-history");
   }
 
   // ── Codebuddy SDK-specific smoke tests ──────────────────────────────────────
@@ -851,6 +855,76 @@ async function assertPiToolPermissionLogged(): Promise<void> {
     throw new Error(
       "Pi tool permission: no agent_runtime llm.response found for smoke-pi-tool-user."
     );
+  }
+}
+
+// ── Role switch assertion ─────────────────────────────────────────────────────
+
+async function assertRoleSwitchCarriesHistory(): Promise<void> {
+  const switchUserId = "smoke-role-switch-user";
+
+  // Start as developer: ask a question, then switch to admin and verify
+  // the new runtime can see the prior conversation context.
+  await setRole(switchUserId, "developer");
+  await resetChat(switchUserId);
+
+  // First turn as developer
+  const first = await chat("客户订单是怎么创建的", switchUserId);
+  assertIncludes(first.text, ["订单"], "role-switch-first-turn");
+  if (first.sessionId === undefined) {
+    throw new Error("Role switch: first chat did not return a sessionId.");
+  }
+  const developerSessionId = first.sessionId;
+
+  // Switch role to admin (same user, same workspace)
+  await setRole(switchUserId, "admin");
+
+  // Second turn as admin — the agent should still know about the previous question
+  const second = await chat("我的第一个问题是什么", switchUserId);
+  if (second.sessionId === undefined) {
+    throw new Error("Role switch: second chat did not return a sessionId.");
+  }
+  // The new session should have a different sessionId (old one was disposed)
+  if (second.sessionId === developerSessionId) {
+    throw new Error(
+      `Role switch: expected a new sessionId after role change, got the same: ${second.sessionId}.`
+    );
+  }
+  // The agent should reference the first question's topic (订单 / order creation)
+  const secondLower = second.text.toLowerCase();
+  if (!secondLower.includes("订单") && !secondLower.includes("创建") && !secondLower.includes("order") && !secondLower.includes("客户")) {
+    throw new Error(
+      `Role switch: expected admin to reference the prior conversation about orders. Response: ${second.text}`
+    );
+  }
+
+  // Verify system.jsonl shows role.resolved events with different roles for this user
+  const systemContent = await readFile(systemLogPath, "utf8");
+  const switchUserEvents = systemContent
+    .split(/\r?\n/)
+    .filter((line) => line.includes(`"userId":"${switchUserId}"`));
+
+  const roleResolvedEvents = switchUserEvents.filter(
+    (line) => line.includes('"type":"role.resolved"')
+  );
+  if (roleResolvedEvents.length < 2) {
+    throw new Error("Role switch: expected at least 2 role.resolved events for the switch user.");
+  }
+
+  const roles = roleResolvedEvents.map((line) => {
+    const parsed = JSON.parse(line) as { readonly role?: string };
+    return parsed.role;
+  });
+  if (!roles.includes("developer") || !roles.includes("admin")) {
+    throw new Error(`Role switch: expected both developer and admin roles, got: ${roles.join(", ")}`);
+  }
+
+  // Verify the runtime changed after the role switch
+  const runtimeSelectedEvents = switchUserEvents.filter(
+    (line) => line.includes('"type":"runtime.selected"')
+  );
+  if (runtimeSelectedEvents.length < 2) {
+    throw new Error("Role switch: expected at least 2 runtime.selected events for the switch user.");
   }
 }
 
