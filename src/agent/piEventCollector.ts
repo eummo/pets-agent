@@ -8,7 +8,7 @@ import type { StoredRoleConfig } from "../auth/index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { canUseConfiguredTool } from "./toolPolicy.js";
 import { extractToolResultText } from "./sdkRuntimeHelpers.js";
-import { isRecord } from "../core/unknownRecord.js";
+import { isRecord, numberField, stringField } from "../core/unknownRecord.js";
 
 const CONTEXT_WINDOW = 200_000;
 
@@ -67,11 +67,21 @@ export class PiEventCollector {
       }
 
       case "message_end": {
-        // Extract usage from completed assistant message
         const msg = event.message;
-        if (msg.role === "assistant" && "usage" in msg) {
-          const usage = (msg as { usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number } }).usage;
-          this.contextUsage = this.extractContextUsage(usage);
+        if (msg.role === "assistant" && isRecord(msg) && isRecord(msg.usage)) {
+          const rawUsage = msg.usage;
+          const input = numberField(rawUsage, "input");
+          const output = numberField(rawUsage, "output");
+          if (input !== undefined && output !== undefined) {
+            const cacheRead = numberField(rawUsage, "cacheRead");
+            const cacheWrite = numberField(rawUsage, "cacheWrite");
+            this.contextUsage = this.extractContextUsage({
+              input,
+              output,
+              ...(cacheRead !== undefined ? { cacheRead } : {}),
+              ...(cacheWrite !== undefined ? { cacheWrite } : {}),
+            });
+          }
 
           void this.rawLogger?.write({
             type: "llm.response",
@@ -137,8 +147,8 @@ export class PiEventCollector {
       }
 
       case "compaction_end": {
-        if (event.result !== undefined) {
-          this.preCompactTokens = "tokensBefore" in event.result ? (event.result as { tokensBefore: number }).tokensBefore : undefined;
+        if (event.result !== undefined && isRecord(event.result)) {
+          this.preCompactTokens = numberField(event.result, "tokensBefore");
         }
 
         this.request.stream?.({
@@ -156,9 +166,8 @@ export class PiEventCollector {
           preTokens: this.preCompactTokens,
         });
 
-        // Notify compaction callback
-        if (event.result !== undefined) {
-          const summary = "summary" in event.result ? (event.result as { summary: string }).summary : undefined;
+        if (event.result !== undefined && isRecord(event.result)) {
+          const summary = stringField(event.result, "summary");
           if (summary !== undefined) {
             void this.request.onCompact?.(summary);
           }

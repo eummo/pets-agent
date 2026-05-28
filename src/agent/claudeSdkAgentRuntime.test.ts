@@ -492,7 +492,7 @@ describe("ClaudeSdkAgentRuntime", () => {
   it("resolves disposeSession without calling the SDK", async () => {
     const runtime = new ClaudeSdkAgentRuntime({ roleConfig });
 
-    await expect(runtime.disposeSession()).resolves.toBeUndefined();
+    await expect(runtime.disposeSession("test-session")).resolves.toBeUndefined();
   });
 
   it("passes auto-compaction settings to the SDK from context config", async () => {

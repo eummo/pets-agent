@@ -200,8 +200,10 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     };
   }
 
-  public async disposeSession(): Promise<void> {
+  public disposeSession(sessionId: string): Promise<void> {
     // SDK manages sessions internally; no explicit disposal needed.
+    void sessionId;
+    return Promise.resolve();
   }
 
   private async logToolEvents(

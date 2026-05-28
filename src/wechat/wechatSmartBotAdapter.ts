@@ -8,6 +8,7 @@
  * Architecture: channel adapter -> core contracts.
  */
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
+import { formatUnknownError } from "../agent/sdkRuntimeHelpers.js";
 import type { WsFrame, TextMessage, EventMessage } from "@wecom/aibot-node-sdk";
 import type { ConversationLogger, InboundMessage, MessageGateway } from "../core/index.js";
 import type { AgentStreamPublisher } from "../agent/index.js";
@@ -273,8 +274,4 @@ export function stripBotMention(content: string): string {
   // Match @ mention at the start of the message, followed by a space
   const mentionPattern = /^@\S+\s*/;
   return content.replace(mentionPattern, "").trim();
-}
-
-function formatUnknownError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

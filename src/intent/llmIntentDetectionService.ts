@@ -5,6 +5,7 @@ import type { AgentConversationMessage, UserRole } from "../core/index.js";
 import type { UserIntent } from "./index.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
 import { isRecord, stringField } from "../core/unknownRecord.js";
+import { formatUnknownError } from "../agent/sdkRuntimeHelpers.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
@@ -220,12 +221,6 @@ function serializePiResponse(response: Awaited<ReturnType<typeof complete>>): Re
     content: response.content,
   };
 }
-
-function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 function isAbortError(error: unknown): boolean {
   if (error instanceof DOMException) return error.name === "AbortError";
   if (error instanceof Error) return error.name === "AbortError";

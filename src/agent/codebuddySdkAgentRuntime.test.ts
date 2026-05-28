@@ -233,7 +233,7 @@ describe("CodebuddySdkAgentRuntime", () => {
   it("resolves disposeSession without calling the SDK", async () => {
     const runtime = new CodebuddySdkAgentRuntime({ roleConfig, agentSdkConfig });
 
-    await expect(runtime.disposeSession()).resolves.toBeUndefined();
+    await expect(runtime.disposeSession("test-session")).resolves.toBeUndefined();
   });
 
   it("reports an error for unauthorized mutating tool events", async () => {

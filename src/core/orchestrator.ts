@@ -75,8 +75,7 @@ export class AgentOrchestrator implements MessageGateway {
 
     const role = await this.dependencies.authorization.roleFor(message.user);
     await this.logEvent("role.resolved", message, { role });
-    const intentCheck = await this.checkIntentAuthorization(message, workspace, role);
-    if (intentCheck !== undefined) {
+    const intentCheck = await this.checkIntentAuthorization(message, workspace, role);    if (intentCheck !== undefined) {
       return intentCheck;
     }
 
@@ -98,7 +97,7 @@ export class AgentOrchestrator implements MessageGateway {
 
   private async checkIntentAuthorization(
     message: InboundMessage,
-    workspace: { readonly path: string },
+    workspace: KnowledgeWorkspace,
     role: UserRole,
   ): Promise<OutboundMessage | undefined> {
     const sessionKey = this.createSessionKey(message, workspace.path);
@@ -110,7 +109,7 @@ export class AgentOrchestrator implements MessageGateway {
     const requiredAction = actionForIntent(intent);
 
     if (requiredAction !== undefined) {
-      const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace as KnowledgeWorkspace);
+      const intentDecision = await this.dependencies.authorization.can(message.user, requiredAction, workspace);
       if (!intentDecision.allowed) {
         await this.saveFeedback(message, workspace.path, intent, role);
         await this.logEvent("permission.denied", message, { role, action: requiredAction, intentType: intent.type, workspacePath: workspace.path });
@@ -197,8 +196,16 @@ export class AgentOrchestrator implements MessageGateway {
         const response = await intentRuntime.run(request);
         return parseIntentResponse(response.text);
       }
-    } catch {
-      // Fall back to heuristic if intent runtime fails
+    } catch (error) {
+      void this.dependencies.eventLogger?.write({
+        type: "intent.fallback",
+        channel: "",
+        messageId: "",
+        userId: "system",
+        reason: error instanceof Error ? error.message : String(error),
+        userMessage,
+        role,
+      });
     }
     return fallbackIntentFor(userMessage);
   }
