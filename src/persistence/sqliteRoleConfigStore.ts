@@ -58,17 +58,13 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
   public constructor(private readonly db: Database.Database) {}
 
   public getAll(): Promise<readonly StoredRoleConfig[]> {
-    return Promise.resolve().then(() => {
-      const rows = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at FROM roles ORDER BY name").all() as RoleRow[];
-      return rows.map(rowToConfig);
-    });
+    const rows = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at FROM roles ORDER BY name").all() as RoleRow[];
+    return new Promise((resolve) => resolve(rows.map(rowToConfig)));
   }
 
   public getByName(name: string): Promise<StoredRoleConfig | undefined> {
-    return Promise.resolve().then(() => {
-      const row = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at FROM roles WHERE name = ?").get(name) as RoleRow | undefined;
-      return row === undefined ? undefined : rowToConfig(row);
-    });
+    const row = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at FROM roles WHERE name = ?").get(name) as RoleRow | undefined;
+    return new Promise((resolve) => resolve(row === undefined ? undefined : rowToConfig(row)));
   }
 
   public upsert(config: StoredRoleConfig): Promise<void> {

@@ -15,18 +15,19 @@ export class RuntimeCache {
 
   public async resolve(role: string): Promise<AgentRuntime | undefined> {
     const cacheKey = await this.cacheKeyForRole(role);
-    let runtime = this.cache.get(cacheKey);
-    if (runtime === undefined && this.runtimeFactory !== undefined) {
+
+    const cached = this.cache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    if (this.runtimeFactory !== undefined) {
       const created = await this.runtimeFactory.createRuntime(role);
       if (created !== undefined) {
         this.cacheRuntime(cacheKey, created);
-        runtime = created;
+        return created;
       }
     }
-    if (runtime === undefined && this.runtimeFactory === undefined) {
-      runtime = this.cache.get(role);
-    }
-    return runtime;
+
+    return this.cache.get(role);
   }
 
   private cacheRuntime(role: string, runtime: AgentRuntime): void {

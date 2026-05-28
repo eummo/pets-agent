@@ -70,6 +70,7 @@ export class PiAgentRuntime implements AgentRuntime {
     const sessionId = request.sessionId ?? generateSessionId();
     const session = await this.getOrCreateSession(request, sessionId);
 
+    const startTime = Date.now();
     const collector = new PiEventCollector(request, this.rawLogger, this.name, this.roleConfig);
     collector.setSessionId(sessionId);
 
@@ -100,7 +101,7 @@ export class PiAgentRuntime implements AgentRuntime {
         workspacePath: request.workspacePath,
         sessionId,
         error: formatUnknownError(error),
-        durationMs: Date.now(),
+        durationMs: Date.now() - startTime,
       });
       throw error;
     } finally {

@@ -1,18 +1,17 @@
 import type { AgentProgressEvent, AgentStreamEvent } from "../agent/index.js";
 
-export function progressEventForAgentStreamEvent(event: AgentStreamEvent): AgentProgressEvent {
-  const stage = event.type === "text_delta" ? "agent.text_delta"
-    : event.type === "tool_use_start" ? "agent.tool_use_start"
-    : event.type === "tool_use_result" ? "agent.tool_use_result"
-    : event.type === "thinking" ? "agent.thinking"
-    : event.type === "compact_start" ? "agent.compact_start"
-    : event.type === "compact_complete" ? "agent.compact_complete"
-    : event.type === "completed" ? "agent.completed"
-    : "agent.error";
+const EVENT_STAGE_MAP: Readonly<Record<AgentStreamEvent["type"], string>> = {
+  text_delta: "agent.text_delta",
+  tool_use_start: "agent.tool_use_start",
+  tool_use_result: "agent.tool_use_result",
+  thinking: "agent.thinking",
+  compact_start: "agent.compact_start",
+  compact_complete: "agent.compact_complete",
+  completed: "agent.completed",
+  error: "agent.error",
+};
 
-  return {
-    stage,
-    message: stage,
-    data: event,
-  };
+export function progressEventForAgentStreamEvent(event: AgentStreamEvent): AgentProgressEvent {
+  const stage = EVENT_STAGE_MAP[event.type];
+  return { stage, message: stage, data: event };
 }

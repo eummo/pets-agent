@@ -33,9 +33,7 @@ export class SseProgressBroker implements ProgressReporter {
 
   public publish(user: ChannelUser, event: AgentProgressEvent): Promise<void> {
     const subscribers = this.subscribers.get(user.id);
-    if (subscribers === undefined) {
-      return Promise.resolve();
-    }
+    if (subscribers === undefined) return Promise.resolve();
 
     const payload = {
       ...event,

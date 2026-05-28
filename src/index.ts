@@ -36,15 +36,12 @@ export async function main(): Promise<void> {
   const systemLogger = createJsonlLogger(path.join(config.logDir, "system.jsonl"));
   const progressBroker = new SseProgressBroker();
 
-  // Initialize SQLite and stores
   const db = createSqliteConnection(config.dbPath);
   const roleConfigStore = new SqliteRoleConfigStore(db);
   const feedbackStore = new SqliteFeedbackStore(db);
 
-  // Seed default roles if table is empty
   await seedDefaultRoles(roleConfigStore);
 
-  // Configure SDK env vars based on agent SDK type
   if (config.agentSdk.type === "claude") {
     process.env["ANTHROPIC_API_KEY"] ??= config.agentSdk.apiKey;
     process.env["ANTHROPIC_BASE_URL"] ??= config.agentSdk.baseUrl;
@@ -56,7 +53,6 @@ export async function main(): Promise<void> {
 
   const runtimeFactory = setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.agentSdk, config.context);
 
-  // Warmup pre-creates runtimes for all known roles and prints their status
   const agentRuntimes = await runtimeFactory.warmup();
 
   const authorization = new InMemoryRoleAuthorizationService(roleConfigStore);
@@ -77,7 +73,6 @@ export async function main(): Promise<void> {
     feedbackStore,
   });
 
-  // Start HTTP server for dev browser and health checks
   const server = createServer({
     messageHandler: orchestrator,
     roleConfigStore,
@@ -97,7 +92,6 @@ export async function main(): Promise<void> {
   console.info(`llm raw log: ${llmRawLogger.filePath}`);
   console.info(`database: ${config.dbPath}`);
 
-  // Start WeChat smart bot adapter (WebSocket long connection)
   const wechatAdapter = new WechatSmartBotAdapter({
     botId: config.wechat.botId,
     secret: config.wechat.secret,
@@ -111,7 +105,6 @@ export async function main(): Promise<void> {
   wechatAdapter.connect();
   console.info(`WeChat smart bot connected: botId=${config.wechat.botId}`);
 
-  // Graceful shutdown
   const shutdown = (): void => {
     console.info("Shutting down...");
     wechatAdapter.disconnect();

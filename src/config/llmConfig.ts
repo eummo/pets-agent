@@ -44,7 +44,7 @@ export function summarizeLlmConfig(config: LlmConfig): Pick<LlmConfig, "baseUrl"
 }
 
 export function buildPiModel(config: ResolvedLlmConfig): Model<Api> {
-  const model: Model<Api> = {
+  return {
     id: config.modelId,
     name: config.modelId,
     api: AGENT_SDK_DEFAULTS.api,
@@ -56,7 +56,6 @@ export function buildPiModel(config: ResolvedLlmConfig): Model<Api> {
     contextWindow: AGENT_SDK_DEFAULTS.contextWindow,
     maxTokens: config.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens,
   };
-  return model;
 }
 
 // ── Agent SDK Configuration ─────────────────────────────────────────────────

@@ -68,23 +68,25 @@ export function createSqliteConnection(dbPath: string): Database.Database {
 }
 
 function migrateRolesMetadataColumns(db: Database.Database): void {
-  const columns = db.prepare("PRAGMA table_info(roles)").all() as { readonly name: string }[];
-  const existingColumnNames = new Set(columns.map((column) => column.name));
-
-  for (const column of ROLES_METADATA_COLUMNS) {
-    if (!existingColumnNames.has(column.name)) {
-      db.exec(`ALTER TABLE roles ADD COLUMN ${column.name} ${column.definition}`);
-    }
-  }
+  addMissingColumns(db, "roles", ROLES_METADATA_COLUMNS);
 }
 
 function migrateFeedbackMetadataColumns(db: Database.Database): void {
-  const columns = db.prepare("PRAGMA table_info(feedback)").all() as { readonly name: string }[];
-  const existingColumnNames = new Set(columns.map((column) => column.name));
+  addMissingColumns(db, "feedback", FEEDBACK_METADATA_COLUMNS);
+}
 
-  for (const column of FEEDBACK_METADATA_COLUMNS) {
-    if (!existingColumnNames.has(column.name)) {
-      db.exec(`ALTER TABLE feedback ADD COLUMN ${column.name} ${column.definition}`);
+function addMissingColumns(
+  db: Database.Database,
+  table: string,
+  columns: readonly { readonly name: string; readonly definition: string }[],
+): void {
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { readonly name: string }[]).map((c) => c.name),
+  );
+
+  for (const column of columns) {
+    if (!existing.has(column.name)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column.name} ${column.definition}`);
     }
   }
 }
