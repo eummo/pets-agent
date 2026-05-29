@@ -28,7 +28,7 @@ describe("seedDefaultRoles", () => {
     }));
     await expect(store.getByName("admin")).resolves.toEqual(expect.objectContaining({
       name: "admin",
-      capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"],
+      capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage", "cron_manage"],
       skills: "all",
       settingSources: ["project", "local"],
     }));

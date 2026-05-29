@@ -27,5 +27,11 @@
     "api": "anthropic-messages",
     "provider": "pets-agent",
     "contextWindow": 200000
+  },
+  "cron": {
+    "enabled": true,
+    "tickIntervalMs": 60000,
+    "staleGraceMs": 300000,
+    "jobStorePath": ".harness/state/cron-jobs.json"
   }
 }

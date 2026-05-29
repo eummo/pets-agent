@@ -209,6 +209,68 @@ describe("WechatSmartBotAdapter replies", () => {
       ]),
     );
   });
+
+  it("passes chatType group for group chat messages", async () => {
+    let capturedChatType: string | undefined;
+    const messageHandler: MessageGateway = {
+      handle(message): Promise<OutboundMessage> {
+        capturedChatType = message.chatType;
+        return Promise.resolve({ text: "ok" });
+      },
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+    });
+
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
+      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
+    };
+
+    const privateAdapter = adapter as unknown as {
+      wsClient: typeof fakeClient;
+      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+    };
+    privateAdapter.wsClient = fakeClient;
+
+    await privateAdapter.handleTextMessage(groupTextFrame("msg-g", "user-1", "group-1", "hello"));
+
+    expect(capturedChatType).toBe("group");
+  });
+
+  it("passes chatType single for single chat messages", async () => {
+    let capturedChatType: string | undefined;
+    const messageHandler: MessageGateway = {
+      handle(message): Promise<OutboundMessage> {
+        capturedChatType = message.chatType;
+        return Promise.resolve({ text: "ok" });
+      },
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+    });
+
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
+      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
+    };
+
+    const privateAdapter = adapter as unknown as {
+      wsClient: typeof fakeClient;
+      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+    };
+    privateAdapter.wsClient = fakeClient;
+
+    await privateAdapter.handleTextMessage(singleTextFrame("msg-s", "user-2", "hello"));
+
+    expect(capturedChatType).toBe("single");
+  });
 });
 
 function collectingLogger(events: Record<string, unknown>[]): ConversationLogger {
@@ -233,6 +295,25 @@ function groupTextFrame(
       aibotid: "bot-id",
       chatid: chatId,
       chattype: "group",
+      from: { userid: userId },
+      create_time: 1_779_786_805,
+      msgtype: MessageType.Text,
+      text: { content },
+    },
+  };
+}
+
+function singleTextFrame(
+  messageId: string,
+  userId: string,
+  content: string,
+): WsFrame<TextMessage> {
+  return {
+    headers: { req_id: `req-${messageId}` },
+    body: {
+      msgid: messageId,
+      aibotid: "bot-id",
+      chattype: "single",
       from: { userid: userId },
       create_time: 1_779_786_805,
       msgtype: MessageType.Text,

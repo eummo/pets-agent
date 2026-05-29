@@ -28,6 +28,15 @@ import { createServer } from "./server/createServer.js";
 import { SseProgressBroker } from "./server/sseProgressBroker.js";
 import { InMemoryRoleAuthorizationService } from "./auth/inMemoryRoleAuthorizationService.js";
 import { WechatSmartBotAdapter } from "./wechat/wechatSmartBotAdapter.js";
+import { FileCronJobStore } from "./cron/cronJobStore.js";
+import { TickCronScheduler } from "./cron/cronScheduler.js";
+import { CompositeDeliveryChannel } from "./cron/delivery/compositeDelivery.js";
+import { SseDeliveryChannel } from "./cron/delivery/sseDelivery.js";
+import { WecomBotDeliveryChannel } from "./cron/delivery/wecomBotDelivery.js";
+import { WebhookDeliveryChannel } from "./cron/delivery/webhookDelivery.js";
+import { registerCronRoutes } from "./cron/cronRoutes.js";
+import { LlmCronParseService } from "./cron/cronParseService.js";
+import { buildPiModel } from "./config/llmConfig.js";
 
 export async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -83,15 +92,7 @@ export async function main(): Promise<void> {
     logger: true
   });
 
-  await server.listen({ port: config.port, host: config.host });
-  console.info(`pets-agent listening on http://${config.host}:${config.port}`);
-  console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
-  console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
-  console.info(`admin runtime: ${agentRuntimes["admin"]?.name ?? "not configured"}`);
-  console.info(`conversation log: ${conversationLogger.filePath}`);
-  console.info(`llm raw log: ${llmRawLogger.filePath}`);
-  console.info(`database: ${config.dbPath}`);
-
+  // ── WeChat Smart Bot Adapter ─────────────────────────────────────────────
   const wechatAdapter = new WechatSmartBotAdapter({
     botId: config.wechat.botId,
     secret: config.wechat.secret,
@@ -102,11 +103,64 @@ export async function main(): Promise<void> {
     ...(config.wechat.reconnectInterval !== undefined ? { reconnectInterval: config.wechat.reconnectInterval } : {}),
     ...(config.wechat.maxReconnectAttempts !== undefined ? { maxReconnectAttempts: config.wechat.maxReconnectAttempts } : {}),
   });
+
+  // ── Cron Scheduler ─────────────────────────────────────────────────────────
+  let cronScheduler: TickCronScheduler | undefined;
+  if (config.cron.enabled) {
+    const cronJobStore = new FileCronJobStore(config.cron.jobStorePath);
+
+    const deliveryChannels: import("./cron/cronTypes.js").DeliveryChannel[] = [
+      new SseDeliveryChannel(progressBroker),
+      new WecomBotDeliveryChannel(wechatAdapter),
+      new WebhookDeliveryChannel(),
+    ];
+
+    const compositeDelivery = new CompositeDeliveryChannel(deliveryChannels);
+
+    cronScheduler = new TickCronScheduler({
+      jobStore: cronJobStore,
+      messageHandler: orchestrator,
+      delivery: compositeDelivery,
+      eventLogger: systemLogger,
+      conversationLogger,
+      tickIntervalMs: config.cron.tickIntervalMs,
+      staleGraceMs: config.cron.staleGraceMs,
+    });
+
+    if (config.enableDevRoutes) {
+      const cronParseService = new LlmCronParseService(
+        buildPiModel(config.llm),
+        config.llm.apiKey,
+        llmRawLogger
+      );
+      registerCronRoutes(server, {
+        jobStore: cronJobStore,
+        scheduler: cronScheduler,
+        authorization,
+        cronParseService,
+      });
+    }
+  }
+
+  await server.listen({ port: config.port, host: config.host });
+  console.info(`pets-agent listening on http://${config.host}:${config.port}`);
+  console.info(`reviewer runtime: ${agentRuntimes["reviewer"]?.name ?? "not configured"}`);
+  console.info(`developer runtime: ${agentRuntimes["developer"]?.name ?? "not configured"}`);
+  console.info(`admin runtime: ${agentRuntimes["admin"]?.name ?? "not configured"}`);
+  console.info(`conversation log: ${conversationLogger.filePath}`);
+  console.info(`llm raw log: ${llmRawLogger.filePath}`);
+  console.info(`database: ${config.dbPath}`);
+
+  if (cronScheduler !== undefined) {
+    cronScheduler.start();
+    console.info(`cron scheduler: enabled (tick=${config.cron.tickIntervalMs}ms, grace=${config.cron.staleGraceMs}ms)`);
+  }
+
   wechatAdapter.connect();
   console.info(`WeChat smart bot connected: botId=${config.wechat.botId}`);
-
   const shutdown = (): void => {
     console.info("Shutting down...");
+    cronScheduler?.stop();
     wechatAdapter.disconnect();
     void server.close();
     process.exit(0);

@@ -1070,6 +1070,68 @@ describe("AgentOrchestrator", () => {
       })
     ]);
   });
+
+  it("forwards chatType and chatId to AgentRequest", async () => {
+    let capturedRequest: AgentRequest | undefined;
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run(request: AgentRequest) {
+          capturedRequest = request;
+          return Promise.resolve({ text: "response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
+    });
+
+    await orchestrator.handle(testMessage("hello group", "user-1", "1", "group-A", "group"));
+
+    expect(capturedRequest).toBeDefined();
+    if (capturedRequest !== undefined) {
+      expect(capturedRequest.chatType).toBe("group");
+      expect(capturedRequest.chatId).toBe("group-A");
+    }
+  });
+
+  it("does not set chatType on AgentRequest when InboundMessage has no chatType", async () => {
+    let capturedRequest: AgentRequest | undefined;
+    const runtimes = {
+      reviewer: {
+        name: "runtime",
+        run(request: AgentRequest) {
+          capturedRequest = request;
+          return Promise.resolve({ text: "response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
+    });
+
+    await orchestrator.handle(testMessage("hello"));
+
+    expect(capturedRequest).toBeDefined();
+    if (capturedRequest !== undefined) {
+      expect(capturedRequest.chatType).toBeUndefined();
+      expect(capturedRequest.chatId).toBeUndefined();
+    }
+  });
 });
 
 const workspaceResolver: KnowledgeWorkspaceResolver = {
@@ -1106,7 +1168,7 @@ const developerAuthorization: AuthorizationService = {
   }
 };
 
-function testMessage(text: string, userId = "user-1", id = "1", chatId?: string) {
+function testMessage(text: string, userId = "user-1", id = "1", chatId?: string, chatType?: "single" | "group") {
   return {
     id,
     channel: "test",
@@ -1114,6 +1176,7 @@ function testMessage(text: string, userId = "user-1", id = "1", chatId?: string)
     text,
     receivedAt: new Date(),
     ...(chatId !== undefined ? { chatId } : {}),
+    ...(chatType !== undefined ? { chatType } : {}),
   };
 }
 

@@ -54,7 +54,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
-    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage"],
+    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage", "cron_manage"],
     skills: "all",
     settingSources: ["project", "local"],
   },

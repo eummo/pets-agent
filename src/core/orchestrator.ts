@@ -198,7 +198,9 @@ export class AgentOrchestrator implements MessageGateway {
         });
       },
       ...(sessionId !== undefined ? { sessionId } : {}),
-      ...(priorHistory !== undefined && priorHistory.length > 0 ? { history: priorHistory } : {})
+      ...(priorHistory !== undefined && priorHistory.length > 0 ? { history: priorHistory } : {}),
+      ...(message.chatType !== undefined ? { chatType: message.chatType } : {}),
+      ...(message.chatId !== undefined ? { chatId: message.chatId } : {})
     };
 
     try {

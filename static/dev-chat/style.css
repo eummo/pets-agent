@@ -296,6 +296,257 @@ button:disabled { background: #8b98aa; cursor: wait; }
   font-size: 14px;
 }
 .feedback-error { color: #a94442; }
+
+/* Cron panel */
+.cron-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cron-header h2 { margin: 0; font-size: 16px; }
+.cron-header-actions { display: flex; align-items: center; gap: 8px; }
+.cron-scheduler-status {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #d4edda;
+  color: #155724;
+  font-weight: 600;
+}
+.cron-scheduler-status.stopped { background: #fff3cd; color: #856404; }
+.cron-header-actions button {
+  background: #f6f7f9;
+  color: #3d4f6f;
+  border: 1px solid #d9dee7;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.cron-header-actions button:hover { background: #eef0f4; }
+#add-cron-job {
+  background: #2257a5;
+  color: #ffffff;
+  border: 0;
+  font-weight: 650;
+}
+#add-cron-job:hover { background: #1b4685; }
+.cron-job-list { display: flex; flex-direction: column; gap: 12px; }
+.cron-job-card {
+  border: 1px solid #dce2eb;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.cron-job-card.disabled { opacity: 0.6; }
+.cron-job-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cron-job-name { font-weight: 650; font-size: 14px; }
+.cron-job-id { font-size: 12px; color: #8b98aa; }
+.cron-enabled-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cron-enabled-badge.enabled { background: #d4edda; color: #155724; }
+.cron-enabled-badge.disabled { background: #f6f7f9; color: #8b98aa; }
+.cron-job-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cron-job-detail-label { color: #627086; font-weight: 600; }
+.cron-job-detail-value { color: #3d4f6f; white-space: pre-wrap; word-break: break-word; }
+.cron-job-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f9fafb;
+  border: 1px solid #dce2eb;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.cron-result-status {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.cron-result-status.success { color: #155724; }
+.cron-result-status.error { color: #a94442; }
+.cron-result-status.timeout { color: #856404; }
+.cron-result-status.skipped { color: #8b98aa; }
+.cron-result-output {
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.cron-job-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cron-action-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cron-trigger-btn { background: #eef4ff; color: #2257a5; border: 1px solid #b9c7dc; }
+.cron-trigger-btn:hover { background: #dce7f9; }
+.cron-edit-btn { background: #f6f7f9; color: #3d4f6f; border: 1px solid #d9dee7; }
+.cron-edit-btn:hover { background: #eef0f4; }
+.cron-delete-btn { background: #fff0f0; color: #a94442; border: 1px solid #e3b3b3; }
+.cron-delete-btn:hover { background: #fdd; }
+.cron-loading, .cron-empty, .cron-error {
+  text-align: center;
+  padding: 24px;
+  color: #8b98aa;
+  font-size: 14px;
+}
+.cron-error { color: #a94442; }
+
+/* Cron form overlay */
+.cron-form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.cron-form-overlay.hidden { display: none; }
+.cron-form-card {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  width: min(540px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+}
+.cron-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.cron-form-header h3 { margin: 0; font-size: 16px; }
+.cron-form-close {
+  background: transparent;
+  border: 0;
+  font-size: 22px;
+  color: #8b98aa;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.cron-form-close:hover { color: #3d4f6f; }
+.cron-job-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cron-job-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.cron-job-form label span {
+  font-weight: 600;
+  color: #3d4f6f;
+}
+.cron-job-form input,
+.cron-job-form select,
+.cron-job-form textarea {
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.cron-job-form textarea { min-height: 60px; resize: vertical; }
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+.checkbox-label input[type="checkbox"] { width: auto; }
+.cron-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.cron-form-actions button[type="submit"] {
+  background: #2257a5;
+  color: #fff;
+  font-weight: 650;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 20px;
+  cursor: pointer;
+}
+.cron-form-actions button[type="submit"]:hover { background: #1b4685; }
+.cron-form-actions button[type="button"] {
+  background: #f6f7f9;
+  color: #3d4f6f;
+  border: 1px solid #d9dee7;
+  border-radius: 6px;
+  padding: 8px 20px;
+  cursor: pointer;
+  font-weight: 650;
+}
+.cron-form-actions button[type="button"]:hover { background: #eef0f4; }
+
+/* Natural language cron parse */
+.cron-nl-section {
+  background: #f6f7f9;
+  border-radius: 6px;
+  padding: 12px;
+}
+.cron-nl-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.cron-nl-section label span {
+  font-weight: 600;
+  color: #3d4f6f;
+}
+.cron-nl-section textarea {
+  font-size: 13px;
+  padding: 8px 10px;
+  min-height: 48px;
+  resize: vertical;
+}
+.cron-nl-parse-btn {
+  margin-top: 6px;
+  background: #2257a5;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.cron-nl-parse-btn:hover { background: #1b4685; }
+.cron-nl-parse-btn:disabled { background: #8b98aa; cursor: wait; }
+.cron-form-divider {
+  border: 0;
+  border-top: 1px solid #d9dee7;
+  margin: 4px 0;
+}
+
 @media (max-width: 720px) {
   form { grid-template-columns: 1fr; padding: 12px 16px; }
   button { min-height: 42px; }

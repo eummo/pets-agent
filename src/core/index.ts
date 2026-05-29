@@ -13,6 +13,7 @@ export type InboundMessage = {
   readonly receivedAt: Date;
   readonly stream?: import("../agent/index.js").AgentStreamPublisher;
   readonly chatId?: string;
+  readonly chatType?: "single" | "group";
 };
 
 export type OutboundMessage = {

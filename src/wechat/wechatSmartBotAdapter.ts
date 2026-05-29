@@ -73,6 +73,17 @@ export class WechatSmartBotAdapter {
     return this.wsClient.isConnected;
   }
 
+  /**
+   * Send a message to a user or group chat via the smart bot SDK.
+   * Used by cron delivery to proactively push results.
+   */
+  public async sendProactiveMessage(targetId: string, content: string): Promise<void> {
+    await this.wsClient.sendMessage(targetId, {
+      msgtype: "markdown",
+      markdown: { content },
+    });
+  }
+
   private registerHandlers(): void {
     this.wsClient.on("authenticated", () => {
       void this.logEvent("wechat.authenticated", {});
@@ -139,7 +150,8 @@ export class WechatSmartBotAdapter {
       text: cleanContent,
       receivedAt: body.create_time !== undefined ? new Date(body.create_time * 1000) : new Date(),
       stream: streamCallback,
-      ...(chatId !== undefined ? { chatId } : {})
+      ...(chatId !== undefined ? { chatId } : {}),
+      chatType: body.chattype
     };
     streamState.inbound = inbound;
 

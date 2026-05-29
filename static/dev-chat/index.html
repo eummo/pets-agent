@@ -13,6 +13,7 @@
       <nav class="tabs">
         <button class="tab active" data-tab="chat">对话</button>
         <button class="tab" data-tab="feedback">反馈管理</button>
+        <button class="tab" data-tab="cron">定时任务</button>
       </nav>
     </header>
     <main>
@@ -30,6 +31,97 @@
           <button id="refresh-feedback" type="button">刷新</button>
         </div>
         <div id="feedback-list"></div>
+      </section>
+      <section id="cron-panel" class="panel">
+        <div class="cron-header">
+          <h2>定时任务</h2>
+          <div class="cron-header-actions">
+            <span id="cron-status" class="cron-scheduler-status"></span>
+            <button id="refresh-cron" type="button">刷新</button>
+            <button id="add-cron-job" type="button">新建任务</button>
+          </div>
+        </div>
+        <div id="cron-job-list"></div>
+        <div id="cron-form-overlay" class="cron-form-overlay hidden">
+          <div class="cron-form-card">
+            <div class="cron-form-header">
+              <h3 id="cron-form-title">新建定时任务</h3>
+              <button id="cron-form-close" type="button" class="cron-form-close">&times;</button>
+            </div>
+            <form id="cron-job-form" class="cron-job-form">
+              <input type="hidden" id="cron-edit-id" />
+              <div class="cron-nl-section">
+                <label>
+                  <span>自然语言描述</span>
+                  <textarea id="cron-nl-input" placeholder="例：每天早上9点总结昨天的git提交记录并发送到企微群"></textarea>
+                </label>
+                <button type="button" id="cron-nl-parse" class="cron-nl-parse-btn">智能解析</button>
+              </div>
+              <hr class="cron-form-divider" />
+              <label>
+                <span>任务名称</span>
+                <input type="text" id="cron-name" required placeholder="例：每日早报" />
+              </label>
+              <label>
+                <span>调度方式</span>
+                <select id="cron-schedule-type">
+                  <option value="cron">Cron 表达式</option>
+                  <option value="interval">固定间隔</option>
+                  <option value="once">单次执行</option>
+                </select>
+              </label>
+              <label id="cron-expr-label">
+                <span>Cron 表达式</span>
+                <input type="text" id="cron-expression" placeholder="0 9 * * 1-5" />
+              </label>
+              <label id="cron-interval-label" class="hidden">
+                <span>间隔（毫秒）</span>
+                <input type="number" id="cron-interval-ms" placeholder="3600000" min="60000" />
+              </label>
+              <label id="cron-once-label" class="hidden">
+                <span>执行时间 (ISO)</span>
+                <input type="datetime-local" id="cron-run-at" />
+              </label>
+              <label>
+                <span>执行提示词</span>
+                <textarea id="cron-prompt" required placeholder="例：总结最近24小时的git提交记录"></textarea>
+              </label>
+              <label>
+                <span>工作空间路径</span>
+                <input type="text" id="cron-workspace" required value=".harness/knowledge-base" />
+              </label>
+              <label>
+                <span>角色</span>
+                <select id="cron-role">
+                  <option value="">默认</option>
+                  <option value="reviewer">reviewer</option>
+                  <option value="developer">developer</option>
+                  <option value="admin">admin</option>
+                </select>
+              </label>
+              <label>
+                <span>投递渠道（每行一个）</span>
+                <textarea id="cron-channels" required placeholder="wecom:chat:群聊ID&#10;wecom:user:用户ID&#10;sse:admin&#10;webhook:https://...">wecom:chat:</textarea>
+              </label>
+              <label>
+                <span>超时（毫秒）</span>
+                <input type="number" id="cron-timeout" value="120000" min="10000" />
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="cron-silent-empty" />
+                <span>输出为空时不投递</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="cron-enabled" checked />
+                <span>启用</span>
+              </label>
+              <div class="cron-form-actions">
+                <button type="submit" id="cron-form-submit">保存</button>
+                <button type="button" id="cron-form-cancel">取消</button>
+              </div>
+            </form>
+          </div>
+        </div>
       </section>
     </main>
     <form id="chat-form">

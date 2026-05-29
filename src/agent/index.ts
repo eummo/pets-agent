@@ -19,6 +19,8 @@ export type AgentRequest = {
   readonly progress?: AgentProgressPublisher;
   readonly stream?: AgentStreamPublisher;
   readonly onCompact?: (summary: string) => Promise<void>;
+  readonly chatType?: "single" | "group";
+  readonly chatId?: string;
 };
 
 export type AgentResponse = {

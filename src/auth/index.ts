@@ -26,7 +26,8 @@ export type RoleCapability =
   | "knowledge_base_update" // update curated knowledge-base documentation
   | "feedback_view"        // view user feedback entries
   | "feedback_manage"      // review and update feedback status
-  | "roles_manage";        // create, update, delete role configurations (future)
+  | "roles_manage"         // create, update, delete role configurations (future)
+  | "cron_manage";         // create, update, delete, and view cron jobs
 
 export type SettingSource = "user" | "project" | "local";
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { splitAtHeadings, truncateToBudget } from "./workspacePromptBuilder.js";
+import { buildChatContext, splitAtHeadings, truncateToBudget } from "./workspacePromptBuilder.js";
+import type { AgentRequest } from "../index.js";
 
 describe("splitAtHeadings", () => {
   it("splits content at h1/h2/h3 headings", () => {
@@ -88,5 +89,59 @@ describe("truncateToBudget", () => {
 
     // "# A\nAA\n" = 8 chars fits, "# B\nBB\n" = 7 chars, 8+7=15 > 10
     expect(result).toBe("# A\nAA\n");
+  });
+});
+
+describe("buildChatContext", () => {
+  it("returns undefined when chatType is not set", () => {
+    const request: AgentRequest = {
+      user: { id: "user-1" },
+      text: "hello",
+      workspacePath: "/tmp/ws"
+    };
+    expect(buildChatContext(request)).toBeUndefined();
+  });
+
+  it("returns group chat mention instructions for group chatType", () => {
+    const request: AgentRequest = {
+      user: { id: "zhangsan" },
+      text: "hello",
+      workspacePath: "/tmp/ws",
+      chatType: "group"
+    };
+    const result = buildChatContext(request);
+    expect(result).toBeDefined();
+    expect(result).toContain("group chat");
+    expect(result).toContain("zhangsan");
+    expect(result).toContain("<@userid>");
+    expect(result).toContain("<@zhangsan>");
+    expect(result).toContain("@mention");
+  });
+
+  it("returns single chat no-mention instruction for single chatType", () => {
+    const request: AgentRequest = {
+      user: { id: "lisi" },
+      text: "hello",
+      workspacePath: "/tmp/ws",
+      chatType: "single"
+    };
+    const result = buildChatContext(request);
+    expect(result).toBeDefined();
+    expect(result).toContain("single chat");
+    expect(result).toContain("Do not use @mentions");
+    expect(result).not.toContain("<@");
+  });
+
+  it("includes the sender userid in group chat context", () => {
+    const request: AgentRequest = {
+      user: { id: "wangwu" },
+      text: "hello",
+      workspacePath: "/tmp/ws",
+      chatType: "group",
+      chatId: "group-123"
+    };
+    const result = buildChatContext(request);
+    expect(result).toContain("wangwu");
+    expect(result).toContain("<@wangwu>");
   });
 });

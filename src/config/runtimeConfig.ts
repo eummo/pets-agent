@@ -38,6 +38,23 @@ const contextConfigSchema = z
     historyMaxMessages: 20
   }));
 
+const cronWecomConfigSchema = z.object({
+  corpId: z.string().min(1),
+  corpSecretEnv: z.string().min(1),
+  agentId: z.string().min(1),
+  tokenCacheMs: z.number().int().positive().default(7_200_000),
+});
+
+const cronConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    tickIntervalMs: z.number().int().positive().default(60_000),
+    staleGraceMs: z.number().int().positive().default(300_000),
+    jobStorePath: z.string().min(1).default(".harness/state/cron-jobs.json"),
+    wecom: cronWecomConfigSchema.optional(),
+  })
+  .default(() => ({ enabled: false, tickIntervalMs: 60_000, staleGraceMs: 300_000, jobStorePath: ".harness/state/cron-jobs.json" }));
+
 const runtimeConfigSchema = z.object({
   port: z.number().int().positive().default(3000),
   host: z.string().min(1).default("127.0.0.1"),
@@ -60,7 +77,8 @@ const runtimeConfigSchema = z.object({
     .default({ botId: "dev-bot-id", secret: "dev-secret" }),
   llm: llmConfigSchema,
   agentSdk: agentSdkConfigSchema.optional(),
-  context: contextConfigSchema
+  context: contextConfigSchema,
+  cron: cronConfigSchema
 });
 
 export type WechatConfig = {
@@ -85,6 +103,21 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   historyMaxMessages: 20,
 };
 
+export type CronWecomConfig = {
+  readonly corpId: string;
+  readonly corpSecret: string;
+  readonly agentId: string;
+  readonly tokenCacheMs: number;
+};
+
+export type CronConfig = {
+  readonly enabled: boolean;
+  readonly tickIntervalMs: number;
+  readonly staleGraceMs: number;
+  readonly jobStorePath: string;
+  readonly wecom?: CronWecomConfig;
+};
+
 export type RuntimeConfig = {
   readonly port: number;
   readonly host: string;
@@ -98,6 +131,7 @@ export type RuntimeConfig = {
   readonly llm: ResolvedLlmConfig;
   readonly agentSdk: ResolvedAgentSdkConfig;
   readonly context: ContextConfig;
+  readonly cron: CronConfig;
 };
 
 export async function loadRuntimeConfig(
@@ -153,7 +187,23 @@ export async function loadRuntimeConfig(
       ? { maxReconnectAttempts: parsed.data.wechat.maxReconnectAttempts }
       : {})
   };
-  return { ...parsed.data, llm: resolvedLlm, agentSdk: resolvedAgentSdk, wechat };
+  const cron: CronConfig = {
+    enabled: parsed.data.cron.enabled,
+    tickIntervalMs: parsed.data.cron.tickIntervalMs,
+    staleGraceMs: parsed.data.cron.staleGraceMs,
+    jobStorePath: parsed.data.cron.jobStorePath,
+    ...(parsed.data.cron.wecom !== undefined
+      ? {
+          wecom: {
+            corpId: parsed.data.cron.wecom.corpId,
+            corpSecret: resolveEnvOrDirect("", parsed.data.cron.wecom.corpSecretEnv, env),
+            agentId: parsed.data.cron.wecom.agentId,
+            tokenCacheMs: parsed.data.cron.wecom.tokenCacheMs,
+          },
+        }
+      : {}),
+  };
+  return { ...parsed.data, llm: resolvedLlm, agentSdk: resolvedAgentSdk, wechat, cron };
 }
 
 function resolveEnvOrDirect(
