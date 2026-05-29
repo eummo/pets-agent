@@ -147,6 +147,28 @@ describe("TickCronScheduler", () => {
     expect(gateway.handleMock).toHaveBeenCalledOnce();
   });
 
+  it("passes cron job role as a trusted role override", async () => {
+    const job = makeJob({ role: "developer" });
+    const store = createMockStore([job]);
+    const gateway = createMockGateway({ text: "Developer result" });
+    const delivery = createMockDelivery();
+
+    const scheduler = new TickCronScheduler({
+      jobStore: store,
+      messageHandler: gateway,
+      delivery,
+    });
+
+    await scheduler.triggerNow(job.id);
+
+    expect(gateway.handleMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: `job:${job.id}`,
+        roleOverride: "developer",
+      })
+    );
+  });
+
   it("throws when triggering non-existent job", async () => {
     const scheduler = new TickCronScheduler({
       jobStore: createMockStore(),
@@ -199,6 +221,34 @@ describe("TickCronScheduler", () => {
 
     const result = await triggerPromise;
     expect(result.status).toBe("timeout");
+  });
+
+  it("skips a manual trigger while the same job is already running", async () => {
+    const job = makeJob();
+    const store = createMockStore([job]);
+    let resolveFirst: ((response: OutboundMessage) => void) | undefined;
+    const handleMock = vi.fn(() => new Promise<OutboundMessage>((resolve) => {
+      resolveFirst = resolve;
+    }));
+    const gateway: MessageGateway = { handle: handleMock };
+    const delivery = createMockDelivery();
+
+    const scheduler = new TickCronScheduler({
+      jobStore: store,
+      messageHandler: gateway,
+      delivery,
+    });
+
+    const firstRun = scheduler.triggerNow(job.id);
+    await Promise.resolve();
+    const secondRun = await scheduler.triggerNow(job.id);
+
+    expect(secondRun.status).toBe("skipped");
+    expect(handleMock).toHaveBeenCalledOnce();
+
+    if (resolveFirst === undefined) throw new Error("Expected first run to be pending");
+    resolveFirst({ text: "Done" });
+    await firstRun;
   });
 
   it("skips delivery when silentOnEmpty is true and output is empty", async () => {
@@ -289,6 +339,33 @@ describe("TickCronScheduler", () => {
 
     expect(gateway.handleMock).not.toHaveBeenCalled();
     scheduler.stop();
+  });
+
+  it("does not overlap ticks while a previous tick is still executing", async () => {
+    const now = new Date("2026-05-28T12:00:00Z");
+    vi.setSystemTime(now);
+
+    const job = makeJob({ schedule: { type: "interval", milliseconds: 1_000 } });
+    const store = createMockStore([job]);
+    (store.getNextRunAt as MockFn).mockResolvedValue("2026-05-28T11:59:59Z");
+    const slowFn = vi.fn(() => new Promise<OutboundMessage>((resolve) => {
+      setTimeout(() => resolve({ text: "Done" }), 5_000);
+    }));
+    const gateway: MessageGateway = { handle: slowFn };
+
+    const scheduler = new TickCronScheduler({
+      jobStore: store,
+      messageHandler: gateway,
+      delivery: createMockDelivery(),
+      tickIntervalMs: 1_000,
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(slowFn).toHaveBeenCalledOnce();
+    scheduler.stop();
+    await vi.advanceTimersByTimeAsync(5_000);
   });
 
   it("executes one-shot jobs via triggerNow", async () => {

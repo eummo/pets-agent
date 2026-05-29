@@ -154,6 +154,99 @@ describe("AgentOrchestrator", () => {
     expect(developerCalled).toBe(false);
   });
 
+  it("uses trusted role override when provided by an internal channel", async () => {
+    let reviewerCalled = false;
+    let developerCalled = false;
+    const runtimes = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          reviewerCalled = true;
+          return Promise.resolve({ text: "reviewer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      developer: {
+        name: "developer",
+        run(request: AgentRequest) {
+          developerCalled = request.role === "developer";
+          return Promise.resolve({ text: "developer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime(),
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
+    });
+
+    const response = await orchestrator.handle({
+      ...testMessage("hello"),
+      channel: "cron",
+      roleOverride: "developer",
+    });
+
+    expect(response.text).toBe("developer response");
+    expect(developerCalled).toBe(true);
+    expect(reviewerCalled).toBe(false);
+  });
+
+  it("uses trusted role override for intent authorization", async () => {
+    let developerCalled = false;
+    const runtimes = {
+      developer: {
+        name: "developer",
+        run() {
+          developerCalled = true;
+          return Promise.resolve({ text: "developer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      },
+      intent: stubIntentRuntime("mutate"),
+    };
+    const authorization: AuthorizationService = {
+      roleFor() {
+        return Promise.resolve("reviewer");
+      },
+      can() {
+        return Promise.resolve({ allowed: false, reason: "reviewer denied" });
+      },
+      canRole(role, action) {
+        return Promise.resolve({
+          allowed: role === "developer" && (action === "read" || action === "mutate"),
+          reason: "role denied",
+        });
+      },
+      hasCapability() {
+        return Promise.resolve(false);
+      },
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization,
+      runtimeFactory: stubRuntimeFactory(runtimes),
+      initialRuntimes: runtimes,
+    });
+
+    const response = await orchestrator.handle({
+      ...testMessage("please change the code"),
+      channel: "cron",
+      roleOverride: "developer",
+    });
+
+    expect(response.text).toBe("developer response");
+    expect(developerCalled).toBe(true);
+  });
+
   it("writes internal event logs for workspace, role, intent, and runtime selection", async () => {
     const events: Record<string, unknown>[] = [];
     const runtimes = {

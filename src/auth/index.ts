@@ -11,6 +11,7 @@ export type AuthorizationDecision = {
 export type AuthorizationService = {
   roleFor(user: ChannelUser): Promise<string>;
   can(user: ChannelUser, action: AuthorizationAction, workspace: KnowledgeWorkspace): Promise<AuthorizationDecision>;
+  canRole?(role: string, action: AuthorizationAction, workspace: KnowledgeWorkspace): Promise<AuthorizationDecision>;
   hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean>;
   setRole?(userId: string, role: string): void;
 };

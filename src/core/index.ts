@@ -14,6 +14,7 @@ export type InboundMessage = {
   readonly stream?: import("../agent/index.js").AgentStreamPublisher;
   readonly chatId?: string;
   readonly chatType?: "single" | "group";
+  readonly roleOverride?: UserRole;
 };
 
 export type OutboundMessage = {

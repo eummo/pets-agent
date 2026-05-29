@@ -47,14 +47,19 @@ export class InMemoryRoleAuthorizationService implements AuthorizationService {
     const required = ACTION_CAPABILITY_MAP[action];
     const hasIt = await this.hasCapability(user, required);
 
-    if (hasIt) {
-      return { allowed: true };
-    }
+    return decisionForCapability(hasIt);
+  }
 
-    return {
-      allowed: false,
-      reason: "Insufficient permissions for this action."
-    };
+  public async canRole(
+    role: string,
+    action: AuthorizationAction,
+    workspace: KnowledgeWorkspace
+  ): Promise<AuthorizationDecision> {
+    void workspace;
+
+    const required = ACTION_CAPABILITY_MAP[action];
+    const capabilities = await this.resolveCapabilities(normalizeRoleName(role));
+    return decisionForCapability(capabilities.includes(required));
   }
 
   public async hasCapability(user: ChannelUser, capability: RoleCapability): Promise<boolean> {
@@ -82,6 +87,17 @@ export class InMemoryRoleAuthorizationService implements AuthorizationService {
 
 function normalizeRoleName(role: string): UserRole {
   return role === "viewer" ? "reviewer" : role;
+}
+
+function decisionForCapability(hasCapability: boolean): AuthorizationDecision {
+  if (hasCapability) {
+    return { allowed: true };
+  }
+
+  return {
+    allowed: false,
+    reason: "Insufficient permissions for this action."
+  };
 }
 
 function configAllowsMutation(config: StoredRoleConfig): boolean {

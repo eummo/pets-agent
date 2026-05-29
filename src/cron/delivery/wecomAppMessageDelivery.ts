@@ -120,7 +120,8 @@ export class WecomAppMessageDeliveryChannel implements DeliveryChannel {
     }
 
     this.cachedToken = result.access_token;
-    this.tokenExpiresAt = Date.now() + (result.expires_in ?? 7200) * 1000 - 60_000; // refresh 1 min early
+    const providerExpiresMs = (result.expires_in ?? 7200) * 1000 - 60_000;
+    this.tokenExpiresAt = Date.now() + Math.min(this.tokenCacheMs, providerExpiresMs);
     return this.cachedToken;
   }
 }

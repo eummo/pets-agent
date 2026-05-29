@@ -80,7 +80,13 @@ export class AgentOrchestrator implements MessageGateway {
       return response;
     }
 
-    const readDecision = await this.dependencies.authorization.can(message.user, "read", workspace);
+    const role = message.roleOverride ?? await this.dependencies.authorization.roleFor(message.user);
+    await this.logEvent("role.resolved", message, { role });
+
+    const readDecision =
+      message.roleOverride !== undefined && this.dependencies.authorization.canRole !== undefined
+        ? await this.dependencies.authorization.canRole(message.roleOverride, "read", workspace)
+        : await this.dependencies.authorization.can(message.user, "read", workspace);
     if (!readDecision.allowed) {
       const response = {
         text: readDecision.reason ?? "You do not have permission to access this workspace."
@@ -89,8 +95,6 @@ export class AgentOrchestrator implements MessageGateway {
       return response;
     }
 
-    const role = await this.dependencies.authorization.roleFor(message.user);
-    await this.logEvent("role.resolved", message, { role });
     const intentCheck = await this.checkIntentAuthorization(message, workspace, role);
     if (intentCheck !== undefined) {
       return intentCheck;
@@ -130,11 +134,10 @@ export class AgentOrchestrator implements MessageGateway {
     const requiredAction = actionForIntent(intent);
 
     if (requiredAction !== undefined) {
-      const intentDecision = await this.dependencies.authorization.can(
-        message.user,
-        requiredAction,
-        workspace
-      );
+      const intentDecision =
+        message.roleOverride !== undefined && this.dependencies.authorization.canRole !== undefined
+          ? await this.dependencies.authorization.canRole(message.roleOverride, requiredAction, workspace)
+          : await this.dependencies.authorization.can(message.user, requiredAction, workspace);
       if (!intentDecision.allowed) {
         await this.saveFeedback(message, workspace.path, intent, role);
         await this.logEvent("permission.denied", message, {

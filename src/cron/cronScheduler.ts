@@ -21,6 +21,8 @@ export class TickCronScheduler {
   private intervalHandle: ReturnType<typeof setInterval> | undefined;
   private readonly tickIntervalMs: number;
   private readonly staleGraceMs: number;
+  private readonly runningJobIds = new Set<string>();
+  private tickInFlight = false;
   private _isRunning = false;
 
   public constructor(private readonly deps: CronSchedulerDependencies) {
@@ -37,10 +39,10 @@ export class TickCronScheduler {
     this._isRunning = true;
 
     // Run the first tick immediately
-    void this.tick();
+    void this.runTick();
 
     this.intervalHandle = setInterval(() => {
-      void this.tick();
+      void this.runTick();
     }, this.tickIntervalMs);
 
     void this.logEvent("cron.started", { tickIntervalMs: this.tickIntervalMs });
@@ -62,6 +64,20 @@ export class TickCronScheduler {
       throw new Error(`Cron job not found: ${jobId}`);
     }
     return this.executeJob(job);
+  }
+
+  private async runTick(): Promise<void> {
+    if (this.tickInFlight) {
+      void this.logEvent("cron.tick.skipped", { reason: "tick already in progress" });
+      return;
+    }
+
+    this.tickInFlight = true;
+    try {
+      await this.tick();
+    } finally {
+      this.tickInFlight = false;
+    }
   }
 
   private async tick(): Promise<void> {
@@ -120,6 +136,26 @@ export class TickCronScheduler {
   private async executeJob(job: CronJob): Promise<CronJobResult> {
     const startedAt = new Date().toISOString();
 
+    if (this.runningJobIds.has(job.id)) {
+      const finishedAt = new Date().toISOString();
+      const result: CronJobResult = {
+        jobId: job.id,
+        startedAt,
+        finishedAt,
+        status: "skipped",
+        output: "",
+        error: "Job is already running",
+      };
+      await this.deps.jobStore.setLastResult(job.id, result);
+      void this.logEvent("cron.job.skipped", {
+        jobId: job.id,
+        jobName: job.name,
+        reason: "job already running",
+      });
+      return result;
+    }
+
+    this.runningJobIds.add(job.id);
     void this.logEvent("cron.job.started", {
       jobId: job.id,
       jobName: job.name,
@@ -131,72 +167,76 @@ export class TickCronScheduler {
     let error: string | undefined;
 
     try {
-      const inbound = this.createInboundMessage(job);
-      const timeoutMs = job.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      try {
+        const inbound = this.createInboundMessage(job);
+        const timeoutMs = job.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-      const result = await this.withTimeout(
-        this.deps.messageHandler.handle(inbound),
-        timeoutMs
-      );
+        const result = await this.withTimeout(
+          this.deps.messageHandler.handle(inbound),
+          timeoutMs
+        );
 
-      output = result.text;
+        output = result.text;
 
-      await this.deps.conversationLogger?.write({
-        type: "conversation.turn",
-        channel: "cron",
-        messageId: inbound.id,
-        userId: "cron-scheduler",
-        input: job.prompt,
-        output,
-        workspacePath: job.workspacePath,
-      });
-    } catch (err) {
-      if (err instanceof TimeoutError) {
-        status = "timeout";
-        error = `Job timed out after ${job.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms`;
-      } else {
-        status = "error";
-        error = err instanceof Error ? err.message : String(err);
+        await this.deps.conversationLogger?.write({
+          type: "conversation.turn",
+          channel: "cron",
+          messageId: inbound.id,
+          userId: "cron-scheduler",
+          input: job.prompt,
+          output,
+          workspacePath: job.workspacePath,
+        });
+      } catch (err) {
+        if (err instanceof TimeoutError) {
+          status = "timeout";
+          error = `Job timed out after ${job.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms`;
+        } else {
+          status = "error";
+          error = err instanceof Error ? err.message : String(err);
+        }
+
+        void this.logEvent("cron.job.failed", {
+          jobId: job.id,
+          jobName: job.name,
+          status,
+          error,
+        });
       }
 
-      void this.logEvent("cron.job.failed", {
+      const finishedAt = new Date().toISOString();
+      const result: CronJobResult = {
+        jobId: job.id,
+        startedAt,
+        finishedAt,
+        status,
+        output,
+        ...(error !== undefined ? { error } : {}),
+      };
+
+      await this.deps.jobStore.setLastResult(job.id, result);
+
+      void this.logEvent("cron.job.completed", {
         jobId: job.id,
         jobName: job.name,
         status,
-        error,
+        outputLength: output.length,
       });
+
+      // Deliver results (unless silent on empty output)
+      if (job.silentOnEmpty === true && output.length === 0) {
+        void this.logEvent("cron.delivery.skipped", {
+          jobId: job.id,
+          reason: "empty output",
+        });
+      } else {
+        await this.deliverResult(job, result);
+      }
+
+      return result;
+    } finally {
+      this.runningJobIds.delete(job.id);
     }
-
-    const finishedAt = new Date().toISOString();
-    const result: CronJobResult = {
-      jobId: job.id,
-      startedAt,
-      finishedAt,
-      status,
-      output,
-      ...(error !== undefined ? { error } : {}),
-    };
-
-    await this.deps.jobStore.setLastResult(job.id, result);
-
-    void this.logEvent("cron.job.completed", {
-      jobId: job.id,
-      jobName: job.name,
-      status,
-      outputLength: output.length,
-    });
-
-    // Deliver results (unless silent on empty output)
-    if (job.silentOnEmpty === true && output.length === 0) {
-      void this.logEvent("cron.delivery.skipped", {
-        jobId: job.id,
-        reason: "empty output",
-      });
-    } else {
-      await this.deliverResult(job, result);
-    }
-
-    return result;
   }
 
   private async deliverResult(job: CronJob, result: CronJobResult): Promise<void> {
@@ -229,7 +269,8 @@ export class TickCronScheduler {
       user: { id: "cron-scheduler" },
       text: job.prompt,
       receivedAt: new Date(),
-      ...(job.role !== undefined ? { chatId: `role:${job.role}` } : {}),
+      chatId: `job:${job.id}`,
+      ...(job.role !== undefined ? { roleOverride: job.role } : {}),
     };
   }
 

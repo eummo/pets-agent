@@ -52,6 +52,56 @@ describe("loadRuntimeConfig", () => {
     });
   });
 
+  it("applies cron config defaults when not specified", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(filePath, JSON.stringify(validConfig()));
+
+    const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
+
+    expect(config.cron).toEqual({
+      enabled: false,
+      tickIntervalMs: 60_000,
+      staleGraceMs: 300_000,
+      jobStorePath: ".harness/state/cron-jobs.json",
+    });
+  });
+
+  it("resolves cron WeCom app-message credentials from env", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(filePath, JSON.stringify(validConfig({
+      cron: {
+        enabled: true,
+        tickIntervalMs: 30_000,
+        staleGraceMs: 120_000,
+        jobStorePath: ".harness/state/custom-cron.json",
+        wecom: {
+          corpId: "corp-id",
+          corpSecretEnv: "WECOM_CORP_SECRET",
+          agentId: "1000002",
+          tokenCacheMs: 3_600_000,
+        },
+      },
+    })));
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key",
+      WECOM_CORP_SECRET: "corp-secret",
+    });
+
+    expect(config.cron).toEqual({
+      enabled: true,
+      tickIntervalMs: 30_000,
+      staleGraceMs: 120_000,
+      jobStorePath: ".harness/state/custom-cron.json",
+      wecom: {
+        corpId: "corp-id",
+        corpSecret: "corp-secret",
+        agentId: "1000002",
+        tokenCacheMs: 3_600_000,
+      },
+    });
+  });
+
   it("loads custom context config values", async () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
     await writeFile(filePath, JSON.stringify(validConfig({

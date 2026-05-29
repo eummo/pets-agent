@@ -32,6 +32,7 @@ import { FileCronJobStore } from "./cron/cronJobStore.js";
 import { TickCronScheduler } from "./cron/cronScheduler.js";
 import { CompositeDeliveryChannel } from "./cron/delivery/compositeDelivery.js";
 import { SseDeliveryChannel } from "./cron/delivery/sseDelivery.js";
+import { WecomAppMessageDeliveryChannel } from "./cron/delivery/wecomAppMessageDelivery.js";
 import { WecomBotDeliveryChannel } from "./cron/delivery/wecomBotDelivery.js";
 import { WebhookDeliveryChannel } from "./cron/delivery/webhookDelivery.js";
 import { registerCronRoutes } from "./cron/cronRoutes.js";
@@ -109,9 +110,13 @@ export async function main(): Promise<void> {
   if (config.cron.enabled) {
     const cronJobStore = new FileCronJobStore(config.cron.jobStorePath);
 
+    const wecomDelivery =
+      config.cron.wecom !== undefined
+        ? new WecomAppMessageDeliveryChannel(config.cron.wecom)
+        : new WecomBotDeliveryChannel(wechatAdapter);
     const deliveryChannels: import("./cron/cronTypes.js").DeliveryChannel[] = [
       new SseDeliveryChannel(progressBroker),
-      new WecomBotDeliveryChannel(wechatAdapter),
+      wecomDelivery,
       new WebhookDeliveryChannel(),
     ];
 

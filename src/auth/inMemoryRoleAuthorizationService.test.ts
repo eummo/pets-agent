@@ -96,6 +96,18 @@ describe("InMemoryRoleAuthorizationService", () => {
     expect(decision).toEqual({ allowed: true });
   });
 
+  it("authorizes directly by trusted role name", async () => {
+    const service = new InMemoryRoleAuthorizationService(
+      makeRoleConfigStore({ developer: ["workspace_read", "workspace_mutate"] }),
+    );
+
+    await expect(service.canRole("developer", "mutate", workspace)).resolves.toEqual({ allowed: true });
+    await expect(service.canRole("reviewer", "mutate", workspace)).resolves.toEqual({
+      allowed: false,
+      reason: "Insufficient permissions for this action.",
+    });
+  });
+
   it("resolves role from initial roles", async () => {
     const service = new InMemoryRoleAuthorizationService(undefined, new Map([["dev-1", "developer"]]));
 
@@ -291,6 +303,5 @@ describe("backwards compatibility (no explicit capabilities)", () => {
     expect(decision.allowed).toBe(false);
   });
 });
-
 
 
