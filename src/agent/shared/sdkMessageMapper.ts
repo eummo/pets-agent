@@ -18,7 +18,7 @@ import {
   recordField,
   stringField
 } from "../../core/unknownRecord.js";
-import { canUseConfiguredTool } from "../policy/toolPolicy.js";
+import { canUseConfiguredTool } from "../../auth/index.js";
 import { extractToolResultText } from "./sdkRuntimeHelpers.js";
 
 // ── Assistant Message Forwarding ────────────────────────────────────────────

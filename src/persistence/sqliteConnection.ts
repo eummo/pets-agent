@@ -21,13 +21,15 @@ const CREATE_TABLE_MIGRATIONS = [
     status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','reviewed','resolved')),
     created_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-  )`,
+  )`
 ];
 
 const ROLES_METADATA_COLUMNS = [
   { name: "capabilities", definition: "TEXT" },
   { name: "skills", definition: "TEXT" },
   { name: "setting_sources", definition: "TEXT" },
+  { name: "enable_workflows", definition: "INTEGER" },
+  { name: "plan_mode_instructions", definition: "TEXT" }
 ] as const;
 
 const FEEDBACK_METADATA_COLUMNS = [
@@ -35,13 +37,13 @@ const FEEDBACK_METADATA_COLUMNS = [
   { name: "message_id", definition: "TEXT" },
   { name: "workspace_path", definition: "TEXT" },
   { name: "intent_type", definition: "TEXT" },
-  { name: "role_name", definition: "TEXT" },
+  { name: "role_name", definition: "TEXT" }
 ] as const;
 
 const CREATE_INDEX_MIGRATIONS = [
   "CREATE INDEX IF NOT EXISTS idx_feedback_status_id ON feedback(status, id DESC)",
   "CREATE INDEX IF NOT EXISTS idx_feedback_user_id_id ON feedback(user_id, id DESC)",
-  "CREATE INDEX IF NOT EXISTS idx_feedback_workspace_path_id ON feedback(workspace_path, id DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_feedback_workspace_path_id ON feedback(workspace_path, id DESC)"
 ] as const;
 
 export function createSqliteConnection(dbPath: string): Database.Database {
@@ -78,10 +80,12 @@ function migrateFeedbackMetadataColumns(db: Database.Database): void {
 function addMissingColumns(
   db: Database.Database,
   table: string,
-  columns: readonly { readonly name: string; readonly definition: string }[],
+  columns: readonly { readonly name: string; readonly definition: string }[]
 ): void {
   const existing = new Set(
-    (db.prepare(`PRAGMA table_info(${table})`).all() as { readonly name: string }[]).map((c) => c.name),
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { readonly name: string }[]).map(
+      (c) => c.name
+    )
   );
 
   for (const column of columns) {

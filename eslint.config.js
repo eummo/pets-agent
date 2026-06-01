@@ -8,6 +8,8 @@ export default tseslint.config(
       "dist/**",
       "coverage/**",
       ".harness/**",
+      ".mavis/**",
+      ".opencode/**",
       "node_modules/**",
       "eslint.config.js",
       "prettier.config.js",
@@ -32,13 +34,13 @@ export default tseslint.config(
       "@typescript-eslint/restrict-template-expressions": [
         "error",
         {
-          "allowBoolean": true,
-          "allowNullish": true,
-          "allowNumber": true,
-          "allowRegExp": true
+          allowBoolean: true,
+          allowNullish: true,
+          allowNumber: true,
+          allowRegExp: true
         }
       ],
-      "no-console": ["warn", { "allow": ["info", "warn", "error"] }]
+      "no-console": ["warn", { allow: ["info", "warn", "error"] }]
     }
   },
   prettier

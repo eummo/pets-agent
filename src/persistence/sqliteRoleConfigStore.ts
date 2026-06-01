@@ -12,6 +12,8 @@ type RoleRow = {
   readonly capabilities: string | null;
   readonly skills: string | null;
   readonly setting_sources: string | null;
+  readonly enable_workflows: number | null;
+  readonly plan_mode_instructions: string | null;
   readonly updated_at: string;
 };
 
@@ -22,7 +24,7 @@ const roleCapabilitySchema = z.enum([
   "feedback_view",
   "feedback_manage",
   "roles_manage",
-  "cron_manage",
+  "cron_manage"
 ]);
 
 const permissionModeSchema = z.enum(["auto", "dontAsk", "acceptEdits", "bypassPermissions"]);
@@ -32,15 +34,13 @@ const skillsSchema = z.union([z.array(z.string().min(1)), z.literal("all")]);
 const settingSourcesSchema = z.array(z.enum(["user", "project", "local"]));
 
 function rowToConfig(row: RoleRow): StoredRoleConfig {
-  const capabilities = row.capabilities !== null
-    ? capabilitiesSchema.parse(JSON.parse(row.capabilities))
-    : undefined;
-  const skills = row.skills !== null
-    ? skillsSchema.parse(JSON.parse(row.skills))
-    : undefined;
-  const settingSources = row.setting_sources !== null
-    ? settingSourcesSchema.parse(JSON.parse(row.setting_sources))
-    : undefined;
+  const capabilities =
+    row.capabilities !== null ? capabilitiesSchema.parse(JSON.parse(row.capabilities)) : undefined;
+  const skills = row.skills !== null ? skillsSchema.parse(JSON.parse(row.skills)) : undefined;
+  const settingSources =
+    row.setting_sources !== null
+      ? settingSourcesSchema.parse(JSON.parse(row.setting_sources))
+      : undefined;
   return {
     name: row.name,
     systemPrompt: row.system_prompt,
@@ -51,7 +51,11 @@ function rowToConfig(row: RoleRow): StoredRoleConfig {
     ...(capabilities !== undefined && { capabilities }),
     ...(skills !== undefined && { skills }),
     ...(settingSources !== undefined && { settingSources }),
-    updatedAt: row.updated_at,
+    ...(row.enable_workflows === 1 && { enableWorkflows: true }),
+    ...(row.plan_mode_instructions !== null && {
+      planModeInstructions: row.plan_mode_instructions
+    }),
+    updatedAt: row.updated_at
   };
 }
 
@@ -59,19 +63,29 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
   public constructor(private readonly db: Database.Database) {}
 
   public getAll(): Promise<readonly StoredRoleConfig[]> {
-    const rows = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at FROM roles ORDER BY name").all() as RoleRow[];
+    const rows = this.db
+      .prepare(
+        "SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, enable_workflows, plan_mode_instructions, updated_at FROM roles ORDER BY name"
+      )
+      .all() as RoleRow[];
     return new Promise((resolve) => resolve(rows.map(rowToConfig)));
   }
 
   public getByName(name: string): Promise<StoredRoleConfig | undefined> {
-    const row = this.db.prepare("SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at FROM roles WHERE name = ?").get(name) as RoleRow | undefined;
+    const row = this.db
+      .prepare(
+        "SELECT name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, enable_workflows, plan_mode_instructions, updated_at FROM roles WHERE name = ?"
+      )
+      .get(name) as RoleRow | undefined;
     return new Promise((resolve) => resolve(row === undefined ? undefined : rowToConfig(row)));
   }
 
   public upsert(config: StoredRoleConfig): Promise<void> {
-    this.db.prepare(`
-      INSERT INTO roles (name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+    this.db
+      .prepare(
+        `
+      INSERT INTO roles (name, system_prompt, allowed_tools, permission_mode, max_turns, model, capabilities, skills, setting_sources, enable_workflows, plan_mode_instructions, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(name) DO UPDATE SET
         system_prompt = excluded.system_prompt,
         allowed_tools = excluded.allowed_tools,
@@ -81,18 +95,24 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
         capabilities = excluded.capabilities,
         skills = excluded.skills,
         setting_sources = excluded.setting_sources,
+        enable_workflows = excluded.enable_workflows,
+        plan_mode_instructions = excluded.plan_mode_instructions,
         updated_at = datetime('now', 'localtime')
-    `).run(
-      config.name,
-      config.systemPrompt,
-      JSON.stringify(config.allowedTools),
-      config.permissionMode,
-      config.maxTurns ?? null,
-      config.model ?? null,
-      config.capabilities ? JSON.stringify(config.capabilities) : null,
-      config.skills ? JSON.stringify(config.skills) : null,
-      config.settingSources ? JSON.stringify(config.settingSources) : null,
-    );
+    `
+      )
+      .run(
+        config.name,
+        config.systemPrompt,
+        JSON.stringify(config.allowedTools),
+        config.permissionMode,
+        config.maxTurns ?? null,
+        config.model ?? null,
+        config.capabilities ? JSON.stringify(config.capabilities) : null,
+        config.skills ? JSON.stringify(config.skills) : null,
+        config.settingSources ? JSON.stringify(config.settingSources) : null,
+        config.enableWorkflows === true ? 1 : null,
+        config.planModeInstructions ?? null
+      );
     return Promise.resolve();
   }
 
@@ -101,4 +121,3 @@ export class SqliteRoleConfigStore implements RoleConfigStore {
     return Promise.resolve(result.changes > 0);
   }
 }
-

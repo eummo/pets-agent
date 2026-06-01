@@ -176,7 +176,7 @@
 证据位置：
 
 - `src/config/retry.ts` 新增了通用 `withRetry`。
-- `src/intent/llmIntentDetectionService.ts` 和 `src/agent/policy/llmBashPermissionDecider.ts` 已接入。
+- `src/intent/llmIntentDetectionService.ts` 已接入意图分类和 Bash 权限分类。
 
 风险：
 

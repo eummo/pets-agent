@@ -6,7 +6,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentRequest, AgentResponse, ContextUsageReport } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import type { JsonlLogger } from "../../logging/jsonlLogger.js";
-import { canUseConfiguredTool } from "../policy/toolPolicy.js";
+import { canUseConfiguredTool } from "../../auth/index.js";
 import { extractToolResultText } from "../shared/sdkRuntimeHelpers.js";
 import { isRecord, numberField, stringField } from "../../core/unknownRecord.js";
 

@@ -1,8 +1,4 @@
-import {
-  buildPiModel,
-  type ResolvedLlmConfig,
-  type ResolvedAgentSdkConfig
-} from "../config/llmConfig.js";
+import type { ResolvedLlmConfig, ResolvedAgentSdkConfig } from "../config/llmConfig.js";
 import type { ContextConfig } from "../config/runtimeConfig.js";
 import type { AgentRuntime, AgentRuntimeFactory } from "./index.js";
 import type { RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
@@ -10,20 +6,17 @@ import type { JsonlLogger } from "../logging/jsonlLogger.js";
 import { ClaudeSdkAgentRuntime } from "./claude/index.js";
 import { CodebuddySdkAgentRuntime } from "./codebuddy/index.js";
 import { PiAgentRuntime } from "./pi/index.js";
-import { IntentAgentRuntime } from "./intent/index.js";
-import { LlmBashPermissionDecider } from "./policy/index.js";
-import { LlmIntentDetectionService } from "../intent/llmIntentDetectionService.js";
-import type { ToolPermissionDecider } from "./policy/index.js";
+import type { ToolPermissionDecider } from "../auth/index.js";
 
 export async function createAgentRuntimes(
   llmRawLogger: JsonlLogger,
   roleConfigStore: RoleConfigStore,
   resolvedLlmConfig: ResolvedLlmConfig,
   resolvedAgentSdkConfig: ResolvedAgentSdkConfig,
-  contextConfig?: ContextConfig
+  contextConfig?: ContextConfig,
+  toolPermissionDecider?: ToolPermissionDecider
 ): Promise<Record<string, AgentRuntime>> {
   const configs = await roleConfigStore.getAll();
-  const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig, llmRawLogger);
 
   return Object.fromEntries(
     configs.map((config) => [
@@ -45,7 +38,8 @@ export function createAgentRuntimeFactory(
   roleConfigStore: RoleConfigStore,
   resolvedLlmConfig: ResolvedLlmConfig,
   resolvedAgentSdkConfig: ResolvedAgentSdkConfig,
-  contextConfig?: ContextConfig
+  contextConfig?: ContextConfig,
+  toolPermissionDecider?: ToolPermissionDecider
 ): AgentRuntimeFactory {
   let warmupCache: Record<string, AgentRuntime> | undefined;
 
@@ -57,22 +51,18 @@ export function createAgentRuntimeFactory(
         roleConfigStore,
         resolvedLlmConfig,
         resolvedAgentSdkConfig,
-        contextConfig
+        contextConfig,
+        toolPermissionDecider
       );
       return warmupCache;
     },
     async cacheKeyForRole(role: string): Promise<string | undefined> {
-      if (role === "intent") return "intent";
       const config = await roleConfigStore.getByName(role);
       return config === undefined ? undefined : `${role}:${config.updatedAt ?? "unknown"}`;
     },
     async createRuntime(role: string): Promise<AgentRuntime | undefined> {
-      if (role === "intent") {
-        return createIntentRuntime(resolvedLlmConfig, llmRawLogger);
-      }
       const config = await roleConfigStore.getByName(role);
       if (config === undefined) return undefined;
-      const toolPermissionDecider = createToolPermissionDecider(resolvedLlmConfig, llmRawLogger);
       return createRuntimeForSdkType(
         resolvedAgentSdkConfig,
         config,
@@ -90,14 +80,16 @@ export function setupAgentRuntimes(
   roleConfigStore: RoleConfigStore,
   resolvedLlmConfig: ResolvedLlmConfig,
   resolvedAgentSdkConfig: ResolvedAgentSdkConfig,
-  contextConfig?: ContextConfig
+  contextConfig?: ContextConfig,
+  toolPermissionDecider?: ToolPermissionDecider
 ): AgentRuntimeFactory {
   return createAgentRuntimeFactory(
     llmRawLogger,
     roleConfigStore,
     resolvedLlmConfig,
     resolvedAgentSdkConfig,
-    contextConfig
+    contextConfig,
+    toolPermissionDecider
   );
 }
 
@@ -107,7 +99,7 @@ function createRuntimeForSdkType(
   contextConfig: ContextConfig | undefined,
   llmRawLogger: JsonlLogger,
   resolvedLlmConfig: ResolvedLlmConfig,
-  toolPermissionDecider: ToolPermissionDecider
+  toolPermissionDecider: ToolPermissionDecider | undefined
 ): AgentRuntime {
   switch (agentSdkConfig.type) {
     case "claude":
@@ -116,7 +108,7 @@ function createRuntimeForSdkType(
         contextConfig,
         rawLogger: llmRawLogger,
         model: roleConfig.model ?? agentSdkConfig.modelId,
-        toolPermissionDecider
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {})
       });
     case "codebuddy":
       return new CodebuddySdkAgentRuntime({
@@ -125,7 +117,7 @@ function createRuntimeForSdkType(
         contextConfig,
         rawLogger: llmRawLogger,
         model: roleConfig.model ?? agentSdkConfig.modelId,
-        toolPermissionDecider
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {})
       });
     case "pi": {
       return new PiAgentRuntime({
@@ -134,30 +126,8 @@ function createRuntimeForSdkType(
         maxTokens: resolvedLlmConfig.maxTokens,
         contextConfig,
         rawLogger: llmRawLogger,
-        toolPermissionDecider
+        ...(toolPermissionDecider !== undefined ? { toolPermissionDecider } : {})
       });
     }
   }
-}
-
-function createToolPermissionDecider(
-  resolvedLlmConfig: ResolvedLlmConfig,
-  llmRawLogger: JsonlLogger
-) {
-  const permissionModel = buildPiModel(resolvedLlmConfig);
-  return new LlmBashPermissionDecider(permissionModel, resolvedLlmConfig.apiKey, llmRawLogger)
-    .decide;
-}
-
-function createIntentRuntime(
-  resolvedLlmConfig: ResolvedLlmConfig,
-  llmRawLogger: JsonlLogger
-): IntentAgentRuntime {
-  const intentModel = buildPiModel(resolvedLlmConfig);
-  const detector = new LlmIntentDetectionService(
-    intentModel,
-    resolvedLlmConfig.apiKey,
-    llmRawLogger
-  );
-  return new IntentAgentRuntime(detector);
 }

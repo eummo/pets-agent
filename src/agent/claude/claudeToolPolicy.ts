@@ -2,10 +2,8 @@ import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ToolPermissionResult,
   ToolPermissionDecider as NeutralToolPermissionDecider
-} from "../policy/toolPolicy.js";
+} from "../../auth/index.js";
 
-// Re-export provider-neutral types and functions for backward compatibility.
-// New code should import directly from toolPolicy.ts.
 export type ToolPermissionDecider = NeutralToolPermissionDecider;
 export {
   availableToolsForRole,
@@ -15,8 +13,8 @@ export {
   isToolInputWithinWorkspace,
   roleCanUseFileMutationTools,
   decideToolPermission
-} from "../policy/toolPolicy.js";
-export type { ToolPermissionResult } from "../policy/toolPolicy.js";
+} from "../../auth/index.js";
+export type { ToolPermissionResult } from "../../auth/index.js";
 
 /**
  * Maps a provider-neutral ToolPermissionResult to the Claude SDK's PermissionResult.

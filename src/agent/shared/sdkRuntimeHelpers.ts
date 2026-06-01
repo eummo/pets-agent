@@ -17,7 +17,7 @@ import {
   autoAllowedToolsForRole,
   availableToolsForRole,
   disallowedToolsForRole
-} from "../policy/toolPolicy.js";
+} from "../../auth/index.js";
 import type { AgentRequest, ContextUsageReport } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
@@ -42,7 +42,10 @@ const SERIALIZABLE_QUERY_KEYS: readonly string[] = [
   "resume",
   "settings",
   "skills",
-  "settingSources"
+  "settingSources",
+  "planModeInstructions",
+  "endpoint",
+  "environment"
 ];
 
 export function serializeQueryOptions(
@@ -151,9 +154,19 @@ export function buildSdkQueryOptions(input: SdkQueryOptionsInput): Record<string
       autoCompactWindow: contextConfig.autoCompactWindow
     };
   }
+  if (roleConfig.enableWorkflows === true) {
+    const existing = queryOptions["settings"] as Record<string, unknown> | undefined;
+    queryOptions["settings"] = {
+      ...(existing ?? {}),
+      enableWorkflows: true
+    };
+  }
   queryOptions["settingSources"] = roleConfig.settingSources ?? ["project", "local"];
   if (roleConfig.skills !== undefined) {
     queryOptions["skills"] = roleConfig.skills;
+  }
+  if (roleConfig.planModeInstructions !== undefined) {
+    queryOptions["planModeInstructions"] = roleConfig.planModeInstructions;
   }
   if (request.onCompact !== undefined) {
     queryOptions["hooks"] = {
@@ -184,10 +197,7 @@ export type SdkResultOutcome = {
   readonly contextUsage: ContextUsageReport | undefined;
 };
 
-export function handleSdkResultMessage(
-  message: unknown,
-  contextWindow: number
-): SdkResultOutcome {
+export function handleSdkResultMessage(message: unknown, contextWindow: number): SdkResultOutcome {
   const resultData: Record<string, unknown> = isRecord(message) ? message : {};
   const sessionId = stringField(resultData, "session_id");
   const subtype = stringField(resultData, "subtype");

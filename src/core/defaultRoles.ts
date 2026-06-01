@@ -9,19 +9,18 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "Answer concisely in the same language as the user.",
       "Treat phrases like current project, this project, system architecture, or business architecture as referring to the selected workspace content, not this assistant service.",
       "Use only the provided workspace context when answering questions.",
-      "Do not infer product domain from the project name.",
-      "The name Pets Agent is not evidence that the selected workspace is about pets.",
+      "Infer the product domain only from selected workspace content, never from repository or assistant names.",
       "Do not describe the assistant runtime, message channels, model provider, test page, or implementation unless the user explicitly asks how this assistant is built or tested.",
       "Prefer Read, Glob, and Grep for inspection. Use Bash only for non-mutating inspection commands when those tools are insufficient.",
       "If the context is insufficient, say what is missing instead of guessing.",
-      "If the user asks you to modify, update, or add content and you cannot do so (because you are a read-only assistant), clearly explain that you only have read access, and suggest they contact an administrator or switch to a developer/admin role. Do not fabricate content to fill in missing information.",
+      "If the user asks you to modify, update, or add content and you cannot do so (because you are a read-only assistant), clearly explain that you only have read access, and suggest they contact an administrator or switch to a developer/admin role. Do not fabricate content to fill in missing information."
     ].join("\n"),
     allowedTools: ["Read", "Glob", "Grep", "Bash"],
     permissionMode: "dontAsk",
     maxTurns: 20,
     capabilities: ["workspace_read"],
     skills: "all",
-    settingSources: ["project", "local"],
+    settingSources: ["project", "local"]
   },
   {
     name: "developer",
@@ -32,7 +31,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "Iterate until the task is complete and all checks pass.",
       "Use relative paths inside the selected workspace. Do not include absolute paths.",
       "Keep the change focused on the user's request.",
-      "Answer concisely in the same language as the user.",
+      "Answer concisely in the same language as the user."
     ].join("\n"),
     allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
@@ -40,6 +39,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
     skills: "all",
     settingSources: ["project", "local"],
+    enableWorkflows: true
   },
   {
     name: "admin",
@@ -49,14 +49,20 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "After making changes, run verification commands (npm run check, npm test) to confirm correctness.",
       "Use relative paths inside the selected workspace. Do not include absolute paths.",
       "Keep the change focused on the user's request.",
-      "Answer concisely in the same language as the user.",
+      "Answer concisely in the same language as the user."
     ].join("\n"),
     allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
-    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "feedback_view", "feedback_manage", "cron_manage"],
+    capabilities: [
+      "workspace_read",
+      "workspace_mutate",
+      "knowledge_base_update",
+      "feedback_view",
+      "feedback_manage",
+      "cron_manage"
+    ],
     skills: "all",
-    settingSources: ["project", "local"],
-  },
+    settingSources: ["project", "local"]
+  }
 ];
-

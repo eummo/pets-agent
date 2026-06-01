@@ -5,7 +5,7 @@
  * Architecture overview:
  * - AgentOrchestrator: Coordinates agent interactions, workspace resolution, and authorization
  * - Agent runtimes: Execute agent logic (Claude SDK, Echo for dev, or custom implementations)
- * - Intent detection: Routes incoming requests to appropriate intents via runtimeFactory
+ * - Intent detection: Classifies incoming requests before runtime execution
  * - Stores: Persist sessions, conversation history, role configs, and feedback
  * - Server: HTTP/WebSocket server handling incoming messages and progress updates
  * - WeChat adapter: WebSocket long connection to Enterprise WeChat smart bot
@@ -38,7 +38,15 @@ import { WebhookDeliveryChannel } from "./cron/delivery/webhookDelivery.js";
 import { registerCronRoutes } from "./cron/cronRoutes.js";
 import { LlmCronParseService } from "./cron/cronParseService.js";
 import { buildPiModel } from "./config/llmConfig.js";
+import { LlmIntentDetectionService } from "./intent/llmIntentDetectionService.js";
 
+// Bootstraps the pets-agent server: loads runtime config, wires up persistence,
+// intent detection, agent runtimes, the HTTP/WebSocket server, the WeChat smart
+// bot adapter, and the optional cron scheduler, then blocks on a graceful
+// shutdown handler for SIGINT/SIGTERM.
+//
+// Note: `main` is the single entry point executed by `node dist/index.js`
+// (or `tsx src/index.ts` in dev) and is also re-exported for tests.
 export async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
   const conversationLogger = createJsonlLogger(path.join(config.logDir, "conversation.jsonl"));
@@ -56,12 +64,29 @@ export async function main(): Promise<void> {
     process.env["ANTHROPIC_API_KEY"] ??= config.agentSdk.apiKey;
     process.env["ANTHROPIC_BASE_URL"] ??= config.agentSdk.baseUrl;
   }
+  if (config.agentSdk.type === "codebuddy") {
+    if (config.agentSdk.environment !== undefined) {
+      process.env["CODEBUDDY_INTERNET_ENVIRONMENT"] ??= config.agentSdk.environment;
+    }
+  }
   const sdkSummary = summarizeAgentSdkConfig(config.agentSdk);
   const llmSummary = summarizeLlmConfig(config.llm);
   console.info(`Agent SDK: ${sdkSummary.type} ${sdkSummary.modelId} at ${sdkSummary.baseUrl}`);
   console.info(`Intent LLM: ${llmSummary.modelId} at ${llmSummary.baseUrl}`);
 
-  const runtimeFactory = setupAgentRuntimes(llmRawLogger, roleConfigStore, config.llm, config.agentSdk, config.context);
+  const intentDetection = new LlmIntentDetectionService(
+    buildPiModel(config.llm),
+    config.llm.apiKey,
+    llmRawLogger
+  );
+  const runtimeFactory = setupAgentRuntimes(
+    llmRawLogger,
+    roleConfigStore,
+    config.llm,
+    config.agentSdk,
+    config.context,
+    intentDetection.decideToolPermission
+  );
 
   const agentRuntimes = await runtimeFactory.warmup();
 
@@ -70,17 +95,20 @@ export async function main(): Promise<void> {
   const orchestrator = new AgentOrchestrator({
     workspaceResolver: new ConfiguredWorkspaceResolver({
       knowledgeBasePath: config.knowledgeBasePath,
-      logger: systemLogger,
+      logger: systemLogger
     }),
     authorization,
     runtimeFactory,
     initialRuntimes: agentRuntimes,
     sessionStore: new FileConversationSessionStore(config.sessionStorePath),
-    historyStore: new FileConversationHistoryStore(config.historyStorePath, { maxMessages: config.context.historyMaxMessages }),
+    historyStore: new FileConversationHistoryStore(config.historyStorePath, {
+      maxMessages: config.context.historyMaxMessages
+    }),
     conversationLogger,
     eventLogger: systemLogger,
     progressReporter: progressBroker,
     feedbackStore,
+    intentDetection
   });
 
   const server = createServer({
@@ -101,8 +129,12 @@ export async function main(): Promise<void> {
     conversationLogger,
     eventLogger: systemLogger,
     ...(config.wechat.wsUrl !== undefined ? { wsUrl: config.wechat.wsUrl } : {}),
-    ...(config.wechat.reconnectInterval !== undefined ? { reconnectInterval: config.wechat.reconnectInterval } : {}),
-    ...(config.wechat.maxReconnectAttempts !== undefined ? { maxReconnectAttempts: config.wechat.maxReconnectAttempts } : {}),
+    ...(config.wechat.reconnectInterval !== undefined
+      ? { reconnectInterval: config.wechat.reconnectInterval }
+      : {}),
+    ...(config.wechat.maxReconnectAttempts !== undefined
+      ? { maxReconnectAttempts: config.wechat.maxReconnectAttempts }
+      : {})
   });
 
   // ── Cron Scheduler ─────────────────────────────────────────────────────────
@@ -117,7 +149,7 @@ export async function main(): Promise<void> {
     const deliveryChannels: import("./cron/cronTypes.js").DeliveryChannel[] = [
       new SseDeliveryChannel(progressBroker),
       wecomDelivery,
-      new WebhookDeliveryChannel(),
+      new WebhookDeliveryChannel()
     ];
 
     const compositeDelivery = new CompositeDeliveryChannel(deliveryChannels);
@@ -129,7 +161,7 @@ export async function main(): Promise<void> {
       eventLogger: systemLogger,
       conversationLogger,
       tickIntervalMs: config.cron.tickIntervalMs,
-      staleGraceMs: config.cron.staleGraceMs,
+      staleGraceMs: config.cron.staleGraceMs
     });
 
     if (config.enableDevRoutes) {
@@ -142,7 +174,7 @@ export async function main(): Promise<void> {
         jobStore: cronJobStore,
         scheduler: cronScheduler,
         authorization,
-        cronParseService,
+        cronParseService
       });
     }
   }
@@ -158,7 +190,9 @@ export async function main(): Promise<void> {
 
   if (cronScheduler !== undefined) {
     cronScheduler.start();
-    console.info(`cron scheduler: enabled (tick=${config.cron.tickIntervalMs}ms, grace=${config.cron.staleGraceMs}ms)`);
+    console.info(
+      `cron scheduler: enabled (tick=${config.cron.tickIntervalMs}ms, grace=${config.cron.staleGraceMs}ms)`
+    );
   }
 
   wechatAdapter.connect();

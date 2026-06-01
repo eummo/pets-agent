@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { ResolvedLlmConfig, ResolvedAgentSdkConfig } from "./llmConfig.js";
-import { resolveLlmConfig, resolveAgentSdkConfig } from "./llmConfig.js";
+import { resolveLlmConfig, resolveActiveAgentSdk } from "./llmConfig.js";
 
 const llmConfigSchema = z.object({
   baseUrl: z.url(),
@@ -11,17 +11,26 @@ const llmConfigSchema = z.object({
   maxTokens: z.number().int().positive().optional()
 });
 
-const agentSdkConfigSchema = z.object({
-  type: z.enum(["claude", "codebuddy", "pi"]),
+const agentSdkEntrySchema = z.object({
   baseUrl: z.url(),
-  apiKeyEnv: z.string().min(1),
+  apiKeyEnv: z.string().min(1).optional(),
   modelId: z.string().min(1),
+  endpoint: z.url().optional(),
+  environment: z.enum(["external", "internal", "ioa", "cloudhosted"]).optional(),
   agentDir: z.string().min(1).optional(),
   provider: z.string().min(1).optional(),
   api: z.string().min(1).optional(),
   contextWindow: z.number().int().positive().optional(),
   reasoning: z.boolean().optional(),
   input: z.array(z.enum(["text", "image"])).optional()
+});
+
+const agentSdkTypeSchema = z.enum(["claude", "codebuddy", "pi"]);
+
+const agentSdksSchema = z.object({
+  claude: agentSdkEntrySchema.optional(),
+  codebuddy: agentSdkEntrySchema.optional(),
+  pi: agentSdkEntrySchema.optional()
 });
 
 const contextConfigSchema = z
@@ -42,7 +51,7 @@ const cronWecomConfigSchema = z.object({
   corpId: z.string().min(1),
   corpSecretEnv: z.string().min(1),
   agentId: z.string().min(1),
-  tokenCacheMs: z.number().int().positive().default(7_200_000),
+  tokenCacheMs: z.number().int().positive().default(7_200_000)
 });
 
 const cronConfigSchema = z
@@ -51,9 +60,14 @@ const cronConfigSchema = z
     tickIntervalMs: z.number().int().positive().default(60_000),
     staleGraceMs: z.number().int().positive().default(300_000),
     jobStorePath: z.string().min(1).default(".harness/state/cron-jobs.json"),
-    wecom: cronWecomConfigSchema.optional(),
+    wecom: cronWecomConfigSchema.optional()
   })
-  .default(() => ({ enabled: false, tickIntervalMs: 60_000, staleGraceMs: 300_000, jobStorePath: ".harness/state/cron-jobs.json" }));
+  .default(() => ({
+    enabled: false,
+    tickIntervalMs: 60_000,
+    staleGraceMs: 300_000,
+    jobStorePath: ".harness/state/cron-jobs.json"
+  }));
 
 const runtimeConfigSchema = z.object({
   port: z.number().int().positive().default(3000),
@@ -76,7 +90,8 @@ const runtimeConfigSchema = z.object({
     })
     .default({ botId: "dev-bot-id", secret: "dev-secret" }),
   llm: llmConfigSchema,
-  agentSdk: agentSdkConfigSchema.optional(),
+  agentSdkType: agentSdkTypeSchema,
+  agentSdks: agentSdksSchema,
   context: contextConfigSchema,
   cron: cronConfigSchema
 });
@@ -100,7 +115,7 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   autoCompactEnabled: true,
   autoCompactWindow: 150_000,
   workspaceMaxChars: 8_000,
-  historyMaxMessages: 20,
+  historyMaxMessages: 20
 };
 
 export type CronWecomConfig = {
@@ -167,13 +182,9 @@ export async function loadRuntimeConfig(
   }
 
   const resolvedLlm = resolveLlmConfig(parsed.data.llm, env);
-  const resolvedAgentSdk = resolveAgentSdkConfig(
-    parsed.data.agentSdk ?? {
-      type: "claude",
-      baseUrl: parsed.data.llm.baseUrl,
-      apiKeyEnv: parsed.data.llm.apiKeyEnv,
-      modelId: parsed.data.llm.modelId
-    },
+  const resolvedAgentSdk = resolveActiveAgentSdk(
+    parsed.data.agentSdkType,
+    parsed.data.agentSdks,
     env
   );
   const wechat: WechatConfig = {
@@ -198,10 +209,10 @@ export async function loadRuntimeConfig(
             corpId: parsed.data.cron.wecom.corpId,
             corpSecret: resolveEnvOrDirect("", parsed.data.cron.wecom.corpSecretEnv, env),
             agentId: parsed.data.cron.wecom.agentId,
-            tokenCacheMs: parsed.data.cron.wecom.tokenCacheMs,
-          },
+            tokenCacheMs: parsed.data.cron.wecom.tokenCacheMs
+          }
         }
-      : {}),
+      : {})
   };
   return { ...parsed.data, llm: resolvedLlm, agentSdk: resolvedAgentSdk, wechat, cron };
 }

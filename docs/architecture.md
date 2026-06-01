@@ -10,8 +10,7 @@ normalize its input into the same core message contract and hand it to the gatew
 User channel
   -> channel adapter
   -> message gateway
-  -> role and permission services
-  -> intent gate
+  -> request authorization gate (role, read permission, intent, intent permission)
   -> agent runtime adapter
   -> selected workspace / knowledge base
 ```
@@ -20,12 +19,14 @@ The gateway is the only place that coordinates the business flow:
 
 1. receive a normalized `InboundMessage`;
 2. resolve the selected workspace or knowledge base;
-3. identify the user role;
-4. load role permissions from the configured store;
-5. classify the user's intent;
-6. deny and record feedback when the intent is not allowed;
-7. call the configured `AgentRuntime` when the intent is allowed;
-8. persist session, history, feedback, progress, and conversation logs.
+3. evaluate request authorization:
+   - identify the user role;
+   - check workspace read permission;
+   - classify the user's intent;
+   - map the intent to the required permission action;
+4. deny and record feedback when the intent is useful but not allowed;
+5. call the configured `AgentRuntime` when the request is allowed;
+6. persist session, history, feedback, progress, and conversation logs.
 
 ## Layers
 
@@ -61,8 +62,8 @@ Gateway responsibilities:
 
 - command handling such as `/help` and `/new`;
 - workspace resolution through `KnowledgeWorkspaceResolver`;
-- role lookup and permission checks through `AuthorizationService`;
-- intent classification through `IntentDetectionService`;
+- request authorization through the request authorization gate, backed by `AuthorizationService`
+  and intent classification;
 - feedback capture through `FeedbackStore`;
 - runtime selection through `AgentRuntime` or `AgentRuntimeFactory`;
 - session and history persistence;
@@ -95,7 +96,6 @@ Current examples:
 - `ClaudeSdkAgentRuntime` in `src/agent/claude`
 - `CodebuddySdkAgentRuntime` in `src/agent/codebuddy`
 - `PiAgentRuntime` in `src/agent/pi`
-- `IntentAgentRuntime` in `src/agent/intent`
 
 Future examples:
 

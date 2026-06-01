@@ -3,13 +3,21 @@ import {
   registerFauxProvider,
   fauxAssistantMessage,
   fauxText,
-  fauxThinking,
+  fauxThinking
 } from "@earendil-works/pi-ai";
 import { LlmIntentDetectionService } from "./llmIntentDetectionService.js";
 import type { UserIntent } from "./index.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
+import type { StoredRoleConfig } from "../auth/index.js";
 import { withRetry } from "../config/retry.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
+
+const roleConfig: StoredRoleConfig = {
+  name: "reviewer",
+  allowedTools: ["Read", "Bash"],
+  permissionMode: "dontAsk",
+  systemPrompt: "Read only."
+};
 
 /**
  * Creates a service that simulates retryable failures in detectIntent.
@@ -19,13 +27,10 @@ import { fallbackIntentFor } from "../core/intentHeuristics.js";
  */
 function createRetryableService(
   factory: () => UserIntent,
-  logger?: JsonlLogger,
+  logger?: JsonlLogger
 ): LlmIntentDetectionService {
   class RetryableIntentService extends LlmIntentDetectionService {
-    public override async detectIntent(
-      userMessage: string,
-      role: string,
-    ): Promise<UserIntent> {
+    public override async detectIntent(userMessage: string, role: string): Promise<UserIntent> {
       const startTime = Date.now();
       try {
         const result = await withRetry(() => Promise.resolve(factory()), {
@@ -34,8 +39,12 @@ function createRetryableService(
             if (error instanceof DOMException && error.name === "AbortError") return true;
             if (error instanceof Error) {
               const message = error.message.toLowerCase();
-              return message.includes("rate") || message.includes("overload")
-                || message.includes("429") || message.includes("503");
+              return (
+                message.includes("rate") ||
+                message.includes("overload") ||
+                message.includes("429") ||
+                message.includes("503")
+              );
             }
             return false;
           },
@@ -45,9 +54,9 @@ function createRetryableService(
               role,
               userMessage,
               attempt,
-              error: error instanceof Error ? error.message : String(error),
+              error: error instanceof Error ? error.message : String(error)
             });
-          },
+          }
         });
         await logger?.write({
           type: "intent.result",
@@ -55,7 +64,7 @@ function createRetryableService(
           userMessage,
           intentType: result.type,
           source: "model",
-          durationMs: Date.now() - startTime,
+          durationMs: Date.now() - startTime
         });
         return result;
       } catch {
@@ -67,7 +76,7 @@ function createRetryableService(
           intentType: intent.type,
           source: "fallback",
           reason: "exception",
-          durationMs: Date.now() - startTime,
+          durationMs: Date.now() - startTime
         });
         return intent;
       }
@@ -89,31 +98,30 @@ describe("LlmIntentDetectionService", () => {
     registration.unregister();
   });
 
-  function createService(responses: ReturnType<typeof fauxAssistantMessage>[]): LlmIntentDetectionService {
+  function createService(
+    responses: ReturnType<typeof fauxAssistantMessage>[],
+    logger?: JsonlLogger
+  ): LlmIntentDetectionService {
     registration.setResponses(responses);
-    return new LlmIntentDetectionService(registration.getModel(), "test-key");
+    return new LlmIntentDetectionService(registration.getModel(), "test-key", logger);
   }
 
   it("classifies query intent", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("query")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("query")])]);
     const result = await service.detectIntent("What is the architecture?", "reviewer");
 
     expect(result).toEqual({ type: "query" });
   });
 
   it("logs intent model request, response, and final result", async () => {
-    registration.setResponses([
-      fauxAssistantMessage([fauxText("query")]),
-    ]);
+    registration.setResponses([fauxAssistantMessage([fauxText("query")])]);
     const rawEvents: Record<string, unknown>[] = [];
     const service = new LlmIntentDetectionService(registration.getModel(), "test-key", {
       filePath: "memory.jsonl",
       write(event) {
         rawEvents.push(event);
         return Promise.resolve();
-      },
+      }
     });
 
     const result = await service.detectIntent("客户订单是怎么创建的", "reviewer");
@@ -122,19 +130,19 @@ describe("LlmIntentDetectionService", () => {
     expect(rawEvents.map((event) => event["type"])).toEqual([
       "llm.request",
       "llm.response",
-      "intent.result",
+      "intent.result"
     ]);
     expect(rawEvents[0]).toMatchObject({
       type: "llm.request",
       operation: "intent_detection",
       role: "reviewer",
-      userMessage: "客户订单是怎么创建的",
+      userMessage: "客户订单是怎么创建的"
     });
     expect(rawEvents[1]).toMatchObject({
       type: "llm.response",
       operation: "intent_detection",
       role: "reviewer",
-      userMessage: "客户订单是怎么创建的",
+      userMessage: "客户订单是怎么创建的"
     });
     expect(asRecord(rawEvents[1]?.["response"])["stopReason"]).toBe("stop");
     expect(rawEvents[2]).toMatchObject({
@@ -142,16 +150,13 @@ describe("LlmIntentDetectionService", () => {
       role: "reviewer",
       userMessage: "客户订单是怎么创建的",
       intentType: "query",
-      source: "model",
+      source: "model"
     });
   });
 
   it("extracts text from thinking+text response", async () => {
     const service = createService([
-      fauxAssistantMessage([
-        fauxThinking("The user wants to change files."),
-        fauxText("mutate"),
-      ]),
+      fauxAssistantMessage([fauxThinking("The user wants to change files."), fauxText("mutate")])
     ]);
     const result = await service.detectIntent("Add checkout support", "reviewer");
 
@@ -159,96 +164,72 @@ describe("LlmIntentDetectionService", () => {
   });
 
   it("classifies update_kb intent", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("update_kb")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("update_kb")])]);
     const result = await service.detectIntent("Please update the documentation", "reviewer");
 
     expect(result).toEqual({ type: "update_kb" });
   });
 
   it("classifies mutation requests", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("mutate")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("mutate")])]);
     const result = await service.detectIntent("Fix the bug in auth.ts", "developer");
 
     expect(result).toEqual({ type: "mutate" });
   });
 
   it("classifies Chinese system modification requests", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("mutate")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("mutate")])]);
     const result = await service.detectIntent("我想修改订单系统", "reviewer");
 
     expect(result).toEqual({ type: "mutate" });
   });
 
   it("classifies Chinese creation explanation questions as query", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("query")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("query")])]);
     const result = await service.detectIntent("客户订单是怎么创建的", "reviewer");
 
     expect(result).toEqual({ type: "query" });
   });
 
   it("classifies Chinese feature-add requests", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("mutate")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("mutate")])]);
     const result = await service.detectIntent("添加新的订单功能 增加下单", "reviewer");
 
     expect(result).toEqual({ type: "mutate" });
   });
 
   it("classifies ambiguous short message using conversation history", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("update_kb")]),
-    ]);
-    const history = [
-      { role: "assistant" as const, content: "需要补充参数文档" },
-    ];
+    const service = createService([fauxAssistantMessage([fauxText("update_kb")])]);
+    const history = [{ role: "assistant" as const, content: "需要补充参数文档" }];
     const result = await service.detectIntent("补充一下", "reviewer", history);
 
     expect(result).toEqual({ type: "update_kb" });
   });
 
   it("classifies confirmation as mutate when assistant suggested code change", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("mutate")]),
-    ]);
-    const history = [
-      { role: "assistant" as const, content: "是否需要修改代码？" },
-    ];
+    const service = createService([fauxAssistantMessage([fauxText("mutate")])]);
+    const history = [{ role: "assistant" as const, content: "是否需要修改代码？" }];
     const result = await service.detectIntent("好的", "developer", history);
 
     expect(result).toEqual({ type: "mutate" });
   });
 
   it("uses deterministic mutation fallback on unrecognized response", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("unknown_label")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("unknown_label")])]);
     const result = await service.detectIntent("Please implement order export", "reviewer");
 
     expect(result).toEqual({ type: "mutate" });
   });
 
   it("uses deterministic query fallback for Chinese creation explanation questions", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("unknown_label")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("unknown_label")])]);
     const result = await service.detectIntent("客户订单是怎么创建的", "reviewer");
 
     expect(result).toEqual({ type: "query" });
   });
 
   it("defaults to query on empty text response", async () => {
-    const service = createService([
-      fauxAssistantMessage([fauxText("")]),
-    ]);
+    const service = createService([fauxAssistantMessage([fauxText("")])]);
     const result = await service.detectIntent("Hello", "reviewer");
 
     expect(result).toEqual({ type: "query" });
@@ -266,8 +247,8 @@ describe("LlmIntentDetectionService", () => {
     const service = createService([
       fauxAssistantMessage([fauxText("mutate")], {
         stopReason: "error",
-        errorMessage: "provider rejected request",
-      }),
+        errorMessage: "provider rejected request"
+      })
     ]);
     const result = await service.detectIntent("Fix the bug in auth.ts", "developer");
 
@@ -353,8 +334,8 @@ describe("LlmIntentDetectionService", () => {
         write(event: Record<string, unknown>) {
           rawEvents.push(event);
           return Promise.resolve();
-        },
-      },
+        }
+      }
     );
 
     const result = await service.detectIntent("Fix the bug", "developer");
@@ -367,8 +348,105 @@ describe("LlmIntentDetectionService", () => {
       role: "developer",
       userMessage: "Fix the bug",
       attempt: 1,
-      error: "429 Rate limit exceeded",
+      error: "429 Rate limit exceeded"
     });
+  });
+
+  it("allows Bash commands when the policy classifier marks them read-only", async () => {
+    const service = createService([
+      fauxAssistantMessage([fauxThinking("This only lists files."), fauxText("allow")])
+    ]);
+
+    const result = await service.decideToolPermission(roleConfig, "Bash", { command: "ls -la" });
+
+    expect(result).toEqual({ behavior: "allow", decisionClassification: "user_temporary" });
+  });
+
+  it("logs Bash permission request, response, and decision through the shared policy service", async () => {
+    const rawEvents: Record<string, unknown>[] = [];
+    const service = createService([fauxAssistantMessage([fauxText("allow")])], {
+      filePath: "memory.jsonl",
+      write(event: Record<string, unknown>) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      }
+    });
+
+    const result = await service.decideToolPermission(roleConfig, "Bash", { command: "ls -la" });
+
+    expect(result.behavior).toBe("allow");
+    expect(rawEvents.map((event) => event["type"])).toEqual([
+      "llm.request",
+      "llm.response",
+      "tool.permission_result"
+    ]);
+    expect(rawEvents[0]).toMatchObject({
+      type: "llm.request",
+      operation: "bash_permission",
+      role: "reviewer",
+      command: "ls -la"
+    });
+    expect(rawEvents[1]).toMatchObject({
+      type: "llm.response",
+      operation: "bash_permission",
+      role: "reviewer",
+      command: "ls -la"
+    });
+    expect(asRecord(rawEvents[1]?.["response"])["stopReason"]).toBe("stop");
+    expect(rawEvents[2]).toMatchObject({
+      type: "tool.permission_result",
+      operation: "bash_permission",
+      role: "reviewer",
+      command: "ls -la",
+      behavior: "allow"
+    });
+  });
+
+  it("denies Bash commands when the policy classifier does not mark them read-only", async () => {
+    const service = createService([fauxAssistantMessage([fauxText("deny")])]);
+
+    const result = await service.decideToolPermission(roleConfig, "Bash", {
+      command: "rm -rf dist"
+    });
+
+    expect(result.behavior).toBe("deny");
+  });
+
+  it("denies non-Bash tools in the shared policy classifier", async () => {
+    const service = createService([]);
+
+    const result = await service.decideToolPermission(roleConfig, "Edit", { file_path: "a.ts" });
+
+    expect(result.behavior).toBe("deny");
+  });
+
+  it("denies Bash when command is missing", async () => {
+    const service = createService([]);
+
+    const result = await service.decideToolPermission(roleConfig, "Bash", {});
+
+    expect(result.behavior).toBe("deny");
+  });
+
+  it("denies Bash permission on provider error", async () => {
+    const service = createService([]);
+
+    const result = await service.decideToolPermission(roleConfig, "Bash", { command: "ls" });
+
+    expect(result.behavior).toBe("deny");
+  });
+
+  it("denies Bash permission when provider returns an error response", async () => {
+    const service = createService([
+      fauxAssistantMessage([fauxText("allow")], {
+        stopReason: "error",
+        errorMessage: "provider rejected request"
+      })
+    ]);
+
+    const result = await service.decideToolPermission(roleConfig, "Bash", { command: "ls" });
+
+    expect(result.behavior).toBe("deny");
   });
 });
 

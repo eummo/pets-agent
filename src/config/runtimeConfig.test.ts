@@ -18,9 +18,17 @@ function validConfig(overrides: Record<string, unknown> = {}): Record<string, un
     llm: {
       baseUrl: "https://api.example.com",
       apiKeyEnv: "TEST_API_KEY",
-      modelId: "test-model",
+      modelId: "test-model"
     },
-    ...overrides,
+    agentSdkType: "claude",
+    agentSdks: {
+      claude: {
+        baseUrl: "https://api.example.com",
+        apiKeyEnv: "TEST_API_KEY",
+        modelId: "test-model"
+      }
+    },
+    ...overrides
   };
 }
 
@@ -48,7 +56,7 @@ describe("loadRuntimeConfig", () => {
       autoCompactEnabled: true,
       autoCompactWindow: 150_000,
       workspaceMaxChars: 8_000,
-      historyMaxMessages: 20,
+      historyMaxMessages: 20
     });
   });
 
@@ -62,30 +70,35 @@ describe("loadRuntimeConfig", () => {
       enabled: false,
       tickIntervalMs: 60_000,
       staleGraceMs: 300_000,
-      jobStorePath: ".harness/state/cron-jobs.json",
+      jobStorePath: ".harness/state/cron-jobs.json"
     });
   });
 
   it("resolves cron WeCom app-message credentials from env", async () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
-    await writeFile(filePath, JSON.stringify(validConfig({
-      cron: {
-        enabled: true,
-        tickIntervalMs: 30_000,
-        staleGraceMs: 120_000,
-        jobStorePath: ".harness/state/custom-cron.json",
-        wecom: {
-          corpId: "corp-id",
-          corpSecretEnv: "WECOM_CORP_SECRET",
-          agentId: "1000002",
-          tokenCacheMs: 3_600_000,
-        },
-      },
-    })));
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          cron: {
+            enabled: true,
+            tickIntervalMs: 30_000,
+            staleGraceMs: 120_000,
+            jobStorePath: ".harness/state/custom-cron.json",
+            wecom: {
+              corpId: "corp-id",
+              corpSecretEnv: "WECOM_CORP_SECRET",
+              agentId: "1000002",
+              tokenCacheMs: 3_600_000
+            }
+          }
+        })
+      )
+    );
 
     const config = await loadRuntimeConfig(filePath, {
       TEST_API_KEY: "secret-key",
-      WECOM_CORP_SECRET: "corp-secret",
+      WECOM_CORP_SECRET: "corp-secret"
     });
 
     expect(config.cron).toEqual({
@@ -97,21 +110,26 @@ describe("loadRuntimeConfig", () => {
         corpId: "corp-id",
         corpSecret: "corp-secret",
         agentId: "1000002",
-        tokenCacheMs: 3_600_000,
-      },
+        tokenCacheMs: 3_600_000
+      }
     });
   });
 
   it("loads custom context config values", async () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
-    await writeFile(filePath, JSON.stringify(validConfig({
-      context: {
-        autoCompactEnabled: false,
-        autoCompactWindow: 100_000,
-        workspaceMaxChars: 12_000,
-        historyMaxMessages: 50,
-      },
-    })));
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          context: {
+            autoCompactEnabled: false,
+            autoCompactWindow: 100_000,
+            workspaceMaxChars: 12_000,
+            historyMaxMessages: 50
+          }
+        })
+      )
+    );
 
     const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
 
@@ -119,19 +137,30 @@ describe("loadRuntimeConfig", () => {
       autoCompactEnabled: false,
       autoCompactWindow: 100_000,
       workspaceMaxChars: 12_000,
-      historyMaxMessages: 50,
+      historyMaxMessages: 50
     });
   });
 
   it("applies defaults for optional fields", async () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
-    await writeFile(filePath, JSON.stringify({
-      llm: {
-        baseUrl: "https://api.example.com",
-        apiKeyEnv: "TEST_API_KEY",
-        modelId: "test-model",
-      },
-    }));
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        llm: {
+          baseUrl: "https://api.example.com",
+          apiKeyEnv: "TEST_API_KEY",
+          modelId: "test-model"
+        },
+        agentSdkType: "claude",
+        agentSdks: {
+          claude: {
+            baseUrl: "https://api.example.com",
+            apiKeyEnv: "TEST_API_KEY",
+            modelId: "test-model"
+          }
+        }
+      })
+    );
 
     const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
 
@@ -161,9 +190,7 @@ describe("loadRuntimeConfig", () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
     await writeFile(filePath, JSON.stringify({ port: "not-a-number" }));
 
-    await expect(loadRuntimeConfig(filePath, {})).rejects.toThrow(
-      `Invalid config in ${filePath}`
-    );
+    await expect(loadRuntimeConfig(filePath, {})).rejects.toThrow(`Invalid config in ${filePath}`);
   });
 
   it("includes field path in schema error for nested fields", async () => {
@@ -201,5 +228,190 @@ describe("loadRuntimeConfig", () => {
     await expect(loadRuntimeConfig(filePath, {})).rejects.toThrow(
       "Missing LLM API key environment variable: TEST_API_KEY"
     );
+  });
+});
+
+describe("loadRuntimeConfig agentSdk resolution", () => {
+  it("resolves the selected agentSdkType from agentSdks", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "codebuddy",
+          agentSdks: {
+            claude: {
+              baseUrl: "https://claude.example.com",
+              apiKeyEnv: "CLAUDE_KEY",
+              modelId: "claude-3"
+            },
+            codebuddy: {
+              baseUrl: "https://codebuddy.example.com",
+              apiKeyEnv: "CODEBUDDY_KEY",
+              modelId: "cb-model"
+            }
+          }
+        })
+      )
+    );
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key",
+      CLAUDE_KEY: "sk-claude",
+      CODEBUDDY_KEY: "sk-cb"
+    });
+
+    expect(config.agentSdk.type).toBe("codebuddy");
+    expect(config.agentSdk.apiKey).toBe("sk-cb");
+    expect(config.agentSdk.modelId).toBe("cb-model");
+  });
+
+  it("resolves pi SDK when selected", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "pi",
+          agentSdks: {
+            pi: {
+              baseUrl: "https://pi.example.com",
+              apiKeyEnv: "PI_KEY",
+              modelId: "pi-model"
+            }
+          }
+        })
+      )
+    );
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key",
+      PI_KEY: "sk-pi"
+    });
+
+    expect(config.agentSdk.type).toBe("pi");
+    expect(config.agentSdk.apiKey).toBe("sk-pi");
+  });
+
+  it("allows codebuddy SDK to use local authentication when apiKeyEnv is omitted", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "codebuddy",
+          agentSdks: {
+            codebuddy: {
+              baseUrl: "https://codebuddy.example.com",
+              modelId: "cb-model"
+            }
+          }
+        })
+      )
+    );
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key"
+    });
+
+    expect(config.agentSdk.type).toBe("codebuddy");
+    expect(config.agentSdk.apiKey).toBe("");
+    expect(config.agentSdk.apiKeyEnv).toBeUndefined();
+  });
+
+  it("loads codebuddy enterprise endpoint when configured", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "codebuddy",
+          agentSdks: {
+            codebuddy: {
+              baseUrl: "https://codebuddy.example.com",
+              modelId: "cb-model",
+              endpoint: "https://enterprise.example.com/"
+            }
+          }
+        })
+      )
+    );
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key"
+    });
+
+    expect(config.agentSdk.type).toBe("codebuddy");
+    expect(config.agentSdk.endpoint).toBe("https://enterprise.example.com/");
+  });
+
+  it("throws when the selected agentSdkType has no entry in agentSdks", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "codebuddy",
+          agentSdks: {
+            claude: {
+              baseUrl: "https://claude.example.com",
+              apiKeyEnv: "CLAUDE_KEY",
+              modelId: "claude-3"
+            }
+          }
+        })
+      )
+    );
+
+    await expect(
+      loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key", CLAUDE_KEY: "sk-claude" })
+    ).rejects.toThrow('No agentSdk config found for type "codebuddy"');
+  });
+
+  it("throws when agentSdkType or agentSdks is missing", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        llm: {
+          baseUrl: "https://api.example.com",
+          apiKeyEnv: "TEST_API_KEY",
+          modelId: "test-model"
+        }
+      })
+    );
+
+    await expect(loadRuntimeConfig(filePath, { TEST_API_KEY: "key" })).rejects.toThrow();
+  });
+
+  it("preserves optional fields from the selected SDK entry", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "claude",
+          agentSdks: {
+            claude: {
+              baseUrl: "https://claude.example.com",
+              apiKeyEnv: "CLAUDE_KEY",
+              modelId: "claude-3",
+              api: "anthropic-messages",
+              provider: "anthropic",
+              contextWindow: 200_000
+            }
+          }
+        })
+      )
+    );
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key",
+      CLAUDE_KEY: "sk-claude"
+    });
+
+    expect(config.agentSdk.api).toBe("anthropic-messages");
+    expect(config.agentSdk.provider).toBe("anthropic");
+    expect(config.agentSdk.contextWindow).toBe(200_000);
   });
 });

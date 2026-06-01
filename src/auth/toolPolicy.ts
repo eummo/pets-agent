@@ -1,26 +1,9 @@
 import path from "node:path";
-import type { StoredRoleConfig } from "../../auth/index.js";
-import { FILE_MUTATION_TOOLS } from "../../auth/index.js";
-import { stringField } from "../../core/unknownRecord.js";
+import type { StoredRoleConfig, ToolPermissionDecider, ToolPermissionResult } from "./index.js";
+import { FILE_MUTATION_TOOLS } from "./index.js";
+import { stringField } from "../core/unknownRecord.js";
 
-// ── Provider-Neutral Permission Result ──────────────────────────────────────
-// This type replaces the Claude SDK's PermissionResult so that tool policy
-// logic can be reused by Codebuddy, Pi, or future adapters without importing
-// any provider SDK types.
-
-export type ToolPermissionResult = {
-  readonly behavior: "allow" | "deny";
-  readonly message?: string;
-  readonly decisionClassification?: "user_temporary" | "user_permanent" | "user_reject";
-};
-
-export type ToolPermissionDecider = (
-  roleConfig: StoredRoleConfig,
-  toolName: string,
-  input: Record<string, unknown>
-) => Promise<ToolPermissionResult>;
-
-// ── Tool Availability ───────────────────────────────────────────────────────
+export type { ToolPermissionDecider, ToolPermissionResult } from "./index.js";
 
 export function availableToolsForRole(config: StoredRoleConfig): readonly string[] {
   if (roleCanUseFileMutationTools(config)) {
@@ -45,8 +28,6 @@ export function disallowedToolsForRole(config: StoredRoleConfig): readonly strin
 
   return [...FILE_MUTATION_TOOLS].filter((tool) => config.allowedTools.includes(tool));
 }
-
-// ── Permission Decision ─────────────────────────────────────────────────────
 
 export async function decideToolPermission(
   config: StoredRoleConfig,
@@ -105,28 +86,6 @@ export function isToolInputWithinWorkspace(
   return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
 }
 
-// ── Internal Helpers ────────────────────────────────────────────────────────
-
-/** Returns true for absolute paths on any platform, including Windows drive-letter paths on Linux/WSL. */
-function isAbsolutePath(p: string): boolean {
-  if (path.isAbsolute(p)) return true;
-  // Windows drive-letter absolute path on a non-Windows system
-  if (/^[a-zA-Z]:[/\\]/.test(p)) return true;
-  return false;
-}
-
-function pathValueForTool(toolName: string, input: Record<string, unknown>): string | undefined {
-  if (toolName === "Read") {
-    return stringField(input, "file_path");
-  }
-
-  if (toolName === "Grep" || toolName === "Glob") {
-    return stringField(input, "path");
-  }
-
-  return undefined;
-}
-
 export function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
   if (config.permissionMode !== "acceptEdits" && config.permissionMode !== "bypassPermissions") {
     return false;
@@ -145,4 +104,22 @@ export function denyTool(
     message: message ?? `Tool ${toolName} is not permitted for role ${roleName}.`,
     decisionClassification: "user_reject"
   };
+}
+
+function isAbsolutePath(p: string): boolean {
+  if (path.isAbsolute(p)) return true;
+  if (/^[a-zA-Z]:[/\\]/.test(p)) return true;
+  return false;
+}
+
+function pathValueForTool(toolName: string, input: Record<string, unknown>): string | undefined {
+  if (toolName === "Read") {
+    return stringField(input, "file_path");
+  }
+
+  if (toolName === "Grep" || toolName === "Glob") {
+    return stringField(input, "path");
+  }
+
+  return undefined;
 }

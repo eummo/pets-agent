@@ -76,19 +76,43 @@ src/
 
 依赖方向：外层依赖内层，内层不依赖外层。`core/index.ts` 和各模块 `index.ts` 是公开契约入口。
 
-## LLM 配置
+## Runtime 配置
 
-兼容模型端点在 `config/llm.json` 中配置：
+模型端点和当前启用的 Agent SDK 在 `config/runtime.json` 中配置：
 
 ```json
 {
-  "baseUrl": "https://api.minimaxi.com/anthropic",
-  "modelId": "MiniMax-M2.7",
-  "apiKeyEnv": "LOCAL_LLM_API_KEY"
+  "llm": {
+    "baseUrl": "https://api.minimaxi.com/anthropic",
+    "apiKeyEnv": "LOCAL_LLM_API_KEY",
+    "modelId": "MiniMax-M3",
+    "maxTokens": 8192
+  },
+  "agentSdkType": "claude",
+  "agentSdks": {
+    "claude": {
+      "baseUrl": "https://api.minimaxi.com/anthropic",
+      "apiKeyEnv": "LOCAL_LLM_API_KEY",
+      "modelId": "MiniMax-M3",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "contextWindow": 200000
+    },
+    "codebuddy": {
+      "baseUrl": "https://api.minimaxi.com/anthropic",
+      "apiKeyEnv": "CODEBUDDY_API_KEY",
+      "modelId": "MiniMax-M3"
+    },
+    "pi": {
+      "baseUrl": "https://api.minimaxi.com/anthropic",
+      "apiKeyEnv": "LOCAL_LLM_API_KEY",
+      "modelId": "MiniMax-M3"
+    }
+  }
 }
 ```
 
-API 密钥通过环境变量提供，不写入配置文件。
+`agentSdkType` 必须指向 `agentSdks` 中已有的条目。API 密钥通过环境变量提供，不写入配置文件。
 
 ## 多轮对话
 

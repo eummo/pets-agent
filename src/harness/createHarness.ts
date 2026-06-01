@@ -60,15 +60,20 @@ export async function createHarnessEnvironment(
   await mkdir(path.join(knowledgeBasePath, ".claude", "skills"), { recursive: true });
   await mkdir(path.join(knowledgeBasePath, ".claude", "commands"), { recursive: true });
   await mkdir(path.join(knowledgeBasePath, ".claude", "rules"), { recursive: true });
+  await mkdir(path.join(knowledgeBasePath, ".claude", "workflows"), { recursive: true });
 
   // SDK permissions: allow developer role to use Write/Bash/Edit
   await writeFile(
     path.join(knowledgeBasePath, ".claude", "settings.json"),
-    `${JSON.stringify({
-      permissions: {
-        allow: ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)", "Glob(*)", "Grep(*)"]
-      }
-    }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        permissions: {
+          allow: ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)", "Glob(*)", "Grep(*)"]
+        }
+      },
+      null,
+      2
+    )}\n`
   );
 
   await writeFile(
@@ -107,11 +112,13 @@ export async function createHarnessEnvironment(
       "# Workspace Scope",
       "",
       "Always answer from the selected workspace content.",
-      "Do not reference the host agent implementation unless the user explicitly asks.",
+      "Do not reference the host agent implementation unless the user explicitly asks."
     ].join("\n")
   );
 
-  await mkdir(path.join(knowledgeBasePath, ".claude", "skills", "order-check"), { recursive: true });
+  await mkdir(path.join(knowledgeBasePath, ".claude", "skills", "order-check"), {
+    recursive: true
+  });
   await writeFile(
     path.join(knowledgeBasePath, ".claude", "skills", "order-check", "SKILL.md"),
     [
@@ -122,16 +129,34 @@ export async function createHarnessEnvironment(
       "",
       "# Order Check Skill",
       "",
-      "When the user asks about an order, use Grep to search for the order ID in the workspace files.",
+      "When the user asks about an order, use Grep to search for the order ID in the workspace files."
     ].join("\n")
   );
 
   await writeFile(
     path.join(knowledgeBasePath, ".claude", "commands", "summarize.md"),
+    ["# /summarize", "", "Summarize the key documents in the selected workspace."].join("\n")
+  );
+
+  await writeFile(
+    path.join(knowledgeBasePath, ".claude", "workflows", "summarize-docs.js"),
     [
-      "# /summarize",
+      "export const meta = {",
+      "  name: 'summarize-docs',",
+      "  description: 'Summarize the key documentation files in the workspace',",
+      "  phases: ['read', 'summarize']",
+      "};",
       "",
-      "Summarize the key documents in the selected workspace.",
+      "export default pipeline(",
+      "  phase('read', async () => {",
+      "    const result = await agent('Read the CLAUDE.md file and list the key documents');",
+      "    return result;",
+      "  }),",
+      "  phase('summarize', async (prev) => {",
+      "    const result = await agent(`Summarize the following in 3 bullet points: ${prev}`);",
+      "    return result;",
+      "  })",
+      ");"
     ].join("\n")
   );
 
@@ -139,10 +164,7 @@ export async function createHarnessEnvironment(
     await createRepositoryFixture(root, repository, options.initializeGit !== false);
   }
 
-  await writeFile(
-    path.join(root, "repos.json"),
-    `${JSON.stringify({ repositories }, null, 2)}\n`
-  );
+  await writeFile(path.join(root, "repos.json"), `${JSON.stringify({ repositories }, null, 2)}\n`);
 
   return { root, knowledgeBasePath, repositories };
 }
@@ -204,7 +226,7 @@ async function createRepositoryFixture(
         private: true,
         type: "module",
         scripts: {
-          test: "node -e \"process.exit(0)\""
+          test: 'node -e "process.exit(0)"'
         }
       },
       null,

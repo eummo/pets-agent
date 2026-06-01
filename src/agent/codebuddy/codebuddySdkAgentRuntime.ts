@@ -7,10 +7,7 @@ import type { ContextConfig } from "../../config/runtimeConfig.js";
 import { DEFAULT_CONTEXT_CONFIG } from "../../config/runtimeConfig.js";
 import type { JsonlLogger } from "../../logging/jsonlLogger.js";
 import type { ResolvedAgentSdkConfig } from "../../config/llmConfig.js";
-import {
-  decideToolPermission,
-  type ToolPermissionDecider
-} from "../policy/toolPolicy.js";
+import { decideToolPermission, type ToolPermissionDecider } from "../../auth/index.js";
 import { buildWorkspacePrompt } from "../shared/workspacePromptBuilder.js";
 import {
   forwardAssistantContentEvents,
@@ -66,9 +63,7 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
     });
     const queryOptions: Record<string, unknown> = {
       ...baseOptions,
-      env: {
-        CODEBUDDY_API_KEY: this.agentSdkConfig.apiKey
-      }
+      ...codebuddySdkConnectionOptions(this.agentSdkConfig)
     };
 
     const startTime = Date.now();
@@ -184,4 +179,52 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
       message: result.message ?? `Tool ${toolName} denied.`
     };
   }
+}
+
+function codebuddySdkConnectionOptions(config: ResolvedAgentSdkConfig): {
+  readonly env?: Record<string, string>;
+  readonly endpoint?: string;
+  readonly environment?: string;
+} {
+  const envEntries: Record<string, string> = {};
+
+  // Forward CODEBUDDY_INTERNET_ENVIRONMENT so the CLI subprocess routes to the
+  // correct product configuration at startup. For enterprise endpoints the SDK
+  // query option stays on endpoint, but the subprocess still needs the startup
+  // environment to resolve the matching authentication target.
+  if (config.environment !== undefined) {
+    envEntries["CODEBUDDY_INTERNET_ENVIRONMENT"] = config.environment;
+  }
+
+  // When an enterprise endpoint is configured, set it via ACC_PRODUCT_CONFIG_V3
+  // so the CLI picks it up during startup via the EnvProductProvider (priority 19999).
+  // This is more reliable than passing endpoint via the initialize control request,
+  // which arrives after the CLI has already resolved its product configuration.
+  if (config.endpoint !== undefined) {
+    envEntries["ACC_PRODUCT_CONFIG_V3"] = JSON.stringify({
+      endpoint: config.endpoint,
+      stagingEndpoint: config.endpoint
+    });
+  }
+
+  // Authentication: forward explicit auth credentials to the CLI subprocess.
+  // When CODEBUDDY_AUTH_TOKEN is set in the parent process, forward it.
+  // When an API key is configured, forward it. Otherwise, don't set any
+  // auth env vars — the CLI will try to discover its own cached credentials.
+  const authToken = process.env["CODEBUDDY_AUTH_TOKEN"];
+  if (authToken !== undefined && authToken.trim().length > 0) {
+    envEntries["CODEBUDDY_AUTH_TOKEN"] = authToken;
+  } else if (config.apiKey.trim().length > 0) {
+    envEntries["CODEBUDDY_API_KEY"] = config.apiKey;
+  }
+
+  const connectionOptions: Record<string, string> = {};
+  if (config.environment !== undefined) {
+    connectionOptions["environment"] = config.environment;
+  }
+
+  if (Object.keys(envEntries).length > 0) {
+    return { ...connectionOptions, env: envEntries };
+  }
+  return connectionOptions;
 }

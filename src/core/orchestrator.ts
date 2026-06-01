@@ -21,11 +21,11 @@ import type {
   FeedbackStore
 } from "../persistence/index.js";
 import type { KnowledgeWorkspace, KnowledgeWorkspaceResolver } from "../workspace/index.js";
-import type { UserIntent } from "../intent/index.js";
+import type { IntentDetectionService, UserIntent } from "../intent/index.js";
 import { handleCommandWithoutWorkspace, isNewConversationCommand } from "./conversationCommands.js";
-import { actionForIntent, responseForDeniedIntent } from "./intentAuthorization.js";
+import { responseForDeniedIntent } from "./intentAuthorization.js";
 import { fallbackIntentFor } from "./intentHeuristics.js";
-import { parseIntentResponse } from "../agent/intent/index.js";
+import { RequestAuthorizationGate } from "./requestAuthorizationGate.js";
 import { RuntimeCache } from "./runtimeCache.js";
 import { formatInternalError, formatSafeRuntimeError } from "./runtimeErrorFormatter.js";
 import { formatUnknownError } from "./unknownRecord.js";
@@ -42,10 +42,12 @@ export type OrchestratorDependencies = {
   readonly eventLogger?: ConversationLogger;
   readonly progressReporter?: ProgressReporter;
   readonly feedbackStore?: FeedbackStore | undefined;
+  readonly intentDetection?: IntentDetectionService;
 };
 
 export class AgentOrchestrator implements MessageGateway {
   private readonly runtimeCache: RuntimeCache;
+  private readonly requestAuthorizationGate: RequestAuthorizationGate;
   private readonly lastRoleForSession = new Map<string, string>();
 
   public constructor(private readonly dependencies: OrchestratorDependencies) {
@@ -53,6 +55,10 @@ export class AgentOrchestrator implements MessageGateway {
       dependencies.initialRuntimes ?? {},
       dependencies.runtimeFactory
     );
+    this.requestAuthorizationGate = new RequestAuthorizationGate({
+      authorization: dependencies.authorization,
+      detectIntent: (userMessage, role, history) => this.detectIntent(userMessage, role, history)
+    });
   }
 
   public async handle(message: InboundMessage): Promise<OutboundMessage> {
@@ -80,26 +86,26 @@ export class AgentOrchestrator implements MessageGateway {
       return response;
     }
 
-    const role = message.roleOverride ?? await this.dependencies.authorization.roleFor(message.user);
-    await this.logEvent("role.resolved", message, { role });
-
-    const readDecision =
-      message.roleOverride !== undefined && this.dependencies.authorization.canRole !== undefined
-        ? await this.dependencies.authorization.canRole(message.roleOverride, "read", workspace)
-        : await this.dependencies.authorization.can(message.user, "read", workspace);
-    if (!readDecision.allowed) {
-      const response = {
-        text: readDecision.reason ?? "You do not have permission to access this workspace."
-      };
+    const authorization = await this.authorizeRequest(message, workspace);
+    await this.logEvent("role.resolved", message, { role: authorization.role });
+    if (authorization.status === "denied") {
+      if (authorization.deniedAt === "intent") {
+        await this.logIntent(message, workspace, authorization.role, authorization.intent);
+        await this.saveFeedback(message, workspace.path, authorization.intent, authorization.role);
+        await this.logEvent("permission.denied", message, {
+          role: authorization.role,
+          action: authorization.requiredAction,
+          intentType: authorization.intent.type,
+          workspacePath: workspace.path
+        });
+      }
+      const response = { text: authorization.responseText };
       await this.logConversation(message, response.text, workspace.path);
       return response;
     }
+    await this.logIntent(message, workspace, authorization.role, authorization.intent);
 
-    const intentCheck = await this.checkIntentAuthorization(message, workspace, role);
-    if (intentCheck !== undefined) {
-      return intentCheck;
-    }
-
+    const role = authorization.role;
     const runtime = await this.resolveRuntime(role);
     if (runtime === undefined) {
       const response = { text: `No runtime configured for role: ${role}` };
@@ -116,43 +122,29 @@ export class AgentOrchestrator implements MessageGateway {
     return workspaces[0];
   }
 
-  private async checkIntentAuthorization(
-    message: InboundMessage,
-    workspace: KnowledgeWorkspace,
-    role: UserRole
-  ): Promise<OutboundMessage | undefined> {
+  private async authorizeRequest(message: InboundMessage, workspace: KnowledgeWorkspace) {
     const sessionKey = this.createSessionKey(message, workspace.path);
     const history = await this.dependencies.historyStore?.get(sessionKey);
     const recentHistory = history?.slice(-4);
 
-    const intent = await this.detectIntent(message.text, role, recentHistory);
+    return this.requestAuthorizationGate.evaluate({
+      message,
+      workspace,
+      ...(recentHistory !== undefined ? { history: recentHistory } : {})
+    });
+  }
+
+  private async logIntent(
+    message: InboundMessage,
+    workspace: KnowledgeWorkspace,
+    role: UserRole,
+    intent: UserIntent
+  ): Promise<void> {
     await this.logEvent("intent.classified", message, {
       role,
       intentType: intent.type,
       workspacePath: workspace.path
     });
-    const requiredAction = actionForIntent(intent);
-
-    if (requiredAction !== undefined) {
-      const intentDecision =
-        message.roleOverride !== undefined && this.dependencies.authorization.canRole !== undefined
-          ? await this.dependencies.authorization.canRole(message.roleOverride, requiredAction, workspace)
-          : await this.dependencies.authorization.can(message.user, requiredAction, workspace);
-      if (!intentDecision.allowed) {
-        await this.saveFeedback(message, workspace.path, intent, role);
-        await this.logEvent("permission.denied", message, {
-          role,
-          action: requiredAction,
-          intentType: intent.type,
-          workspacePath: workspace.path
-        });
-        const response = { text: responseForDeniedIntent(intent) };
-        await this.logConversation(message, response.text, workspace.path);
-        return response;
-      }
-    }
-
-    return undefined;
   }
 
   private async resolveRuntime(role: string): Promise<AgentRuntime | undefined> {
@@ -242,19 +234,13 @@ export class AgentOrchestrator implements MessageGateway {
     role: UserRole,
     history?: readonly AgentConversationMessage[]
   ): Promise<UserIntent> {
+    const intentDetection = this.dependencies.intentDetection;
+    if (intentDetection === undefined) {
+      return fallbackIntentFor(userMessage);
+    }
+
     try {
-      const intentRuntime = await this.runtimeCache.resolve("intent");
-      if (intentRuntime !== undefined) {
-        const request: AgentRequest = {
-          user: { id: "system" },
-          text: userMessage,
-          workspacePath: "",
-          role,
-          ...(history !== undefined ? { history } : {})
-        };
-        const response = await intentRuntime.run(request);
-        return parseIntentResponse(response.text);
-      }
+      return await intentDetection.detectIntent(userMessage, role, history);
     } catch (error) {
       void this.dependencies.eventLogger?.write({
         type: "intent.fallback",

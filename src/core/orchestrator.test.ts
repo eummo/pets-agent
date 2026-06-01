@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AgentRequest,
-  AgentRuntime,
-  AgentRuntimeFactory
-} from "../agent/index.js";
+import type { AgentRequest, AgentRuntime, AgentRuntimeFactory } from "../agent/index.js";
 import type { AuthorizationService } from "../auth/index.js";
 import type {
   ConversationHistoryStore,
@@ -25,7 +21,7 @@ function stubIntentRuntime(intentType: UserIntent["type"] = "query"): AgentRunti
     },
     disposeSession() {
       return Promise.resolve();
-    },
+    }
   };
 }
 
@@ -37,13 +33,13 @@ function stubIntentRuntimeFromMessage(): AgentRuntime {
     },
     disposeSession() {
       return Promise.resolve();
-    },
+    }
   };
 }
 
 function stubRuntimeFactory(
   initialRuntimes: Record<string, AgentRuntime>,
-  factoryOverrides?: Partial<AgentRuntimeFactory>,
+  factoryOverrides?: Partial<AgentRuntimeFactory>
 ): AgentRuntimeFactory {
   return {
     warmup() {
@@ -54,13 +50,13 @@ function stubRuntimeFactory(
       if (existing !== undefined) return Promise.resolve(existing);
       return Promise.resolve(undefined);
     },
-    ...factoryOverrides,
+    ...factoryOverrides
   };
 }
 
 describe("AgentOrchestrator", () => {
   it("returns a safe error message when the runtime fails with API key error", async () => {
-    const runtimes = {
+    const runtimes: Record<string, AgentRuntime> = {
       reviewer: {
         name: "failing",
         run() {
@@ -70,13 +66,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -88,7 +84,7 @@ describe("AgentOrchestrator", () => {
 
   it("handles /new without calling the runtime", async () => {
     let runtimeCalled = false;
-    const runtimes = {
+    const runtimes: Record<string, AgentRuntime> = {
       reviewer: {
         name: "runtime",
         run() {
@@ -99,13 +95,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle(testMessage("/new"));
@@ -138,13 +134,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -178,19 +174,19 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle({
       ...testMessage("hello"),
       channel: "cron",
-      roleOverride: "developer",
+      roleOverride: "developer"
     });
 
     expect(response.text).toBe("developer response");
@@ -211,7 +207,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime("mutate"),
+      intent: stubIntentRuntime("mutate")
     };
     const authorization: AuthorizationService = {
       roleFor() {
@@ -223,24 +219,24 @@ describe("AgentOrchestrator", () => {
       canRole(role, action) {
         return Promise.resolve({
           allowed: role === "developer" && (action === "read" || action === "mutate"),
-          reason: "role denied",
+          reason: "role denied"
         });
       },
       hasCapability() {
         return Promise.resolve(false);
-      },
+      }
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle({
       ...testMessage("please change the code"),
       channel: "cron",
-      roleOverride: "developer",
+      roleOverride: "developer"
     });
 
     expect(response.text).toBe("developer response");
@@ -259,7 +255,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -271,7 +267,7 @@ describe("AgentOrchestrator", () => {
           events.push(event);
           return Promise.resolve();
         }
-      },
+      }
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -280,7 +276,7 @@ describe("AgentOrchestrator", () => {
       "workspace.resolved",
       "role.resolved",
       "intent.classified",
-      "runtime.selected",
+      "runtime.selected"
     ]);
   });
 
@@ -297,7 +293,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime("mutate"),
+      intent: stubIntentRuntime("mutate")
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -310,7 +306,7 @@ describe("AgentOrchestrator", () => {
           events.push(event);
           return Promise.resolve();
         }
-      },
+      }
     });
 
     await orchestrator.handle(testMessage("modify files"));
@@ -342,13 +338,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: developerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle(testMessage("refactor the code"));
@@ -372,17 +368,19 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime("update_kb"),
+      intent: stubIntentRuntime("update_kb")
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
-      feedbackStore,
+      feedbackStore
     });
 
-    const response = await orchestrator.handle(testMessage("请帮我更新知识库", "user-1", "message-1"));
+    const response = await orchestrator.handle(
+      testMessage("请帮我更新知识库", "user-1", "message-1")
+    );
 
     expect(response.text).toContain("感谢您的反馈");
     expect(runtimeCalled).toBe(false);
@@ -395,7 +393,7 @@ describe("AgentOrchestrator", () => {
         intentType: "update_kb",
         roleName: "reviewer",
         userMessage: "请帮我更新知识库",
-        status: "pending",
+        status: "pending"
       })
     ]);
   });
@@ -414,24 +412,26 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntimeFromMessage(),
+      intent: stubIntentRuntimeFromMessage()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
-      feedbackStore,
+      feedbackStore
     });
 
-    const response = await orchestrator.handle(testMessage("请修改订单系统", "user-1", "message-1"));
+    const response = await orchestrator.handle(
+      testMessage("请修改订单系统", "user-1", "message-1")
+    );
 
     expect(response.text).toContain("修改请求");
     expect(runtimeCalled).toBe(false);
     expect(feedbackStore.entries).toEqual([
       expect.objectContaining({
         intentType: "mutate",
-        userMessage: "请修改订单系统",
+        userMessage: "请修改订单系统"
       })
     ]);
   });
@@ -448,23 +448,25 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntimeFromMessage(),
+      intent: stubIntentRuntimeFromMessage()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
-      feedbackStore,
+      feedbackStore
     });
 
-    const response = await orchestrator.handle(testMessage("请更新知识库里的订单流程", "user-1", "message-1"));
+    const response = await orchestrator.handle(
+      testMessage("请更新知识库里的订单流程", "user-1", "message-1")
+    );
 
     expect(response.text).toContain("感谢您的反馈");
     expect(feedbackStore.entries).toEqual([
       expect.objectContaining({
         intentType: "update_kb",
-        userMessage: "请更新知识库里的订单流程",
+        userMessage: "请更新知识库里的订单流程"
       })
     ]);
   });
@@ -493,13 +495,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: customAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -522,14 +524,14 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
-      sessionStore: store,
+      sessionStore: store
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -551,14 +553,14 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
-      historyStore,
+      historyStore
     });
 
     await orchestrator.handle(testMessage("second question", "user-1", "2"));
@@ -587,7 +589,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -595,7 +597,7 @@ describe("AgentOrchestrator", () => {
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
       sessionStore: store,
-      historyStore,
+      historyStore
     });
 
     const response = await orchestrator.handle(testMessage("/new"));
@@ -614,7 +616,7 @@ describe("AgentOrchestrator", () => {
     for (let i = 1; i <= 6; i++) {
       await historyStore.append(sessionKey, [
         { role: "user", content: `question ${i}` },
-        { role: "assistant", content: `answer ${i}` },
+        { role: "assistant", content: `answer ${i}` }
       ]);
     }
 
@@ -629,7 +631,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime("mutate"),
+      intent: stubIntentRuntime("mutate")
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -637,7 +639,7 @@ describe("AgentOrchestrator", () => {
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
       historyStore,
-      feedbackStore,
+      feedbackStore
     });
 
     await orchestrator.handle(testMessage("请修改代码", "user-1", "msg-7"));
@@ -666,13 +668,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -699,7 +701,9 @@ describe("AgentOrchestrator", () => {
       workspaceResolver,
       authorization: adminAuthorization,
       runtimeFactory: {
-        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
+        warmup() {
+          return Promise.resolve({ intent: stubIntentRuntime() });
+        },
         createRuntime(role: string) {
           if (role === "intent") return Promise.resolve(stubIntentRuntime());
           factoryCalled = true;
@@ -714,7 +718,7 @@ describe("AgentOrchestrator", () => {
             }
           });
         }
-      },
+      }
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -741,7 +745,9 @@ describe("AgentOrchestrator", () => {
       workspaceResolver,
       authorization: adminAuthorization,
       runtimeFactory: {
-        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
+        warmup() {
+          return Promise.resolve({ intent: stubIntentRuntime() });
+        },
         cacheKeyForRole(role: string) {
           if (role === "intent") return Promise.resolve("intent");
           return Promise.resolve(`${role}:${version}`);
@@ -760,13 +766,19 @@ describe("AgentOrchestrator", () => {
             }
           });
         }
-      },
+      }
     });
 
-    await expect(orchestrator.handle(testMessage("hello", "admin-1", "1"))).resolves.toEqual({ text: "v1" });
-    await expect(orchestrator.handle(testMessage("hello again", "admin-1", "2"))).resolves.toEqual({ text: "v1" });
+    await expect(orchestrator.handle(testMessage("hello", "admin-1", "1"))).resolves.toEqual({
+      text: "v1"
+    });
+    await expect(orchestrator.handle(testMessage("hello again", "admin-1", "2"))).resolves.toEqual({
+      text: "v1"
+    });
     version = "v2";
-    await expect(orchestrator.handle(testMessage("after update", "admin-1", "3"))).resolves.toEqual({ text: "v2" });
+    await expect(orchestrator.handle(testMessage("after update", "admin-1", "3"))).resolves.toEqual(
+      { text: "v2" }
+    );
 
     expect(createCount).toBe(2);
   });
@@ -792,7 +804,9 @@ describe("AgentOrchestrator", () => {
       workspaceResolver,
       authorization: adminAuthorization,
       runtimeFactory: {
-        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
+        warmup() {
+          return Promise.resolve({ intent: stubIntentRuntime() });
+        },
         cacheKeyForRole(role: string) {
           if (role === "intent") return Promise.resolve("intent");
           return Promise.resolve(`${role}:${version}`);
@@ -812,7 +826,7 @@ describe("AgentOrchestrator", () => {
           });
         }
       },
-      sessionStore: store,
+      sessionStore: store
     });
 
     version = "v2";
@@ -838,12 +852,14 @@ describe("AgentOrchestrator", () => {
       workspaceResolver,
       authorization: adminAuthorization,
       runtimeFactory: {
-        warmup() { return Promise.resolve({ intent: stubIntentRuntime() }); },
+        warmup() {
+          return Promise.resolve({ intent: stubIntentRuntime() });
+        },
         createRuntime(role: string) {
           if (role === "intent") return Promise.resolve(stubIntentRuntime());
           return Promise.resolve(undefined);
         }
-      },
+      }
     });
 
     const response = await orchestrator.handle(testMessage("hello"));
@@ -864,7 +880,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -872,15 +888,25 @@ describe("AgentOrchestrator", () => {
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
       sessionStore: store,
-      historyStore,
+      historyStore
     });
 
     // Same user, different group chats = different sessions
     await orchestrator.handle(testMessage("hello", "user-1", "1", "group-A"));
     await orchestrator.handle(testMessage("hello", "user-1", "2", "group-B"));
 
-    const sessionKeyA: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb", chatId: "group-A" };
-    const sessionKeyB: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb", chatId: "group-B" };
+    const sessionKeyA: ConversationSessionKey = {
+      channel: "test",
+      userId: "user-1",
+      workspacePath: "D:/kb",
+      chatId: "group-A"
+    };
+    const sessionKeyB: ConversationSessionKey = {
+      channel: "test",
+      userId: "user-1",
+      workspacePath: "D:/kb",
+      chatId: "group-B"
+    };
 
     await expect(store.get(sessionKeyA)).resolves.toBe("s-new");
     await expect(store.get(sessionKeyB)).resolves.toBe("s-new");
@@ -925,13 +951,16 @@ describe("AgentOrchestrator", () => {
         name: "admin",
         run(request: AgentRequest) {
           adminCalls.push(request);
-          return Promise.resolve({ text: "admin response", sessionId: request.sessionId ?? "admin-session-1" });
+          return Promise.resolve({
+            text: "admin response",
+            sessionId: request.sessionId ?? "admin-session-1"
+          });
         },
         disposeSession() {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -939,7 +968,7 @@ describe("AgentOrchestrator", () => {
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
       sessionStore: store,
-      historyStore,
+      historyStore
     });
 
     // First message as reviewer
@@ -991,7 +1020,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -999,7 +1028,7 @@ describe("AgentOrchestrator", () => {
       runtimeFactory: stubRuntimeFactory(runtimes),
       initialRuntimes: runtimes,
       sessionStore: store,
-      historyStore,
+      historyStore
     });
 
     // User in group chat
@@ -1007,8 +1036,17 @@ describe("AgentOrchestrator", () => {
     // Same user in single chat (no chatId)
     await orchestrator.handle(testMessage("single msg", "user-1", "2"));
 
-    const groupKey: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb", chatId: "group-X" };
-    const singleKey: ConversationSessionKey = { channel: "test", userId: "user-1", workspacePath: "D:/kb" };
+    const groupKey: ConversationSessionKey = {
+      channel: "test",
+      userId: "user-1",
+      workspacePath: "D:/kb",
+      chatId: "group-X"
+    };
+    const singleKey: ConversationSessionKey = {
+      channel: "test",
+      userId: "user-1",
+      workspacePath: "D:/kb"
+    };
 
     await expect(store.get(groupKey)).resolves.toBe("s-1");
     await expect(store.get(singleKey)).resolves.toBe("s-1");
@@ -1030,7 +1068,7 @@ describe("AgentOrchestrator", () => {
       { role: "user", content: "question 1" },
       { role: "assistant", content: "answer 1" },
       { role: "user", content: "question 2" },
-      { role: "assistant", content: "answer 2" },
+      { role: "assistant", content: "answer 2" }
     ]);
 
     let onCompactCallback: ((summary: string) => Promise<void>) | undefined;
@@ -1045,7 +1083,7 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -1058,7 +1096,7 @@ describe("AgentOrchestrator", () => {
           events.push(event);
           return Promise.resolve();
         }
-      },
+      }
     });
 
     await orchestrator.handle(testMessage("continue"));
@@ -1072,9 +1110,12 @@ describe("AgentOrchestrator", () => {
     // At this point, the current turn (continue + response) has been appended after compact
     const history = await historyStore.get(sessionKey);
     expect(history).toEqual([
-      { role: "assistant", content: "[Previous conversation summary]\nUser discussed orders and catalog." },
+      {
+        role: "assistant",
+        content: "[Previous conversation summary]\nUser discussed orders and catalog."
+      },
       { role: "user", content: "continue" },
-      { role: "assistant", content: "response after compact" },
+      { role: "assistant", content: "response after compact" }
     ]);
 
     // Verify event was logged
@@ -1083,7 +1124,7 @@ describe("AgentOrchestrator", () => {
     expect(compactEvent).toMatchObject({
       type: "context.compacted",
       workspacePath: "D:/kb",
-      summaryLength: "User discussed orders and catalog.".length,
+      summaryLength: "User discussed orders and catalog.".length
     });
   });
 
@@ -1102,15 +1143,15 @@ describe("AgentOrchestrator", () => {
               cacheReadTokens: 60_000,
               cacheCreationTokens: 20_000,
               contextWindow: 150_000,
-              usagePercent: 67,
-            },
+              usagePercent: 67
+            }
           });
         },
         disposeSession() {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
@@ -1122,7 +1163,7 @@ describe("AgentOrchestrator", () => {
           events.push(event);
           return Promise.resolve();
         }
-      },
+      }
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -1136,7 +1177,7 @@ describe("AgentOrchestrator", () => {
       cacheReadTokens: 60_000,
       cacheCreationTokens: 20_000,
       contextWindow: 150_000,
-      usagePercent: 67,
+      usagePercent: 67
     });
   });
 
@@ -1146,22 +1187,70 @@ describe("AgentOrchestrator", () => {
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: {
-        warmup() { return Promise.resolve({}); },
-        createRuntime() { return Promise.resolve(undefined); },
+        warmup() {
+          return Promise.resolve({});
+        },
+        createRuntime() {
+          return Promise.resolve(undefined);
+        }
       },
-      feedbackStore,
+      feedbackStore
     });
 
     // fallbackIntentFor("请修改订单系统") returns { type: "mutate" }
-    const response = await orchestrator.handle(testMessage("请修改订单系统", "user-1", "message-1"));
+    const response = await orchestrator.handle(
+      testMessage("请修改订单系统", "user-1", "message-1")
+    );
 
     expect(response.text).toContain("修改请求");
     expect(feedbackStore.entries).toEqual([
       expect.objectContaining({
         intentType: "mutate",
-        userMessage: "请修改订单系统",
+        userMessage: "请修改订单系统"
       })
     ]);
+  });
+
+  it("does not create an agent runtime for intent detection", async () => {
+    let intentRuntimeRequested = false;
+    const runtimes: Record<string, AgentRuntime> = {
+      reviewer: {
+        name: "reviewer",
+        run() {
+          return Promise.resolve({ text: "reviewer response" });
+        },
+        disposeSession() {
+          return Promise.resolve();
+        }
+      }
+    };
+    const orchestrator = new AgentOrchestrator({
+      workspaceResolver,
+      authorization: reviewerAuthorization,
+      runtimeFactory: {
+        warmup() {
+          return Promise.resolve(runtimes);
+        },
+        createRuntime(role: string) {
+          if (role === "intent") {
+            intentRuntimeRequested = true;
+            return Promise.reject(new Error("intent runtime should not be created"));
+          }
+          return Promise.resolve(runtimes[role]);
+        }
+      },
+      initialRuntimes: runtimes,
+      intentDetection: {
+        detectIntent() {
+          return Promise.resolve({ type: "query" });
+        }
+      }
+    });
+
+    const response = await orchestrator.handle(testMessage("hello"));
+
+    expect(response.text).toBe("reviewer response");
+    expect(intentRuntimeRequested).toBe(false);
   });
 
   it("forwards chatType and chatId to AgentRequest", async () => {
@@ -1177,13 +1266,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     await orchestrator.handle(testMessage("hello group", "user-1", "1", "group-A", "group"));
@@ -1208,13 +1297,13 @@ describe("AgentOrchestrator", () => {
           return Promise.resolve();
         }
       },
-      intent: stubIntentRuntime(),
+      intent: stubIntentRuntime()
     };
     const orchestrator = new AgentOrchestrator({
       workspaceResolver,
       authorization: reviewerAuthorization,
       runtimeFactory: stubRuntimeFactory(runtimes),
-      initialRuntimes: runtimes,
+      initialRuntimes: runtimes
     });
 
     await orchestrator.handle(testMessage("hello"));
@@ -1261,7 +1350,13 @@ const developerAuthorization: AuthorizationService = {
   }
 };
 
-function testMessage(text: string, userId = "user-1", id = "1", chatId?: string, chatType?: "single" | "group") {
+function testMessage(
+  text: string,
+  userId = "user-1",
+  id = "1",
+  chatId?: string,
+  chatType?: "single" | "group"
+) {
   return {
     id,
     channel: "test",
@@ -1269,7 +1364,7 @@ function testMessage(text: string, userId = "user-1", id = "1", chatId?: string,
     text,
     receivedAt: new Date(),
     ...(chatId !== undefined ? { chatId } : {}),
-    ...(chatType !== undefined ? { chatType } : {}),
+    ...(chatType !== undefined ? { chatType } : {})
   };
 }
 
@@ -1292,10 +1387,18 @@ class MemorySessionStore implements ConversationSessionStore {
 }
 
 class MemoryHistoryStore implements ConversationHistoryStore {
-  private readonly histories = new Map<string, readonly { readonly role: "user" | "assistant"; readonly content: string }[]>();
-  public readonly archivedMessages: { readonly role: "user" | "assistant"; readonly content: string }[][] = [];
+  private readonly histories = new Map<
+    string,
+    readonly { readonly role: "user" | "assistant"; readonly content: string }[]
+  >();
+  public readonly archivedMessages: {
+    readonly role: "user" | "assistant";
+    readonly content: string;
+  }[][] = [];
 
-  public get(key: ConversationSessionKey): Promise<readonly { readonly role: "user" | "assistant"; readonly content: string }[]> {
+  public get(
+    key: ConversationSessionKey
+  ): Promise<readonly { readonly role: "user" | "assistant"; readonly content: string }[]> {
     return Promise.resolve(this.histories.get(JSON.stringify(key)) ?? []);
   }
 
@@ -1308,10 +1411,7 @@ class MemoryHistoryStore implements ConversationHistoryStore {
     return Promise.resolve();
   }
 
-  public compact(
-    key: ConversationSessionKey,
-    summary: string,
-  ): Promise<void> {
+  public compact(key: ConversationSessionKey, summary: string): Promise<void> {
     const keyText = JSON.stringify(key);
     const existing = this.histories.get(keyText);
     if (existing === undefined || existing.length === 0) {
@@ -1319,7 +1419,7 @@ class MemoryHistoryStore implements ConversationHistoryStore {
     }
     const compactSummary: { readonly role: "assistant"; readonly content: string } = {
       role: "assistant",
-      content: `[Previous conversation summary]\n${summary}`,
+      content: `[Previous conversation summary]\n${summary}`
     };
     const recentMessages = existing.slice(-2);
     this.histories.set(keyText, [compactSummary, ...recentMessages]);

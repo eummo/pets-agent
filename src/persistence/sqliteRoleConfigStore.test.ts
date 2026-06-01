@@ -29,7 +29,7 @@ describe("SqliteRoleConfigStore", () => {
       systemPrompt: "You are a reviewer.",
       allowedTools: ["Read", "Glob", "Grep"],
       permissionMode: "dontAsk",
-      maxTurns: 10,
+      maxTurns: 10
     };
 
     await store.upsert(config);
@@ -44,14 +44,14 @@ describe("SqliteRoleConfigStore", () => {
       name: "reviewer",
       systemPrompt: "Old prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
 
     await store.upsert({
       name: "reviewer",
       systemPrompt: "New prompt",
       allowedTools: ["Read", "Glob"],
-      permissionMode: "acceptEdits",
+      permissionMode: "acceptEdits"
     });
 
     const retrieved = await store.getByName("reviewer");
@@ -65,13 +65,13 @@ describe("SqliteRoleConfigStore", () => {
       name: "developer",
       systemPrompt: "Dev prompt",
       allowedTools: ["Read", "Edit"],
-      permissionMode: "bypassPermissions",
+      permissionMode: "bypassPermissions"
     });
     await store.upsert({
       name: "reviewer",
       systemPrompt: "Rev prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
 
     const all = await store.getAll();
@@ -83,7 +83,7 @@ describe("SqliteRoleConfigStore", () => {
       name: "reviewer",
       systemPrompt: "Prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
 
     const deleted = await store.deleteByName("reviewer");
@@ -105,7 +105,7 @@ describe("SqliteRoleConfigStore", () => {
       allowedTools: ["Read"],
       permissionMode: "dontAsk",
       maxTurns: 15,
-      model: "claude-3-haiku",
+      model: "claude-3-haiku"
     });
 
     const retrieved = await store.getByName("custom");
@@ -118,7 +118,7 @@ describe("SqliteRoleConfigStore", () => {
       name: "minimal",
       systemPrompt: "Minimal prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
 
     const retrieved = await store.getByName("minimal");
@@ -132,11 +132,16 @@ describe("SqliteRoleConfigStore", () => {
       systemPrompt: "Admin prompt",
       allowedTools: ["Read", "Edit"],
       permissionMode: "bypassPermissions",
-      capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"],
+      capabilities: ["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"]
     });
 
     const retrieved = await store.getByName("admin");
-    expect(retrieved?.capabilities).toEqual(["workspace_read", "workspace_mutate", "feedback_view", "feedback_manage"]);
+    expect(retrieved?.capabilities).toEqual([
+      "workspace_read",
+      "workspace_mutate",
+      "feedback_view",
+      "feedback_manage"
+    ]);
   });
 
   it("handles undefined capabilities", async () => {
@@ -144,7 +149,7 @@ describe("SqliteRoleConfigStore", () => {
       name: "basic",
       systemPrompt: "Basic prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
 
     const retrieved = await store.getByName("basic");
@@ -158,7 +163,7 @@ describe("SqliteRoleConfigStore", () => {
       allowedTools: ["Read"],
       permissionMode: "dontAsk",
       skills: "all",
-      settingSources: ["project", "local"],
+      settingSources: ["project", "local"]
     });
 
     const retrieved = await store.getByName("custom");
@@ -172,7 +177,7 @@ describe("SqliteRoleConfigStore", () => {
       systemPrompt: "Filtered prompt",
       allowedTools: ["Read"],
       permissionMode: "dontAsk",
-      skills: ["order-check", "pdf"],
+      skills: ["order-check", "pdf"]
     });
 
     const retrieved = await store.getByName("filtered");
@@ -184,7 +189,7 @@ describe("SqliteRoleConfigStore", () => {
       name: "basic",
       systemPrompt: "Basic prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
 
     const retrieved = await store.getByName("basic");
@@ -192,16 +197,46 @@ describe("SqliteRoleConfigStore", () => {
     expect(retrieved?.settingSources).toBeUndefined();
   });
 
+  it("persists and retrieves enableWorkflows and planModeInstructions", async () => {
+    await store.upsert({
+      name: "workflow-dev",
+      systemPrompt: "Workflow developer prompt",
+      allowedTools: ["Read", "Edit", "Write", "Bash"],
+      permissionMode: "bypassPermissions",
+      enableWorkflows: true,
+      planModeInstructions: "Read the codebase first, then propose changes."
+    });
+
+    const retrieved = await store.getByName("workflow-dev");
+    expect(retrieved?.enableWorkflows).toBe(true);
+    expect(retrieved?.planModeInstructions).toBe("Read the codebase first, then propose changes.");
+  });
+
+  it("handles undefined enableWorkflows and planModeInstructions", async () => {
+    await store.upsert({
+      name: "basic",
+      systemPrompt: "Basic prompt",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk"
+    });
+
+    const retrieved = await store.getByName("basic");
+    expect(retrieved?.enableWorkflows).toBeUndefined();
+    expect(retrieved?.planModeInstructions).toBeUndefined();
+  });
+
   it("rejects invalid stored JSON shapes", async () => {
     await store.upsert({
       name: "broken",
       systemPrompt: "Broken prompt",
       allowedTools: ["Read"],
-      permissionMode: "dontAsk",
+      permissionMode: "dontAsk"
     });
-    db.prepare("UPDATE roles SET allowed_tools = ? WHERE name = ?").run(JSON.stringify([123]), "broken");
+    db.prepare("UPDATE roles SET allowed_tools = ? WHERE name = ?").run(
+      JSON.stringify([123]),
+      "broken"
+    );
 
     await expect(store.getByName("broken")).rejects.toThrow();
   });
 });
-

@@ -17,7 +17,7 @@ import {
   availableToolsForRole,
   roleCanUseFileMutationTools,
   type ToolPermissionDecider
-} from "../policy/toolPolicy.js";
+} from "../../auth/index.js";
 import { PiEventCollector } from "./piEventCollector.js";
 import { formatUnknownError } from "../shared/sdkRuntimeHelpers.js";
 
@@ -79,7 +79,11 @@ export class PiAgentRuntime implements AgentRuntime {
 
     // When a role switch forces a new session, inject prior conversation
     // history so the new session can continue the conversation seamlessly.
-    if (request.history !== undefined && request.history.length > 0 && request.sessionId === undefined) {
+    if (
+      request.history !== undefined &&
+      request.history.length > 0 &&
+      request.sessionId === undefined
+    ) {
       const historyLines = request.history
         .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
         .join("\n");
