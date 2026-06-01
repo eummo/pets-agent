@@ -99,9 +99,10 @@ src/
       "contextWindow": 200000
     },
     "codebuddy": {
-      "baseUrl": "https://api.minimaxi.com/anthropic",
-      "apiKeyEnv": "CODEBUDDY_API_KEY",
-      "modelId": "MiniMax-M3"
+      "baseUrl": "https://copilot.tencent.com",
+      "modelId": "glm-5.1",
+      "endpointEnv": "CODEBUDDY_ENDPOINT",
+      "environment": "internal"
     },
     "pi": {
       "baseUrl": "https://api.minimaxi.com/anthropic",
@@ -112,7 +113,7 @@ src/
 }
 ```
 
-`agentSdkType` 必须指向 `agentSdks` 中已有的条目。API 密钥通过环境变量提供，不写入配置文件。
+`agentSdkType` 必须指向 `agentSdks` 中已有的条目。API 密钥和企业端点通过环境变量提供，不写入配置文件。
 
 ## 多轮对话
 

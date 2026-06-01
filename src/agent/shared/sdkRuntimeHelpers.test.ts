@@ -92,4 +92,15 @@ describe("serializeQueryOptions", () => {
     const serialized = serializeQueryOptions(options);
     expect("planModeInstructions" in serialized).toBe(false);
   });
+
+  it("omits endpoint from serialized logs", () => {
+    const options = {
+      cwd: "/test",
+      endpoint: "https://enterprise.example.com/",
+      environment: "internal"
+    };
+    const serialized = serializeQueryOptions(options);
+    expect(serialized["endpoint"]).toBeUndefined();
+    expect(serialized["environment"]).toBe("internal");
+  });
 });

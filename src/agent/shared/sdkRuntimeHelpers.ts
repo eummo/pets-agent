@@ -44,7 +44,6 @@ const SERIALIZABLE_QUERY_KEYS: readonly string[] = [
   "skills",
   "settingSources",
   "planModeInstructions",
-  "endpoint",
   "environment"
 ];
 

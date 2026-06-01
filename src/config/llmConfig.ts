@@ -82,6 +82,7 @@ export type AgentSdkEntry = {
   readonly apiKeyEnv?: string | undefined;
   readonly modelId: string;
   readonly endpoint?: string | undefined;
+  readonly endpointEnv?: string | undefined;
   readonly environment?: CodebuddyAuthEnvironment | undefined;
   readonly agentDir?: string | undefined;
   readonly provider?: string | undefined;
@@ -116,9 +117,28 @@ export function resolveActiveAgentSdk(
       `No agentSdk config found for type "${agentSdkType}". Available: ${Object.keys(agentSdks).join(", ") || "none"}`
     );
   }
-  const config: AgentSdkConfig = { ...entry, type: agentSdkType };
+  const endpoint = resolveOptionalEndpoint(entry, env);
+  const config: AgentSdkConfig = {
+    ...entry,
+    ...(endpoint !== undefined ? { endpoint } : {}),
+    type: agentSdkType
+  };
   const apiKey = resolveOptionalAgentSdkApiKey(config, env);
   return { ...config, apiKey };
+}
+
+function resolveOptionalEndpoint(
+  config: AgentSdkEntry,
+  env: NodeJS.ProcessEnv
+): string | undefined {
+  if (config.endpointEnv === undefined) return config.endpoint;
+
+  const endpoint = env[config.endpointEnv];
+  if (endpoint === undefined || endpoint.trim().length === 0) {
+    throw new Error(`Missing Agent SDK endpoint environment variable: ${config.endpointEnv}`);
+  }
+
+  return endpoint;
 }
 
 function resolveOptionalAgentSdkApiKey(config: AgentSdkConfig, env: NodeJS.ProcessEnv): string {
@@ -139,6 +159,7 @@ export function summarizeAgentSdkConfig(config: AgentSdkConfig): {
   readonly apiKeyEnv?: string | undefined;
   readonly modelId: string;
   readonly endpoint?: string | undefined;
+  readonly endpointEnv?: string | undefined;
   readonly environment?: CodebuddyAuthEnvironment | undefined;
 } {
   return {
@@ -147,6 +168,7 @@ export function summarizeAgentSdkConfig(config: AgentSdkConfig): {
     apiKeyEnv: config.apiKeyEnv,
     modelId: config.modelId,
     ...(config.endpoint !== undefined ? { endpoint: config.endpoint } : {}),
+    ...(config.endpointEnv !== undefined ? { endpointEnv: config.endpointEnv } : {}),
     ...(config.environment !== undefined ? { environment: config.environment } : {})
   };
 }

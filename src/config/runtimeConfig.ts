@@ -16,6 +16,7 @@ const agentSdkEntrySchema = z.object({
   apiKeyEnv: z.string().min(1).optional(),
   modelId: z.string().min(1),
   endpoint: z.url().optional(),
+  endpointEnv: z.string().min(1).optional(),
   environment: z.enum(["external", "internal", "ioa", "cloudhosted"]).optional(),
   agentDir: z.string().min(1).optional(),
   provider: z.string().min(1).optional(),

@@ -155,6 +155,40 @@ describe("resolveActiveAgentSdk", () => {
     expect(resolved.environment).toBeUndefined();
     expect(resolved.apiKey).toBe("");
   });
+
+  it("resolves codebuddy enterprise endpoint from env", () => {
+    const resolved = resolveActiveAgentSdk(
+      "codebuddy",
+      {
+        codebuddy: {
+          baseUrl: "https://codebuddy.example.com",
+          modelId: "cb-model",
+          endpointEnv: "CODEBUDDY_ENDPOINT"
+        }
+      },
+      { CODEBUDDY_ENDPOINT: "https://enterprise.example.com/" }
+    );
+
+    expect(resolved.endpoint).toBe("https://enterprise.example.com/");
+    expect(resolved.endpointEnv).toBe("CODEBUDDY_ENDPOINT");
+    expect(resolved.apiKey).toBe("");
+  });
+
+  it("throws clearly when endpointEnv is configured but missing", () => {
+    expect(() =>
+      resolveActiveAgentSdk(
+        "codebuddy",
+        {
+          codebuddy: {
+            baseUrl: "https://codebuddy.example.com",
+            modelId: "cb-model",
+            endpointEnv: "CODEBUDDY_ENDPOINT"
+          }
+        },
+        {}
+      )
+    ).toThrow("Missing Agent SDK endpoint environment variable: CODEBUDDY_ENDPOINT");
+  });
 });
 
 describe("summarizeAgentSdkConfig", () => {
@@ -164,7 +198,7 @@ describe("summarizeAgentSdkConfig", () => {
       baseUrl: "https://cb.example.com",
       apiKeyEnv: "CB_KEY",
       modelId: "cb-1",
-      endpoint: "https://enterprise.example.com/",
+      endpointEnv: "CODEBUDDY_ENDPOINT",
       contextWindow: 200_000
     });
     expect(summary).toEqual({
@@ -172,7 +206,7 @@ describe("summarizeAgentSdkConfig", () => {
       baseUrl: "https://cb.example.com",
       apiKeyEnv: "CB_KEY",
       modelId: "cb-1",
-      endpoint: "https://enterprise.example.com/"
+      endpointEnv: "CODEBUDDY_ENDPOINT"
     });
   });
 });

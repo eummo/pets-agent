@@ -345,6 +345,34 @@ describe("loadRuntimeConfig agentSdk resolution", () => {
     expect(config.agentSdk.endpoint).toBe("https://enterprise.example.com/");
   });
 
+  it("resolves codebuddy enterprise endpoint from env", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(
+        validConfig({
+          agentSdkType: "codebuddy",
+          agentSdks: {
+            codebuddy: {
+              baseUrl: "https://codebuddy.example.com",
+              modelId: "cb-model",
+              endpointEnv: "CODEBUDDY_ENDPOINT"
+            }
+          }
+        })
+      )
+    );
+
+    const config = await loadRuntimeConfig(filePath, {
+      TEST_API_KEY: "secret-key",
+      CODEBUDDY_ENDPOINT: "https://enterprise.example.com/"
+    });
+
+    expect(config.agentSdk.type).toBe("codebuddy");
+    expect(config.agentSdk.endpoint).toBe("https://enterprise.example.com/");
+    expect(config.agentSdk.endpointEnv).toBe("CODEBUDDY_ENDPOINT");
+  });
+
   it("throws when the selected agentSdkType has no entry in agentSdks", async () => {
     const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
     await writeFile(

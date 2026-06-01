@@ -32,7 +32,7 @@
     "codebuddy": {
       "baseUrl": "https://copilot.tencent.com",
       "modelId": "glm-5.1",
-      "endpoint": "https://webankcoding.copilot.qq.com/",
+      "endpointEnv": "CODEBUDDY_ENDPOINT",
       "environment": "internal"
     },
     "pi": {
