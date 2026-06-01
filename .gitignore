@@ -7,3 +7,5 @@ coverage/
 !.env.example
 npm-debug.log*
 .codebuddy/
+.mavis/
+.opencode/
