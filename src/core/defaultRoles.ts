@@ -20,7 +20,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     maxTurns: 20,
     capabilities: ["workspace_read"],
     skills: "all",
-    settingSources: ["project", "local"]
+    settingSources: ["user", "project", "local"]
   },
   {
     name: "developer",
@@ -38,7 +38,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
     maxTurns: 30,
     capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
     skills: "all",
-    settingSources: ["project", "local"],
+    settingSources: ["user", "project", "local"],
     enableWorkflows: true
   },
   {
@@ -63,6 +63,6 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "cron_manage"
     ],
     skills: "all",
-    settingSources: ["project", "local"]
+    settingSources: ["user", "project", "local"]
   }
 ];

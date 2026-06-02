@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     // Verify skills and settingSources are passed to the Codebuddy SDK
     await assertLogContains(llmRawLogPath, [
       '"skills":"all"',
-      '"settingSources":["project","local"]'
+      '"settingSources":["user","project","local"]'
     ]);
     console.info("[pass] sdk-options-include-skills-and-setting-sources");
 

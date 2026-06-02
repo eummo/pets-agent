@@ -174,20 +174,22 @@ describe("resolveActiveAgentSdk", () => {
     expect(resolved.apiKey).toBe("");
   });
 
-  it("throws clearly when endpointEnv is configured but missing", () => {
-    expect(() =>
-      resolveActiveAgentSdk(
-        "codebuddy",
-        {
-          codebuddy: {
-            baseUrl: "https://codebuddy.example.com",
-            modelId: "cb-model",
-            endpointEnv: "CODEBUDDY_ENDPOINT"
-          }
-        },
-        {}
-      )
-    ).toThrow("Missing Agent SDK endpoint environment variable: CODEBUDDY_ENDPOINT");
+  it("allows codebuddy to fall back to local CLI endpoint settings when endpointEnv is missing", () => {
+    const resolved = resolveActiveAgentSdk(
+      "codebuddy",
+      {
+        codebuddy: {
+          baseUrl: "https://codebuddy.example.com",
+          modelId: "cb-model",
+          endpointEnv: "CODEBUDDY_ENDPOINT"
+        }
+      },
+      {}
+    );
+
+    expect(resolved.endpoint).toBeUndefined();
+    expect(resolved.endpointEnv).toBe("CODEBUDDY_ENDPOINT");
+    expect(resolved.apiKey).toBe("");
   });
 });
 

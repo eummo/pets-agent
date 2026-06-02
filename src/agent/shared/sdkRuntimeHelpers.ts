@@ -160,7 +160,7 @@ export function buildSdkQueryOptions(input: SdkQueryOptionsInput): Record<string
       enableWorkflows: true
     };
   }
-  queryOptions["settingSources"] = roleConfig.settingSources ?? ["project", "local"];
+  queryOptions["settingSources"] = roleConfig.settingSources ?? ["user", "project", "local"];
   if (roleConfig.skills !== undefined) {
     queryOptions["skills"] = roleConfig.skills;
   }

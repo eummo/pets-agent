@@ -117,7 +117,7 @@ export function resolveActiveAgentSdk(
       `No agentSdk config found for type "${agentSdkType}". Available: ${Object.keys(agentSdks).join(", ") || "none"}`
     );
   }
-  const endpoint = resolveOptionalEndpoint(entry, env);
+  const endpoint = resolveOptionalEndpoint(entry, agentSdkType, env);
   const config: AgentSdkConfig = {
     ...entry,
     ...(endpoint !== undefined ? { endpoint } : {}),
@@ -129,12 +129,16 @@ export function resolveActiveAgentSdk(
 
 function resolveOptionalEndpoint(
   config: AgentSdkEntry,
+  type: AgentSdkType,
   env: NodeJS.ProcessEnv
 ): string | undefined {
   if (config.endpointEnv === undefined) return config.endpoint;
 
   const endpoint = env[config.endpointEnv];
   if (endpoint === undefined || endpoint.trim().length === 0) {
+    if (type === "codebuddy") {
+      return config.endpoint;
+    }
     throw new Error(`Missing Agent SDK endpoint environment variable: ${config.endpointEnv}`);
   }
 

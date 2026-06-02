@@ -1,4 +1,9 @@
-import type { RoleCapability, RoleConfigStore, StoredRoleConfig } from "../auth/index.js";
+import type {
+  RoleCapability,
+  RoleConfigStore,
+  SettingSource,
+  StoredRoleConfig
+} from "../auth/index.js";
 import { DEFAULT_ROLE_CONFIGS } from "../core/defaultRoles.js";
 
 export async function seedDefaultRoles(store: RoleConfigStore): Promise<void> {
@@ -87,7 +92,12 @@ function missingDefaultCapabilities(
 function missingDefaultMetadata(
   existing: StoredRoleConfig,
   nextDefault: StoredRoleConfig
-): Partial<Pick<StoredRoleConfig, "enableWorkflows" | "planModeInstructions">> {
+): Partial<Pick<StoredRoleConfig, "enableWorkflows" | "planModeInstructions" | "settingSources">> {
+  const settingSources = mergeMissingSettingSources(
+    existing.settingSources,
+    nextDefault.settingSources
+  );
+
   return {
     ...(existing.enableWorkflows === undefined && nextDefault.enableWorkflows !== undefined
       ? { enableWorkflows: nextDefault.enableWorkflows }
@@ -95,8 +105,23 @@ function missingDefaultMetadata(
     ...(existing.planModeInstructions === undefined &&
     nextDefault.planModeInstructions !== undefined
       ? { planModeInstructions: nextDefault.planModeInstructions }
-      : {})
+      : {}),
+    ...(settingSources !== undefined ? { settingSources } : {})
   };
+}
+
+function mergeMissingSettingSources(
+  existing: readonly SettingSource[] | undefined,
+  nextDefault: readonly SettingSource[] | undefined
+): readonly SettingSource[] | undefined {
+  if (nextDefault === undefined) return undefined;
+  if (existing === undefined) return nextDefault;
+
+  const existingSources = new Set(existing);
+  const missingSources = nextDefault.filter((source) => !existingSources.has(source));
+  if (missingSources.length === 0) return undefined;
+
+  return [...existing, ...missingSources];
 }
 
 function maxTurnsToRaise(

@@ -63,7 +63,7 @@ describe("ClaudeSdkAgentRuntime", () => {
         autoCompactEnabled: true,
         autoCompactWindow: 150_000
       },
-      settingSources: ["project", "local"]
+      settingSources: ["user", "project", "local"]
     };
 
     expect(runtime.name).toBe("claude-sdk-tester");
@@ -781,7 +781,7 @@ describe("ClaudeSdkAgentRuntime", () => {
 
     const call = firstQueryCall();
     expect(call.options["skills"]).toBeUndefined();
-    expect(call.options["settingSources"]).toEqual(["project", "local"]);
+    expect(call.options["settingSources"]).toEqual(["user", "project", "local"]);
   });
 });
 

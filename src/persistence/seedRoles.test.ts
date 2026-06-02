@@ -19,7 +19,7 @@ describe("seedDefaultRoles", () => {
         maxTurns: REVIEWER_DEFAULT.maxTurns,
         capabilities: ["workspace_read"],
         skills: "all",
-        settingSources: ["project", "local"]
+        settingSources: ["user", "project", "local"]
       })
     );
     await expect(store.getByName("developer")).resolves.toEqual(
@@ -27,7 +27,7 @@ describe("seedDefaultRoles", () => {
         name: "developer",
         capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
         skills: "all",
-        settingSources: ["project", "local"],
+        settingSources: ["user", "project", "local"],
         enableWorkflows: true
       })
     );
@@ -43,7 +43,7 @@ describe("seedDefaultRoles", () => {
           "cron_manage"
         ],
         skills: "all",
-        settingSources: ["project", "local"]
+        settingSources: ["user", "project", "local"]
       })
     );
   });
@@ -109,6 +109,28 @@ describe("seedDefaultRoles", () => {
         name: "developer",
         systemPrompt: "Custom developer prompt",
         enableWorkflows: true
+      })
+    );
+  });
+
+  it("adds missing default setting sources to existing default roles", async () => {
+    const store = new SqliteRoleConfigStore(createSqliteConnection(":memory:"));
+    await store.upsert({
+      name: "developer",
+      systemPrompt: "Custom developer prompt",
+      allowedTools: ["Read", "Edit", "Write", "Bash"],
+      permissionMode: "bypassPermissions",
+      capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
+      settingSources: ["project", "local"]
+    });
+
+    await seedDefaultRoles(store);
+
+    await expect(store.getByName("developer")).resolves.toEqual(
+      expect.objectContaining({
+        name: "developer",
+        systemPrompt: "Custom developer prompt",
+        settingSources: ["project", "local", "user"]
       })
     );
   });
