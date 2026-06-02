@@ -70,7 +70,9 @@ function redactSecrets(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        /api[-_]?key|secret|authorization|access[-_]?token|refresh[-_]?token/i.test(key)
+        /api[-_]?key|secret|authorization|access[-_]?token|refresh[-_]?token|password|cookie/i.test(
+          key
+        )
           ? "[REDACTED]"
           : redactSecrets(item)
       ])

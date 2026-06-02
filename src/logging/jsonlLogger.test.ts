@@ -18,7 +18,7 @@ describe("toLocalIsoString", () => {
     // Verify by parsing: the local time should equal what Date.getLocal methods return
     const expectedHour = utcNoon.getHours();
     const hourStr = result.split("T")[1]?.split(":")[0];
-    const hourInResult = hourStr ? parseInt(hourStr, 10) : -1;
+    const hourInResult = hourStr ? Number(hourStr) : -1;
     expect(hourInResult).toBe(expectedHour);
   });
 });
@@ -61,7 +61,7 @@ describe("createJsonlLogger", () => {
     expect(content).not.toContain("sk-abcdefghijklmnopqrstuv");
   });
 
-  it("redacts secret, authorization, and refresh-token keys", async () => {
+  it("redacts secret, authorization, refresh-token, password, and cookie keys", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "pets-agent-log-"));
     const logger = createJsonlLogger(path.join(dir, "events.jsonl"));
 
@@ -69,6 +69,8 @@ describe("createJsonlLogger", () => {
       secret: "my-secret",
       Authorization: "Bearer token",
       "refresh-token": "rt-value",
+      password: "p@ssw0rd",
+      cookie: "session=abc",
       safeField: "visible"
     });
 
@@ -77,6 +79,8 @@ describe("createJsonlLogger", () => {
     expect(content).toContain('"secret":"[REDACTED]"');
     expect(content).toContain('"Authorization":"[REDACTED]"');
     expect(content).toContain('"refresh-token":"[REDACTED]"');
+    expect(content).toContain('"password":"[REDACTED]"');
+    expect(content).toContain('"cookie":"[REDACTED]"');
     expect(content).toContain('"safeField":"visible"');
   });
 
@@ -88,7 +92,9 @@ describe("createJsonlLogger", () => {
 
     const content = await readFile(logger.filePath, "utf8");
     // Local ISO format: 2026-05-26T16:30:00.123+08:00
-    expect(content).toMatch(/"timestamp":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}"/);
+    expect(content).toMatch(
+      /"timestamp":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}"/
+    );
   });
 
   it("appends multiple events to the same file", async () => {

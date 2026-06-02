@@ -7,7 +7,7 @@ import { loadRuntimeConfig } from "./runtimeConfig.js";
 function validConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     port: 3000,
-    host: "0.0.0.0",
+    host: "127.0.0.1",
     knowledgeBasePath: ".harness/knowledge-base",
     logDir: ".harness/logs",
     dbPath: ".harness/state/agent.db",
@@ -40,7 +40,7 @@ describe("loadRuntimeConfig", () => {
     const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
 
     expect(config.port).toBe(3000);
-    expect(config.host).toBe("0.0.0.0");
+    expect(config.host).toBe("127.0.0.1");
     expect(config.llm.apiKey).toBe("secret-key");
     expect(config.wechat.botId).toBe("dev-bot-id");
     expect(config.wechat.secret).toBe("dev-secret");
@@ -169,6 +169,31 @@ describe("loadRuntimeConfig", () => {
     expect(config.enableDevRoutes).toBe(false);
     expect(config.wechat.botId).toBe("dev-bot-id");
     expect(config.wechat.secret).toBe("dev-secret");
+  });
+
+  it("rejects dev routes on non-local hosts", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(validConfig({ host: "0.0.0.0", enableDevRoutes: true }))
+    );
+
+    await expect(loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" })).rejects.toThrow(
+      "Dev routes can only be enabled when host is localhost or a loopback address."
+    );
+  });
+
+  it("allows non-local hosts when dev routes are disabled", async () => {
+    const filePath = path.join(tmpdir(), `runtime-${Date.now()}.json`);
+    await writeFile(
+      filePath,
+      JSON.stringify(validConfig({ host: "0.0.0.0", enableDevRoutes: false }))
+    );
+
+    const config = await loadRuntimeConfig(filePath, { TEST_API_KEY: "secret-key" });
+
+    expect(config.host).toBe("0.0.0.0");
+    expect(config.enableDevRoutes).toBe(false);
   });
 
   it("reports missing config file with path", async () => {

@@ -17,7 +17,7 @@ function makeJob(overrides: Partial<CronJob> = {}): CronJob {
     delivery: { channels: ["sse:admin"] },
     createdAt: "2026-05-28T10:00:00.000Z",
     updatedAt: "2026-05-28T10:00:00.000Z",
-    ...overrides,
+    ...overrides
   };
 }
 
@@ -36,7 +36,7 @@ function makeStore(jobs: readonly CronJob[] = []): CronJobStore {
         ...job,
         id: "created-job",
         createdAt: "2026-05-28T10:00:00.000Z",
-        updatedAt: "2026-05-28T10:00:00.000Z",
+        updatedAt: "2026-05-28T10:00:00.000Z"
       };
       jobMap.set(created.id, created);
       return Promise.resolve(created);
@@ -62,7 +62,7 @@ function makeStore(jobs: readonly CronJob[] = []): CronJobStore {
     },
     setLastResult() {
       return Promise.resolve();
-    },
+    }
   };
 }
 
@@ -72,18 +72,20 @@ function makeScheduler(): CronScheduler {
     startedAt: "2026-05-28T10:00:00.000Z",
     finishedAt: "2026-05-28T10:00:01.000Z",
     status: "success",
-    output: "Done",
+    output: "Done"
   };
 
   return {
     start() {},
     stop() {},
     triggerNow: vi.fn(() => Promise.resolve(result)),
-    isRunning: true,
+    isRunning: true
   };
 }
 
-function makeAuthorization(capabilities: Record<string, readonly RoleCapability[]>): AuthorizationService {
+function makeAuthorization(
+  capabilities: Record<string, readonly RoleCapability[]>
+): AuthorizationService {
   return {
     roleFor(user) {
       return Promise.resolve(user.id);
@@ -96,45 +98,55 @@ function makeAuthorization(capabilities: Record<string, readonly RoleCapability[
     },
     hasCapability(user, capability) {
       return Promise.resolve(capabilities[user.id]?.includes(capability) ?? false);
-    },
+    }
   };
 }
 
 describe("registerCronRoutes", () => {
   it("rejects cron management from non-local clients", async () => {
     const server = Fastify();
-    registerCronRoutes(server, {
-      jobStore: makeStore([makeJob()]),
-      scheduler: makeScheduler(),
-      authorization: makeAuthorization({ admin: ["cron_manage"] }),
-    });
+    try {
+      registerCronRoutes(server, {
+        jobStore: makeStore([makeJob()]),
+        scheduler: makeScheduler(),
+        authorization: makeAuthorization({ admin: ["cron_manage"] })
+      });
 
-    const response = await server.inject({
-      method: "GET",
-      url: "/cron/jobs?userId=admin",
-      remoteAddress: "10.0.0.5",
-    });
+      const response = await server.inject({
+        method: "GET",
+        url: "/cron/jobs?userId=admin",
+        remoteAddress: "10.0.0.5"
+      });
 
-    expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: "Cron management is only available from localhost." });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({
+        error: "Cron management is only available from localhost."
+      });
+    } finally {
+      await server.close();
+    }
   });
 
   it("lists jobs for a local user with cron_manage capability", async () => {
     const server = Fastify();
-    registerCronRoutes(server, {
-      jobStore: makeStore([makeJob()]),
-      scheduler: makeScheduler(),
-      authorization: makeAuthorization({ admin: ["cron_manage"] }),
-    });
+    try {
+      registerCronRoutes(server, {
+        jobStore: makeStore([makeJob()]),
+        scheduler: makeScheduler(),
+        authorization: makeAuthorization({ admin: ["cron_manage"] })
+      });
 
-    const response = await server.inject({
-      method: "GET",
-      url: "/cron/jobs?userId=admin",
-    });
+      const response = await server.inject({
+        method: "GET",
+        url: "/cron/jobs?userId=admin"
+      });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([
-      expect.objectContaining({ id: "daily-report", name: "Daily Report" }),
-    ]);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        expect.objectContaining({ id: "daily-report", name: "Daily Report" })
+      ]);
+    } finally {
+      await server.close();
+    }
   });
 });

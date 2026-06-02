@@ -812,7 +812,7 @@ cronJobForm.addEventListener("submit", async (event) => {
     if (!expr) { alert("请输入 Cron 表达式"); return; }
     schedule = { type: "cron", expression: expr };
   } else if (type === "interval") {
-    const ms = parseInt(document.querySelector("#cron-interval-ms").value, 10);
+    const ms = Number(document.querySelector("#cron-interval-ms").value);
     if (!ms || ms < 60000) { alert("间隔不能小于 60000 毫秒"); return; }
     schedule = { type: "interval", milliseconds: ms };
   } else {
@@ -832,7 +832,7 @@ cronJobForm.addEventListener("submit", async (event) => {
     workspacePath: document.querySelector("#cron-workspace").value.trim(),
     delivery: { channels },
     enabled: document.querySelector("#cron-enabled").checked,
-    timeoutMs: parseInt(document.querySelector("#cron-timeout").value, 10) || 120000,
+    timeoutMs: Number(document.querySelector("#cron-timeout").value) || 120000,
     silentOnEmpty: document.querySelector("#cron-silent-empty").checked,
     userId: userIdEl.value,
   };

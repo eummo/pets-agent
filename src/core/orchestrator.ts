@@ -1,18 +1,16 @@
 import type {
   AgentConversationMessage,
-  ConversationLogger,
-  InboundMessage,
-  MessageGateway,
-  OutboundMessage,
-  UserRole
-} from "./index.js";
-import type {
   AgentRequest,
   AgentRuntime,
   AgentRuntimeFactory,
   AgentStreamEvent,
-  ProgressReporter
-} from "../agent/index.js";
+  ConversationLogger,
+  InboundMessage,
+  MessageGateway,
+  OutboundMessage,
+  ProgressReporter,
+  UserRole
+} from "./index.js";
 import type { AuthorizationService } from "../auth/index.js";
 import type {
   ConversationHistoryStore,

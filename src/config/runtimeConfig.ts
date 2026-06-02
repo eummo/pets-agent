@@ -181,6 +181,7 @@ export async function loadRuntimeConfig(
       .join("\n");
     throw new Error(`Invalid config in ${configPath}:\n${issues}`);
   }
+  assertDevRoutesHost(parsed.data.enableDevRoutes, parsed.data.host);
 
   const resolvedLlm = resolveLlmConfig(parsed.data.llm, env);
   const resolvedAgentSdk = resolveActiveAgentSdk(
@@ -216,6 +217,18 @@ export async function loadRuntimeConfig(
       : {})
   };
   return { ...parsed.data, llm: resolvedLlm, agentSdk: resolvedAgentSdk, wechat, cron };
+}
+
+function assertDevRoutesHost(enableDevRoutes: boolean, host: string): void {
+  if (!enableDevRoutes || isLocalHost(host)) {
+    return;
+  }
+
+  throw new Error("Dev routes can only be enabled when host is localhost or a loopback address.");
+}
+
+function isLocalHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
 function resolveEnvOrDirect(

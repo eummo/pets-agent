@@ -37,8 +37,8 @@ import { WecomBotDeliveryChannel } from "./cron/delivery/wecomBotDelivery.js";
 import { WebhookDeliveryChannel } from "./cron/delivery/webhookDelivery.js";
 import { registerCronRoutes } from "./cron/cronRoutes.js";
 import { LlmCronParseService } from "./cron/cronParseService.js";
-import { buildPiModel } from "./config/llmConfig.js";
 import { LlmIntentDetectionService } from "./intent/llmIntentDetectionService.js";
+import { buildPiModel } from "./intent/piModel.js";
 
 // Bootstraps the pets-agent server: loads runtime config, wires up persistence,
 // intent detection, agent runtimes, the HTTP/WebSocket server, the WeChat smart

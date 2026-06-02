@@ -1,16 +1,3 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
-
-// ── Defaults for agent SDK model construction ────────────────────────────────
-
-export const AGENT_SDK_DEFAULTS = {
-  api: "anthropic-messages",
-  provider: "pets-agent",
-  contextWindow: 200000,
-  maxTokens: 8192,
-  reasoning: false,
-  input: ["text"] as readonly ("text" | "image")[]
-} as const;
-
 export type LlmConfig = {
   readonly baseUrl: string;
   readonly apiKeyEnv: string;
@@ -52,21 +39,6 @@ export function summarizeLlmConfig(
     baseUrl: config.baseUrl,
     apiKeyEnv: config.apiKeyEnv,
     modelId: config.modelId
-  };
-}
-
-export function buildPiModel(config: ResolvedLlmConfig): Model<Api> {
-  return {
-    id: config.modelId,
-    name: config.modelId,
-    api: AGENT_SDK_DEFAULTS.api,
-    provider: AGENT_SDK_DEFAULTS.provider,
-    baseUrl: config.baseUrl.replace(/\/+$/, ""),
-    reasoning: AGENT_SDK_DEFAULTS.reasoning,
-    input: [...AGENT_SDK_DEFAULTS.input],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: AGENT_SDK_DEFAULTS.contextWindow,
-    maxTokens: config.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens
   };
 }
 

@@ -7,7 +7,6 @@ import {
   type AgentSessionEvent
 } from "@earendil-works/pi-coding-agent";
 import type { ResolvedAgentSdkConfig } from "../../config/llmConfig.js";
-import { AGENT_SDK_DEFAULTS } from "../../config/llmConfig.js";
 import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
@@ -40,6 +39,15 @@ const TOOL_NAME_MAP: Readonly<Record<string, string>> = {
   Glob: "find",
   Grep: "grep"
 };
+
+const PI_AGENT_SDK_DEFAULTS = {
+  api: "anthropic-messages",
+  provider: "pets-agent",
+  contextWindow: 200000,
+  maxTokens: 8192,
+  reasoning: false,
+  input: ["text"] as readonly ("text" | "image")[]
+} as const;
 
 export class PiAgentRuntime implements AgentRuntime {
   public readonly name: string;
@@ -170,14 +178,14 @@ export class PiAgentRuntime implements AgentRuntime {
     const model = {
       id: cfg.modelId,
       name: cfg.modelId,
-      api: cfg.api ?? AGENT_SDK_DEFAULTS.api,
-      provider: cfg.provider ?? AGENT_SDK_DEFAULTS.provider,
+      api: cfg.api ?? PI_AGENT_SDK_DEFAULTS.api,
+      provider: cfg.provider ?? PI_AGENT_SDK_DEFAULTS.provider,
       baseUrl: cfg.baseUrl.replace(/\/+$/, ""),
-      reasoning: cfg.reasoning ?? AGENT_SDK_DEFAULTS.reasoning,
-      input: cfg.input ? [...cfg.input] : [...AGENT_SDK_DEFAULTS.input],
+      reasoning: cfg.reasoning ?? PI_AGENT_SDK_DEFAULTS.reasoning,
+      input: cfg.input ? [...cfg.input] : [...PI_AGENT_SDK_DEFAULTS.input],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: cfg.contextWindow ?? AGENT_SDK_DEFAULTS.contextWindow,
-      maxTokens: this.maxTokens ?? AGENT_SDK_DEFAULTS.maxTokens
+      contextWindow: cfg.contextWindow ?? PI_AGENT_SDK_DEFAULTS.contextWindow,
+      maxTokens: this.maxTokens ?? PI_AGENT_SDK_DEFAULTS.maxTokens
     };
 
     const resourceLoader = new DefaultResourceLoader({

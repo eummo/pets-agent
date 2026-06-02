@@ -14,13 +14,18 @@ type DevFeedbackQuery = {
   readonly status?: string;
 };
 
-export function registerDevFeedbackRoutes(server: FastifyInstance, options: DevRoutesOptions): void {
+export function registerDevFeedbackRoutes(
+  server: FastifyInstance,
+  options: DevRoutesOptions
+): void {
   server.get<{ Querystring: DevFeedbackQuery }>("/dev/feedback", async (request, reply) => {
     if (options.feedbackStore === undefined || options.authorization === undefined) {
       return reply.status(501).send({ error: "Feedback management is not configured." });
     }
     if (!isLocalRequest(request.ip)) {
-      return reply.status(403).send({ error: "Feedback management is only available from localhost." });
+      return reply
+        .status(403)
+        .send({ error: "Feedback management is only available from localhost." });
     }
 
     const userId = normalizeOptionalText(request.query.userId) ?? "browser-user";
@@ -33,44 +38,52 @@ export function registerDevFeedbackRoutes(server: FastifyInstance, options: DevR
     return { feedback: entries };
   });
 
-  server.patch<{ Params: { id: string }; Body: DevFeedbackBody }>("/dev/feedback/:id", async (request, reply) => {
-    if (options.feedbackStore === undefined || options.authorization === undefined) {
-      return reply.status(501).send({ error: "Feedback management is not configured." });
-    }
-    if (!isLocalRequest(request.ip)) {
-      return reply.status(403).send({ error: "Feedback management is only available from localhost." });
-    }
+  server.patch<{ Params: { id: string }; Body: DevFeedbackBody }>(
+    "/dev/feedback/:id",
+    async (request, reply) => {
+      if (options.feedbackStore === undefined || options.authorization === undefined) {
+        return reply.status(501).send({ error: "Feedback management is not configured." });
+      }
+      if (!isLocalRequest(request.ip)) {
+        return reply
+          .status(403)
+          .send({ error: "Feedback management is only available from localhost." });
+      }
 
-    const userId = normalizeOptionalText(request.body.userId) ?? "browser-user";
-    const hasManage = await options.authorization.hasCapability({ id: userId }, "feedback_manage");
-    if (!hasManage) {
-      return reply.status(403).send({ error: "Insufficient permissions to manage feedback." });
-    }
+      const userId = normalizeOptionalText(request.body.userId) ?? "browser-user";
+      const hasManage = await options.authorization.hasCapability(
+        { id: userId },
+        "feedback_manage"
+      );
+      if (!hasManage) {
+        return reply.status(403).send({ error: "Insufficient permissions to manage feedback." });
+      }
 
-    const id = Number.parseInt(request.params.id, 10);
-    if (Number.isNaN(id)) {
-      return reply.status(400).send({ error: "Invalid feedback ID." });
-    }
+      const id = parsePositiveInteger(request.params.id);
+      if (id === undefined) {
+        return reply.status(400).send({ error: "Invalid feedback ID." });
+      }
 
-    const status = request.body.status;
-    if (status !== "reviewed" && status !== "resolved") {
-      return reply.status(400).send({ error: "Status must be 'reviewed' or 'resolved'." });
-    }
+      const status = request.body.status;
+      if (status !== "reviewed" && status !== "resolved") {
+        return reply.status(400).send({ error: "Status must be 'reviewed' or 'resolved'." });
+      }
 
-    const updated = await options.feedbackStore.updateStatus(id, status);
-    if (!updated) {
-      return reply.status(404).send({ error: "Feedback entry not found." });
-    }
+      const updated = await options.feedbackStore.updateStatus(id, status);
+      if (!updated) {
+        return reply.status(404).send({ error: "Feedback entry not found." });
+      }
 
-    return { id, status };
-  });
+      return { id, status };
+    }
+  );
 }
 
 function parsePositiveInteger(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
   }
-  const parsed = Number.parseInt(value, 10);
+  const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
@@ -78,11 +91,13 @@ function parseNonNegativeInteger(value: string | undefined): number | undefined 
   if (value === undefined) {
     return undefined;
   }
-  const parsed = Number.parseInt(value, 10);
+  const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function parseFeedbackStatus(value: string | undefined): "pending" | "reviewed" | "resolved" | undefined {
+function parseFeedbackStatus(
+  value: string | undefined
+): "pending" | "reviewed" | "resolved" | undefined {
   return value === "pending" || value === "reviewed" || value === "resolved" ? value : undefined;
 }
 
@@ -93,6 +108,6 @@ function feedbackQueryFrom(query: DevFeedbackQuery) {
   return {
     ...(limit !== undefined ? { limit } : {}),
     ...(offset !== undefined ? { offset } : {}),
-    ...(status !== undefined ? { status } : {}),
+    ...(status !== undefined ? { status } : {})
   };
 }

@@ -49,7 +49,7 @@ async function readPidFile(pidFilePath: string): Promise<number | undefined> {
     throw error;
   }
 
-  const pid = Number.parseInt(content.trim(), 10);
+  const pid = Number(content.trim());
   if (!Number.isInteger(pid) || pid <= 0) {
     await removeServerPidFile(pidFilePath);
     return undefined;
