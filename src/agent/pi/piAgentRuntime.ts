@@ -80,30 +80,14 @@ export class PiAgentRuntime implements AgentRuntime {
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
-    let prompt = await buildWorkspacePrompt(request, this.contextConfig.workspaceMaxChars);
+    const prompt = await buildWorkspacePrompt(
+      request,
+      this.contextConfig.workspaceMaxChars,
+      this.contextConfig.historyMaxMessages
+    );
 
     const sessionId = request.sessionId ?? generateSessionId();
     const session = await this.getOrCreateSession(request, sessionId);
-
-    // When a role switch forces a new session, inject prior conversation
-    // history so the new session can continue the conversation seamlessly.
-    if (
-      request.history !== undefined &&
-      request.history.length > 0 &&
-      request.sessionId === undefined
-    ) {
-      const historyLines = request.history
-        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-        .join("\n");
-      prompt = [
-        "Previous conversation (continued from a different role):",
-        historyLines,
-        "",
-        "Continue the conversation below. The user may refer to earlier messages above.",
-        "",
-        prompt
-      ].join("\n");
-    }
 
     const startTime = Date.now();
     const collector = new PiEventCollector(request, this.rawLogger, this.name, this.roleConfig);

@@ -53,7 +53,11 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
-    const prompt = await buildWorkspacePrompt(request, this.contextConfig.workspaceMaxChars);
+    const prompt = await buildWorkspacePrompt(
+      request,
+      this.contextConfig.workspaceMaxChars,
+      this.contextConfig.historyMaxMessages
+    );
     const baseOptions = buildSdkQueryOptions({
       request,
       roleConfig: this.roleConfig,
@@ -201,10 +205,12 @@ function codebuddySdkConnectionOptions(config: ResolvedAgentSdkConfig): {
   // This is more reliable than passing endpoint via the initialize control request,
   // which arrives after the CLI has already resolved its product configuration.
   if (config.endpoint !== undefined) {
+    const endpoint = normalizeCodebuddyEndpoint(config.endpoint);
     envEntries["ACC_PRODUCT_CONFIG_V3"] = JSON.stringify({
-      endpoint: config.endpoint,
-      stagingEndpoint: config.endpoint
+      endpoint,
+      stagingEndpoint: endpoint
     });
+    envEntries["CODEBUDDY_BASE_URL"] = codebuddyModelBaseUrl(endpoint);
   }
 
   // Authentication: forward explicit auth credentials to the CLI subprocess.
@@ -227,4 +233,12 @@ function codebuddySdkConnectionOptions(config: ResolvedAgentSdkConfig): {
     return { ...connectionOptions, env: envEntries };
   }
   return connectionOptions;
+}
+
+function codebuddyModelBaseUrl(endpoint: string): string {
+  return `${normalizeCodebuddyEndpoint(endpoint)}/v2`;
+}
+
+function normalizeCodebuddyEndpoint(endpoint: string): string {
+  return endpoint.replace(/\/+$/, "");
 }

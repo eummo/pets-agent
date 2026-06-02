@@ -9,6 +9,7 @@
 
 import {
   isRecord,
+  recordField,
   stringArrayField,
   stringField,
   formatUnknownError
@@ -16,7 +17,8 @@ import {
 import {
   autoAllowedToolsForRole,
   availableToolsForRole,
-  disallowedToolsForRole
+  disallowedToolsForRole,
+  isToolInputWithinWorkspace
 } from "../../auth/index.js";
 import type { AgentRequest, ContextUsageReport } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
@@ -125,6 +127,13 @@ export type SdkQueryOptionsInput = {
 
 export function buildSdkQueryOptions(input: SdkQueryOptionsInput): Record<string, unknown> {
   const { request, roleConfig, contextConfig, model, canUseTool } = input;
+  const hooks: Record<string, unknown> = {
+    PreToolUse: [
+      {
+        hooks: [createWorkspaceGuardHook(request.workspacePath)]
+      }
+    ]
+  };
 
   const queryOptions: Record<string, unknown> = {
     cwd: request.workspacePath,
@@ -135,7 +144,8 @@ export function buildSdkQueryOptions(input: SdkQueryOptionsInput): Record<string
     allowDangerouslySkipPermissions: roleConfig.permissionMode === "bypassPermissions",
     systemPrompt: roleConfig.systemPrompt,
     includePartialMessages: true,
-    canUseTool
+    canUseTool,
+    hooks
   };
 
   if (roleConfig.maxTurns !== undefined) {
@@ -168,23 +178,42 @@ export function buildSdkQueryOptions(input: SdkQueryOptionsInput): Record<string
     queryOptions["planModeInstructions"] = roleConfig.planModeInstructions;
   }
   if (request.onCompact !== undefined) {
-    queryOptions["hooks"] = {
-      PostCompact: [
-        {
-          hooks: [
-            async (hookInput: Record<string, unknown>) => {
-              const summary = stringField(hookInput, "compact_summary");
-              if (summary !== undefined) {
-                await request.onCompact?.(summary);
-              }
+    hooks["PostCompact"] = [
+      {
+        hooks: [
+          async (hookInput: Record<string, unknown>) => {
+            const summary = stringField(hookInput, "compact_summary");
+            if (summary !== undefined) {
+              await request.onCompact?.(summary);
             }
-          ]
-        }
-      ]
-    };
+          }
+        ]
+      }
+    ];
   }
-
   return queryOptions;
+}
+
+function createWorkspaceGuardHook(workspacePath: string) {
+  return (hookInput: Record<string, unknown>): Record<string, unknown> => {
+    const toolName = stringField(hookInput, "tool_name");
+    const toolInput = recordField(hookInput, "tool_input") ?? {};
+    if (toolName === undefined) {
+      return {};
+    }
+
+    if (isToolInputWithinWorkspace(toolName, toolInput, workspacePath)) {
+      return {};
+    }
+
+    return {
+      hookSpecificOutput: {
+        hookEventName: stringField(hookInput, "hook_event_name") ?? "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: `Tool ${toolName} path is outside the selected workspace.`
+      }
+    };
+  };
 }
 
 // ── Result Message Parsing ──────────────────────────────────────────────────

@@ -5,6 +5,7 @@ export type {
   AgentResponse,
   AgentRuntime,
   AgentRuntimeFactory,
+  AgentConversationMessage,
   AgentStreamEvent,
   AgentStreamPublisher,
   ContextUsageReport,

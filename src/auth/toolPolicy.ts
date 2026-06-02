@@ -40,10 +40,7 @@ export async function decideToolPermission(
     return denyTool(config.name, toolName);
   }
 
-  if (
-    !roleCanUseFileMutationTools(config) &&
-    !isToolInputWithinWorkspace(toolName, input, workspacePath)
-  ) {
+  if (!isToolInputWithinWorkspace(toolName, input, workspacePath)) {
     return denyTool(
       config.name,
       toolName,
@@ -71,19 +68,27 @@ export function isToolInputWithinWorkspace(
   input: Record<string, unknown>,
   workspacePath: string
 ): boolean {
-  const pathValue = pathValueForTool(toolName, input);
-  if (pathValue === undefined || pathValue.trim().length === 0) {
-    return true;
-  }
-
-  if (!isAbsolutePath(pathValue)) {
+  const pathValues = pathValuesForTool(toolName, input);
+  if (pathValues.length === 0) {
     return true;
   }
 
   const resolvedWorkspacePath = path.resolve(workspacePath);
-  const resolvedToolPath = path.resolve(pathValue);
-  const relativePath = path.relative(resolvedWorkspacePath, resolvedToolPath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  return pathValues.every((pathValue) => {
+    if (pathValue.trim().length === 0) {
+      return true;
+    }
+
+    if (!isAbsolutePath(pathValue)) {
+      return !pathValueReferencesParent(pathValue);
+    }
+
+    const resolvedToolPath = path.resolve(pathValue);
+    const relativePath = path.relative(resolvedWorkspacePath, resolvedToolPath);
+    return (
+      relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
+    );
+  });
 }
 
 export function roleCanUseFileMutationTools(config: StoredRoleConfig): boolean {
@@ -112,14 +117,39 @@ function isAbsolutePath(p: string): boolean {
   return false;
 }
 
-function pathValueForTool(toolName: string, input: Record<string, unknown>): string | undefined {
-  if (toolName === "Read") {
-    return stringField(input, "file_path");
+function pathValueReferencesParent(pathValue: string): boolean {
+  return /(^|[\\/])\.\.($|[\\/])/.test(pathValue);
+}
+
+function pathValuesForTool(toolName: string, input: Record<string, unknown>): readonly string[] {
+  if (toolName === "Read" || toolName === "Edit" || toolName === "Write") {
+    const filePath = stringField(input, "file_path");
+    return filePath === undefined ? [] : [filePath];
   }
 
   if (toolName === "Grep" || toolName === "Glob") {
-    return stringField(input, "path");
+    const searchPath = stringField(input, "path");
+    return searchPath === undefined ? [] : [searchPath];
   }
 
-  return undefined;
+  if (toolName === "Bash") {
+    const command = stringField(input, "command");
+    return command === undefined ? [] : pathValuesFromBashCommand(command);
+  }
+
+  return [];
+}
+
+function pathValuesFromBashCommand(command: string): readonly string[] {
+  const windowsPaths = command.match(/[a-zA-Z]:[\\/][^\s"'`<>|]*/g) ?? [];
+  const posixPaths = [...command.matchAll(/(^|[\s"'=])\/[^\s"'`<>|]*/g)].map((match) => {
+    const value = match[0];
+    return value.trimStart();
+  });
+
+  if (/(^|[\s"'=])\.\.($|[\\/]|[\s"'<>|])/.test(command)) {
+    return [...windowsPaths, ...posixPaths, ".."];
+  }
+
+  return [...windowsPaths, ...posixPaths];
 }

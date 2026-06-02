@@ -8,7 +8,7 @@
  * smoke cases, then stops the server.
  */
 import { cp, readFile, writeFile, mkdir, rm } from "node:fs/promises";
-import { existsSync, readdirSync as readdirSyncFn } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { homedir, tmpdir } from "node:os";
 import "dotenv/config";
@@ -63,20 +63,6 @@ async function main(): Promise<void> {
   const codebuddyEnvironment =
     nonEmptyEnv(CODEBUDDY_AUTH_ENVIRONMENT_ENV) ?? inferEnvironmentFromEndpoint(codebuddyEndpoint);
 
-  // If no explicit API key or auth token, read the cached auth token from
-  // CodeBuddyExtension's FileAuthenticationStorage. The SDK-spawned CLI
-  // subprocess cannot discover cached credentials on its own.
-  let authToken: string | undefined;
-  if (
-    (codebuddyApiKey === undefined || codebuddyApiKey.trim().length === 0) &&
-    (existingAuthToken === undefined || existingAuthToken.trim().length === 0)
-  ) {
-    authToken = await resolveLocalAuthToken();
-    if (authToken !== undefined) {
-      process.env["CODEBUDDY_AUTH_TOKEN"] = authToken;
-    }
-  }
-
   // Ensure CODEBUDDY_INTERNET_ENVIRONMENT is set in the process environment
   // so the dev server child process inherits it. The Codebuddy CLI subprocess
   // needs this to route to the correct authentication server.
@@ -130,12 +116,10 @@ async function main(): Promise<void> {
   await writeFile(tempConfigPath, JSON.stringify(tempConfig, null, 2), "utf8");
 
   if (codebuddyApiKey === undefined || codebuddyApiKey.trim().length === 0) {
-    if (authToken !== undefined) {
-      console.info("[info] Codebuddy smoke: using auto-detected cached auth token.");
-    } else if (existingAuthToken !== undefined) {
+    if (existingAuthToken !== undefined) {
       console.info("[info] Codebuddy smoke: using CODEBUDDY_AUTH_TOKEN from environment.");
     } else {
-      console.info("[info] Codebuddy smoke: no auth credentials found. Tests may fail.");
+      console.info("[info] Codebuddy smoke: using CodeBuddy CLI cached login.");
     }
   }
   if (codebuddyEndpoint !== undefined) {
@@ -212,7 +196,7 @@ async function main(): Promise<void> {
     console.info("[pass] codebuddy-agent-options-logged");
 
     // 4. API key / auth token not leaked in logs
-    const secretToCheck = codebuddyApiKey ?? authToken ?? existingAuthToken;
+    const secretToCheck = codebuddyApiKey ?? existingAuthToken;
     if (secretToCheck !== undefined && secretToCheck.trim().length > 0) {
       await assertApiKeyNotInLogs({ llmRawLogPath, apiKey: secretToCheck });
       console.info("[pass] codebuddy-secret-not-in-logs");
@@ -324,61 +308,6 @@ async function readLatestCodebuddyRuntimeError(llmRawLogPath: string): Promise<s
   } catch {
     return undefined;
   }
-}
-
-async function resolveLocalAuthToken(): Promise<string | undefined> {
-  // Read the cached auth token from CodeBuddyExtension's FileAuthenticationStorage.
-  const authDir = getAuthStorageDir();
-  if (!existsSync(authDir)) return undefined;
-
-  try {
-    const files = readdirSyncFn(authDir)
-      .filter((f) => f.endsWith(".info"))
-      .sort();
-
-    for (let i = files.length - 1; i >= 0; i--) {
-      const fileName = files[i];
-      if (fileName === undefined) continue;
-      const filePath = path.join(authDir, fileName);
-      const content = await readFile(filePath, "utf8");
-      const data: unknown = JSON.parse(content);
-      if (!isRecord(data) || !isRecord(data["auth"])) continue;
-
-      const accessToken = data["auth"]["accessToken"];
-      const expiresAt = data["auth"]["expiresAt"];
-      if (typeof accessToken !== "string" || accessToken.trim().length === 0) continue;
-      if (typeof expiresAt === "number" && expiresAt <= Date.now()) continue;
-
-      return accessToken;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function getAuthStorageDir(): string {
-  if (process.platform === "win32") {
-    return path.join(
-      process.env["LOCALAPPDATA"] ?? path.join(homedir(), "AppData", "Local"),
-      "CodeBuddyExtension",
-      "Data",
-      "Public",
-      "auth"
-    );
-  }
-  if (process.platform === "darwin") {
-    return path.join(
-      homedir(),
-      "Library",
-      "Application Support",
-      "CodeBuddyExtension",
-      "Data",
-      "Public",
-      "auth"
-    );
-  }
-  return path.join(homedir(), ".local", "share", "CodeBuddyExtension", "Data", "Public", "auth");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

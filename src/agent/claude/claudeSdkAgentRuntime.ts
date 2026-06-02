@@ -54,7 +54,11 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
   }
 
   public async run(request: AgentRequest): Promise<AgentResponse> {
-    const prompt = await buildWorkspacePrompt(request, this.contextConfig.workspaceMaxChars);
+    const prompt = await buildWorkspacePrompt(
+      request,
+      this.contextConfig.workspaceMaxChars,
+      this.contextConfig.historyMaxMessages
+    );
     const queryOptions = buildSdkQueryOptions({
       request,
       roleConfig: this.roleConfig,

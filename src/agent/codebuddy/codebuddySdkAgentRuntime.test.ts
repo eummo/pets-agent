@@ -117,9 +117,10 @@ describe("CodebuddySdkAgentRuntime", () => {
     const call = firstQueryCall();
     expect(call.options["env"]).toMatchObject({
       ACC_PRODUCT_CONFIG_V3: JSON.stringify({
-        endpoint: "https://enterprise.example.com/",
-        stagingEndpoint: "https://enterprise.example.com/"
+        endpoint: "https://enterprise.example.com",
+        stagingEndpoint: "https://enterprise.example.com"
       }),
+      CODEBUDDY_BASE_URL: "https://enterprise.example.com/v2",
       CODEBUDDY_INTERNET_ENVIRONMENT: "internal",
       CODEBUDDY_API_KEY: "test-api-key"
     });

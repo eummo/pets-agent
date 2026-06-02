@@ -1,6 +1,6 @@
 # Pi AI SDK 中文文档
 
-> **SDK 版本**：v0.75.5（2025-05-27）
+> **SDK 版本**：v0.78.0（2026-06-02 更新确认）
 > 完整文档来源：https://github.com/earendil-works/pi（packages/ai）
 
 ---

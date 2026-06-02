@@ -75,6 +75,32 @@ describe("buildSdkQueryOptions", () => {
     });
     expect(options["planModeInstructions"]).toBe(instructions);
   });
+
+  it("adds a pre-tool workspace guard hook that denies outside paths", async () => {
+    const options = buildSdkQueryOptions({
+      ...baseInput,
+      roleConfig: {
+        ...baseRoleConfig,
+        allowedTools: ["Read", "Edit", "Write", "Bash"],
+        permissionMode: "bypassPermissions"
+      }
+    });
+
+    const hook = workspaceGuardHookFromOptions(options);
+    const result = await hook({
+      hook_event_name: "PreToolUse",
+      tool_name: "Edit",
+      tool_input: { file_path: "/outside/file.ts" }
+    });
+
+    expect(result).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: "Tool Edit path is outside the selected workspace."
+      }
+    });
+  });
 });
 
 describe("serializeQueryOptions", () => {
@@ -104,3 +130,22 @@ describe("serializeQueryOptions", () => {
     expect(serialized["environment"]).toBe("internal");
   });
 });
+
+type HookEntry = {
+  readonly hooks: readonly WorkspaceGuardHook[];
+};
+
+type WorkspaceGuardHook = (
+  input: Record<string, unknown>
+) => Record<string, unknown> | Promise<Record<string, unknown>>;
+
+function workspaceGuardHookFromOptions(options: Record<string, unknown>): WorkspaceGuardHook {
+  const hooks = options["hooks"] as Record<string, readonly HookEntry[]>;
+  const preToolUseHooks = hooks["PreToolUse"];
+  const hook = preToolUseHooks?.[0]?.hooks[0];
+  if (hook === undefined) {
+    throw new Error("Expected PreToolUse workspace guard hook.");
+  }
+
+  return hook;
+}

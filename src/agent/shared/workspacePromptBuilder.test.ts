@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildChatContext, splitAtHeadings, truncateToBudget } from "./workspacePromptBuilder.js";
+import {
+  buildChatContext,
+  buildHistoryContext,
+  buildWorkspacePrompt,
+  splitAtHeadings,
+  truncateToBudget
+} from "./workspacePromptBuilder.js";
 import type { AgentRequest } from "../index.js";
 
 describe("splitAtHeadings", () => {
@@ -143,5 +149,54 @@ describe("buildChatContext", () => {
     const result = buildChatContext(request);
     expect(result).toContain("wangwu");
     expect(result).toContain("<@wangwu>");
+  });
+});
+
+describe("buildHistoryContext", () => {
+  it("formats prior conversation messages for a new runtime session", () => {
+    const result = buildHistoryContext([
+      { role: "user", content: "客户订单是怎么创建的" },
+      { role: "assistant", content: "订单由客户创建。" }
+    ]);
+
+    expect(result).toContain("Previous conversation:");
+    expect(result).toContain("User: 客户订单是怎么创建的");
+    expect(result).toContain("Assistant: 订单由客户创建。");
+    expect(result).toContain("Continue the conversation below");
+  });
+
+  it("keeps only the most recent history messages", () => {
+    const result = buildHistoryContext(
+      [
+        { role: "user", content: "one" },
+        { role: "assistant", content: "two" },
+        { role: "user", content: "three" }
+      ],
+      2
+    );
+
+    expect(result).not.toContain("one");
+    expect(result).toContain("two");
+    expect(result).toContain("three");
+  });
+});
+
+describe("buildWorkspacePrompt", () => {
+  it("includes prior history before the current user request", async () => {
+    const request: AgentRequest = {
+      user: { id: "user-1" },
+      text: "我的第一个问题是什么",
+      workspacePath: "/tmp/missing-workspace",
+      history: [
+        { role: "user", content: "客户订单是怎么创建的" },
+        { role: "assistant", content: "订单由客户创建。" }
+      ]
+    };
+
+    const result = await buildWorkspacePrompt(request, 8_000, 20);
+
+    expect(result).toContain("Previous conversation:");
+    expect(result).toContain("User: 客户订单是怎么创建的");
+    expect(result).toContain("User request:\n我的第一个问题是什么");
   });
 });

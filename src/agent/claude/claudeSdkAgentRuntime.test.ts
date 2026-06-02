@@ -56,6 +56,13 @@ describe("ClaudeSdkAgentRuntime", () => {
       systemPrompt: "Answer from the workspace.",
       includePartialMessages: true,
       canUseTool: expect.any(Function),
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [expect.any(Function)]
+          }
+        ]
+      },
       maxTurns: 3,
       model: "model-1",
       resume: "session-1",

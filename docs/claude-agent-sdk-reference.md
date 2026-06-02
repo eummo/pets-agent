@@ -1,6 +1,6 @@
 # Claude Agent SDK 中文文档
 
-> **SDK 版本**：v0.3.152（2025-05-27）
+> **SDK 版本**：v0.3.160（2026-06-02 更新确认）
 > 完整文档来源：https://code.claude.com/docs/en/agent-sdk/overview
 
 ---

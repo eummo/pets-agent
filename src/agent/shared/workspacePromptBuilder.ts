@@ -1,17 +1,20 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentRequest } from "../index.js";
+import type { AgentConversationMessage, AgentRequest } from "../index.js";
 
 export const DEFAULT_WORKSPACE_MAX_CHARS = 8_000;
+export const DEFAULT_HISTORY_MAX_MESSAGES = 20;
 
 export async function buildWorkspacePrompt(
   request: AgentRequest,
-  maxChars = DEFAULT_WORKSPACE_MAX_CHARS
+  maxChars = DEFAULT_WORKSPACE_MAX_CHARS,
+  historyMaxMessages = DEFAULT_HISTORY_MAX_MESSAGES
 ): Promise<string> {
   const workspaceContext = await readWorkspaceContext(request.workspacePath, maxChars);
+  const historyContext = buildHistoryContext(request.history, historyMaxMessages);
   const chatContext = buildChatContext(request);
 
-  if (workspaceContext === undefined && chatContext === undefined) {
+  if (workspaceContext === undefined && historyContext === undefined && chatContext === undefined) {
     return request.text;
   }
 
@@ -30,12 +33,36 @@ export async function buildWorkspacePrompt(
     );
   }
 
+  if (historyContext !== undefined) {
+    parts.push(historyContext, "");
+  }
+
   if (chatContext !== undefined) {
     parts.push(chatContext, "");
   }
 
   parts.push("User request:", request.text);
   return parts.join("\n");
+}
+
+export function buildHistoryContext(
+  history: readonly AgentConversationMessage[] | undefined,
+  maxMessages = DEFAULT_HISTORY_MAX_MESSAGES
+): string | undefined {
+  if (history === undefined || history.length === 0) return undefined;
+
+  const messages = history.slice(-maxMessages);
+  const lines = messages.map((message) => {
+    const role = message.role === "user" ? "User" : "Assistant";
+    return `${role}: ${message.content}`;
+  });
+
+  return [
+    "Previous conversation:",
+    ...lines,
+    "",
+    "Continue the conversation below. The user may refer to earlier messages above."
+  ].join("\n");
 }
 
 /**
