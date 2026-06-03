@@ -24,7 +24,8 @@ const roleCapabilitySchema = z.enum([
   "feedback_view",
   "feedback_manage",
   "roles_manage",
-  "cron_manage"
+  "cron_manage",
+  "web_access"
 ]);
 
 const permissionModeSchema = z.enum(["auto", "dontAsk", "acceptEdits", "bypassPermissions"]);

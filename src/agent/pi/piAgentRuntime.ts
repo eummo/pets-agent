@@ -209,8 +209,12 @@ function generateSessionId(): string {
   return `pi-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const PI_UNSUPPORTED_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "WebFetch"]);
+
 function piToolsForRole(roleConfig: StoredRoleConfig): readonly string[] {
-  const tools = availableToolsForRole(roleConfig);
+  const tools = availableToolsForRole(roleConfig).filter(
+    (tool) => !PI_UNSUPPORTED_TOOLS.has(tool)
+  );
 
   if (roleCanUseFileMutationTools(roleConfig)) {
     return tools;

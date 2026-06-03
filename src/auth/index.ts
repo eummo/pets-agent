@@ -48,7 +48,8 @@ export type RoleCapability =
   | "feedback_view" // view user feedback entries
   | "feedback_manage" // review and update feedback status
   | "roles_manage" // create, update, delete role configurations (future)
-  | "cron_manage"; // create, update, delete, and view cron jobs
+  | "cron_manage" // create, update, delete, and view cron jobs
+  | "web_access"; // use WebSearch and WebFetch tools
 
 export type SettingSource = "user" | "project" | "local";
 

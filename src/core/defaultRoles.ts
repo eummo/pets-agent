@@ -15,10 +15,10 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "If the context is insufficient, say what is missing instead of guessing.",
       "If the user asks you to modify, update, or add content and you cannot do so (because you are a read-only assistant), clearly explain that you only have read access, and suggest they contact an administrator or switch to a developer/admin role. Do not fabricate content to fill in missing information."
     ].join("\n"),
-    allowedTools: ["Read", "Glob", "Grep", "Bash"],
+    allowedTools: ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
     permissionMode: "dontAsk",
     maxTurns: 20,
-    capabilities: ["workspace_read"],
+    capabilities: ["workspace_read", "web_access"],
     skills: "all",
     settingSources: ["user", "project", "local"]
   },
@@ -33,10 +33,10 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "Keep the change focused on the user's request.",
       "Answer concisely in the same language as the user."
     ].join("\n"),
-    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
-    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
+    capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "web_access"],
     skills: "all",
     settingSources: ["user", "project", "local"],
     enableWorkflows: true
@@ -51,7 +51,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "Keep the change focused on the user's request.",
       "Answer concisely in the same language as the user."
     ].join("\n"),
-    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
     capabilities: [
@@ -60,7 +60,8 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "knowledge_base_update",
       "feedback_view",
       "feedback_manage",
-      "cron_manage"
+      "cron_manage",
+      "web_access"
     ],
     skills: "all",
     settingSources: ["user", "project", "local"]

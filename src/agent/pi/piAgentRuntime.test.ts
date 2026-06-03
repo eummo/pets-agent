@@ -371,6 +371,17 @@ describe("PiAgentRuntime", () => {
     ).toEqual(["Read", "Edit", "Bash"]);
   });
 
+  it("filters out WebSearch and WebFetch because Pi SDK does not support them", () => {
+    expect(
+      _piToolsForRole({
+        name: "developer",
+        allowedTools: ["Read", "Edit", "Bash", "WebSearch", "WebFetch"],
+        permissionMode: "bypassPermissions",
+        systemPrompt: "Can edit."
+      })
+    ).toEqual(["Read", "Edit", "Bash"]);
+  });
+
   it("passes an explicit empty tools list when the role has no tools", async () => {
     mockSession.prompt.mockImplementation(() => {
       mockSession._emit({ type: "agent_end", messages: [] });

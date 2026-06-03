@@ -8,13 +8,13 @@ import {
 
 const reviewerConfig: StoredRoleConfig = {
   name: "reviewer",
-  allowedTools: ["Read", "Glob", "Grep", "Bash"],
+  allowedTools: ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
   permissionMode: "dontAsk",
   systemPrompt: "Read only."
 };
 const developerConfig: StoredRoleConfig = {
   name: "developer",
-  allowedTools: ["Read", "Edit", "Write", "Bash"],
+  allowedTools: ["Read", "Edit", "Write", "Bash", "WebSearch", "WebFetch"],
   permissionMode: "bypassPermissions",
   systemPrompt: "Edit selected workspace files."
 };
@@ -75,5 +75,47 @@ describe("claudeToolPolicy", () => {
     if (result.behavior === "deny") {
       expect(result.message).toContain("outside the selected workspace");
     }
+  });
+
+  it("allows WebSearch when included in allowedTools", async () => {
+    const result = await decideToolPermission(
+      reviewerConfig,
+      "WebSearch",
+      { query: "latest Node.js LTS version" },
+      undefined,
+      "D:/kb"
+    );
+
+    expect(result.behavior).toBe("allow");
+  });
+
+  it("allows WebFetch when included in allowedTools", async () => {
+    const result = await decideToolPermission(
+      developerConfig,
+      "WebFetch",
+      { url: "https://nodejs.org/en", prompt: "What is the latest LTS version?" },
+      undefined,
+      "D:/kb"
+    );
+
+    expect(result.behavior).toBe("allow");
+  });
+
+  it("denies WebSearch when not included in allowedTools", async () => {
+    const noWebConfig: StoredRoleConfig = {
+      name: "reviewer",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+      systemPrompt: "No web."
+    };
+    const result = await decideToolPermission(
+      noWebConfig,
+      "WebSearch",
+      { query: "test" },
+      undefined,
+      "D:/kb"
+    );
+
+    expect(result.behavior).toBe("deny");
   });
 });

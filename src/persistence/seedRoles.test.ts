@@ -17,7 +17,7 @@ describe("seedDefaultRoles", () => {
       expect.objectContaining({
         name: "reviewer",
         maxTurns: REVIEWER_DEFAULT.maxTurns,
-        capabilities: ["workspace_read"],
+        capabilities: ["workspace_read", "web_access"],
         skills: "all",
         settingSources: ["user", "project", "local"]
       })
@@ -25,7 +25,7 @@ describe("seedDefaultRoles", () => {
     await expect(store.getByName("developer")).resolves.toEqual(
       expect.objectContaining({
         name: "developer",
-        capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"],
+        capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "web_access"],
         skills: "all",
         settingSources: ["user", "project", "local"],
         enableWorkflows: true
@@ -40,7 +40,8 @@ describe("seedDefaultRoles", () => {
           "knowledge_base_update",
           "feedback_view",
           "feedback_manage",
-          "cron_manage"
+          "cron_manage",
+          "web_access"
         ],
         skills: "all",
         settingSources: ["user", "project", "local"]
@@ -64,7 +65,7 @@ describe("seedDefaultRoles", () => {
       expect.objectContaining({
         name: "reviewer",
         systemPrompt: "Custom reviewer prompt",
-        allowedTools: ["Read", "Glob", "Grep", "Bash"],
+        allowedTools: ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
         permissionMode: "dontAsk",
         maxTurns: REVIEWER_DEFAULT.maxTurns
       })
@@ -87,7 +88,7 @@ describe("seedDefaultRoles", () => {
       expect.objectContaining({
         name: "developer",
         systemPrompt: "Custom developer prompt",
-        capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update"]
+        capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "web_access"]
       })
     );
   });
