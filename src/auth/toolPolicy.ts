@@ -55,7 +55,13 @@ export async function decideToolPermission(
   return { behavior: "allow" };
 }
 
+const WEB_ACCESS_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "WebFetch"]);
+
 export function canUseConfiguredTool(config: StoredRoleConfig, toolName: string): boolean {
+  if (WEB_ACCESS_TOOLS.has(toolName) && config.capabilities?.includes("web_access") === true) {
+    return true;
+  }
+
   if (!config.allowedTools.includes(toolName)) {
     return false;
   }

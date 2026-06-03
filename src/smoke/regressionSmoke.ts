@@ -166,8 +166,10 @@ async function main(): Promise<void> {
     console.info("[pass] claude-workflow-tool-available");
   }
 
-  // ── WebSearch/WebFetch smoke test (Claude and Codebuddy runtimes) ─────────
-  if (agentSdkType === "claude" || agentSdkType === "codebuddy") {
+  // ── WebSearch/WebFetch smoke test (Codebuddy runtime only) ────────────────
+  // Claude SDK does not support WebSearch/WebFetch with non-Claude models.
+  // Codebuddy CLI supports these tools natively via the web_access capability.
+  if (agentSdkType === "codebuddy") {
     await assertWebSearchToolAvailable();
     console.info("[pass] web-search-tool-available");
   }

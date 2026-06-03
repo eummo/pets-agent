@@ -8,13 +8,13 @@ import {
 
 const reviewerConfig: StoredRoleConfig = {
   name: "reviewer",
-  allowedTools: ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
+  allowedTools: ["Read", "Glob", "Grep", "Bash"],
   permissionMode: "dontAsk",
   systemPrompt: "Read only."
 };
 const developerConfig: StoredRoleConfig = {
   name: "developer",
-  allowedTools: ["Read", "Edit", "Write", "Bash", "WebSearch", "WebFetch"],
+  allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
   permissionMode: "bypassPermissions",
   systemPrompt: "Edit selected workspace files."
 };
@@ -77,9 +77,16 @@ describe("claudeToolPolicy", () => {
     }
   });
 
-  it("allows WebSearch when included in allowedTools", async () => {
+  it("allows WebSearch when role has web_access capability", async () => {
+    const webConfig: StoredRoleConfig = {
+      name: "reviewer",
+      allowedTools: ["Read"],
+      permissionMode: "dontAsk",
+      systemPrompt: "Read only.",
+      capabilities: ["workspace_read", "web_access"]
+    };
     const result = await decideToolPermission(
-      reviewerConfig,
+      webConfig,
       "WebSearch",
       { query: "latest Node.js LTS version" },
       undefined,
@@ -89,9 +96,16 @@ describe("claudeToolPolicy", () => {
     expect(result.behavior).toBe("allow");
   });
 
-  it("allows WebFetch when included in allowedTools", async () => {
+  it("allows WebFetch when role has web_access capability", async () => {
+    const webConfig: StoredRoleConfig = {
+      name: "developer",
+      allowedTools: ["Read"],
+      permissionMode: "bypassPermissions",
+      systemPrompt: "Edit.",
+      capabilities: ["workspace_read", "workspace_mutate", "web_access"]
+    };
     const result = await decideToolPermission(
-      developerConfig,
+      webConfig,
       "WebFetch",
       { url: "https://nodejs.org/en", prompt: "What is the latest LTS version?" },
       undefined,
@@ -101,7 +115,7 @@ describe("claudeToolPolicy", () => {
     expect(result.behavior).toBe("allow");
   });
 
-  it("denies WebSearch when not included in allowedTools", async () => {
+  it("denies WebSearch when role lacks web_access capability", async () => {
     const noWebConfig: StoredRoleConfig = {
       name: "reviewer",
       allowedTools: ["Read"],

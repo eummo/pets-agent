@@ -65,7 +65,7 @@ describe("seedDefaultRoles", () => {
       expect.objectContaining({
         name: "reviewer",
         systemPrompt: "Custom reviewer prompt",
-        allowedTools: ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
+        allowedTools: ["Read", "Glob", "Grep", "Bash"],
         permissionMode: "dontAsk",
         maxTurns: REVIEWER_DEFAULT.maxTurns
       })

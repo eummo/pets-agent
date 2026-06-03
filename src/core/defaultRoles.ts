@@ -16,7 +16,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "If the workspace context is insufficient for a workspace-related question, say what is missing instead of guessing.",
       "If the user asks you to modify, update, or add content and you cannot do so (because you are a read-only assistant), clearly explain that you only have read access, and suggest they contact an administrator or switch to a developer/admin role. Do not fabricate content to fill in missing information."
     ].join("\n"),
-    allowedTools: ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
+    allowedTools: ["Read", "Glob", "Grep", "Bash"],
     permissionMode: "dontAsk",
     maxTurns: 20,
     capabilities: ["workspace_read", "web_access"],
@@ -35,7 +35,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "When the question is outside the workspace scope (e.g., weather, news, general knowledge), use WebSearch and WebFetch to find the answer.",
       "Answer concisely in the same language as the user."
     ].join("\n"),
-    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"],
+    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
     capabilities: ["workspace_read", "workspace_mutate", "knowledge_base_update", "web_access"],
@@ -54,7 +54,7 @@ export const DEFAULT_ROLE_CONFIGS: readonly StoredRoleConfig[] = [
       "When the question is outside the workspace scope (e.g., weather, news, general knowledge), use WebSearch and WebFetch to find the answer.",
       "Answer concisely in the same language as the user."
     ].join("\n"),
-    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"],
+    allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
     permissionMode: "bypassPermissions",
     maxTurns: 30,
     capabilities: [

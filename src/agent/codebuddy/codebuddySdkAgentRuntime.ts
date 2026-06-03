@@ -24,6 +24,8 @@ import {
   serializeSdkResult
 } from "../shared/sdkRuntimeHelpers.js";
 
+const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
+
 export type CodebuddySdkAgentRuntimeOptions = {
   readonly roleConfig: StoredRoleConfig;
   readonly agentSdkConfig: ResolvedAgentSdkConfig;
@@ -65,6 +67,20 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
       model: this.model,
       canUseTool: (toolName, input) => this.canUseTool(toolName, input, request.workspacePath)
     });
+
+    // Codebuddy CLI supports WebSearch/WebFetch natively. When the role has the
+    // web_access capability, inject the web tools into the tools list so the
+    // model can use them even though they are not in the default allowedTools.
+    if (this.roleConfig.capabilities?.includes("web_access") === true) {
+      const existingTools = baseOptions["tools"] as readonly string[];
+      baseOptions["tools"] = [...new Set([...existingTools, ...WEB_TOOLS])];
+
+      const existingAllowed = baseOptions["allowedTools"] as readonly string[];
+      if (existingAllowed.length > 0) {
+        baseOptions["allowedTools"] = [...new Set([...existingAllowed, ...WEB_TOOLS])];
+      }
+    }
+
     const queryOptions: Record<string, unknown> = {
       ...baseOptions,
       ...codebuddySdkConnectionOptions(this.agentSdkConfig)
