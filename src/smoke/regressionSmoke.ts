@@ -165,6 +165,12 @@ async function main(): Promise<void> {
     await assertClaudeWorkflowToolAvailable();
     console.info("[pass] claude-workflow-tool-available");
   }
+
+  // ── WebSearch/WebFetch smoke test (Claude and Codebuddy runtimes) ─────────
+  if (agentSdkType === "claude" || agentSdkType === "codebuddy") {
+    await assertWebSearchToolAvailable();
+    console.info("[pass] web-search-tool-available");
+  }
 }
 
 // ── Claude SDK-specific assertions (Claude-only, kept inline) ─────────────
@@ -220,6 +226,29 @@ async function assertClaudeWorkflowToolAvailable(): Promise<void> {
     // Non-fatal: the model may not mention Workflow explicitly in its response.
     // The primary assertion is enableWorkflows in settings, which is already verified.
     console.info("[info] claude-workflow-tool-mention-not-found-in-log (non-fatal)");
+  }
+}
+
+async function assertWebSearchToolAvailable(): Promise<void> {
+  // Verify WebSearch is included in the tools list passed to the agent runtime.
+  const runtimePrefix = agentSdkType === "claude" ? "claude-sdk-" : "codebuddy-sdk-";
+  const content = await readFile(llmRawLogPath, "utf8");
+
+  // Find an agent_runtime llm.request that includes WebSearch in tools
+  const hasWebSearchInTools = content
+    .split(/\r?\n/)
+    .some(
+      (line) =>
+        line.includes('"type":"llm.request"') &&
+        line.includes('"operation":"agent_runtime"') &&
+        line.includes(`"runtime":"${runtimePrefix}`) &&
+        line.includes("WebSearch")
+    );
+
+  if (!hasWebSearchInTools) {
+    throw new Error(
+      "WebSearch tool: expected WebSearch to appear in an agent_runtime llm.request tools list."
+    );
   }
 }
 
