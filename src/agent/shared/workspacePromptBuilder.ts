@@ -1,20 +1,28 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentConversationMessage, AgentRequest } from "../index.js";
+import type { AgentConversationMessage, AgentRequest, InboundAttachment } from "../index.js";
 
 export const DEFAULT_WORKSPACE_MAX_CHARS = 8_000;
 export const DEFAULT_HISTORY_MAX_MESSAGES = 20;
+export const DEFAULT_ATTACHMENT_MAX_CHARS = 12_000;
 
 export async function buildWorkspacePrompt(
   request: AgentRequest,
   maxChars = DEFAULT_WORKSPACE_MAX_CHARS,
-  historyMaxMessages = DEFAULT_HISTORY_MAX_MESSAGES
+  historyMaxMessages = DEFAULT_HISTORY_MAX_MESSAGES,
+  attachmentMaxChars = DEFAULT_ATTACHMENT_MAX_CHARS
 ): Promise<string> {
   const workspaceContext = await readWorkspaceContext(request.workspacePath, maxChars);
+  const attachmentContext = await buildAttachmentContext(request.attachments, attachmentMaxChars);
   const historyContext = buildHistoryContext(request.history, historyMaxMessages);
   const chatContext = buildChatContext(request);
 
-  if (workspaceContext === undefined && historyContext === undefined && chatContext === undefined) {
+  if (
+    workspaceContext === undefined &&
+    attachmentContext === undefined &&
+    historyContext === undefined &&
+    chatContext === undefined
+  ) {
     return request.text;
   }
 
@@ -33,6 +41,10 @@ export async function buildWorkspacePrompt(
     );
   }
 
+  if (attachmentContext !== undefined) {
+    parts.push(attachmentContext, "");
+  }
+
   if (historyContext !== undefined) {
     parts.push(historyContext, "");
   }
@@ -43,6 +55,51 @@ export async function buildWorkspacePrompt(
 
   parts.push("User request:", request.text);
   return parts.join("\n");
+}
+
+export async function buildAttachmentContext(
+  attachments: readonly InboundAttachment[] | undefined,
+  maxChars = DEFAULT_ATTACHMENT_MAX_CHARS
+): Promise<string | undefined> {
+  if (attachments === undefined || attachments.length === 0) return undefined;
+
+  let remainingChars = maxChars;
+  const parts: string[] = ["Uploaded document context:"];
+  for (const attachment of attachments) {
+    if (remainingChars <= 0) break;
+
+    const normalized = await readAttachmentText(attachment);
+    const text =
+      normalized.length <= remainingChars
+        ? normalized
+        : `${truncateToBudget(normalized, remainingChars)}\n[Document truncated for context budget.]`;
+    remainingChars -= text.length;
+
+    parts.push(
+      "",
+      `Document: ${attachment.name}`,
+      `Media type: ${attachment.mimeType}`,
+      `Size: ${attachment.sizeBytes} bytes`,
+      "Content:",
+      text
+    );
+  }
+
+  parts.push(
+    "",
+    "Use the uploaded document context above to answer this user request when it is relevant."
+  );
+  return parts.join("\n");
+}
+
+async function readAttachmentText(attachment: InboundAttachment): Promise<string> {
+  try {
+    const content = await readFile(attachment.storagePath, "utf8");
+    const normalized = content.trim();
+    return normalized.length > 0 ? normalized : "[Uploaded document is empty.]";
+  } catch {
+    return "[Uploaded document could not be read.]";
+  }
 }
 
 export function buildHistoryContext(

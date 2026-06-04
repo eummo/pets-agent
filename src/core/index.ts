@@ -37,11 +37,20 @@ export type InboundMessage = {
   readonly channel: string;
   readonly user: ChannelUser;
   readonly text: string;
+  readonly attachments?: readonly InboundAttachment[];
   readonly receivedAt: Date;
   readonly stream?: AgentStreamPublisher;
   readonly chatId?: string;
   readonly chatType?: "single" | "group";
   readonly roleOverride?: UserRole;
+};
+
+export type InboundAttachment = {
+  readonly type: "document";
+  readonly name: string;
+  readonly mimeType: string;
+  readonly storagePath: string;
+  readonly sizeBytes: number;
 };
 
 export type OutboundMessage = {
@@ -88,6 +97,7 @@ export type ProgressReporter = {
 export type AgentRequest = {
   readonly user: ChannelUser;
   readonly text: string;
+  readonly attachments?: readonly InboundAttachment[];
   readonly workspacePath: string;
   readonly role?: string;
   readonly history?: readonly AgentConversationMessage[];

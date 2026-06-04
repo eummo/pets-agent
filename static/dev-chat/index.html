@@ -9,7 +9,10 @@
   <body>
     <header>
       <h1>Pets Agent</h1>
-      <div class="subtitle">基于 Claude Agent SDK 的角色化助手。文档助手查询知识库，开发助手修改代码并验证，管理员管理用户反馈。</div>
+      <div class="subtitle">
+        基于 Claude Agent SDK
+        的角色化助手。文档助手查询知识库，开发助手修改代码并验证，管理员管理用户反馈。
+      </div>
       <nav class="tabs">
         <button class="tab active" data-tab="chat">对话</button>
         <button class="tab" data-tab="feedback">反馈管理</button>
@@ -53,7 +56,10 @@
               <div class="cron-nl-section">
                 <label>
                   <span>自然语言描述</span>
-                  <textarea id="cron-nl-input" placeholder="例：每天早上9点总结昨天的git提交记录并发送到企微群"></textarea>
+                  <textarea
+                    id="cron-nl-input"
+                    placeholder="例：每天早上9点总结昨天的git提交记录并发送到企微群"
+                  ></textarea>
                 </label>
                 <button type="button" id="cron-nl-parse" class="cron-nl-parse-btn">智能解析</button>
               </div>
@@ -84,7 +90,11 @@
               </label>
               <label>
                 <span>执行提示词</span>
-                <textarea id="cron-prompt" required placeholder="例：总结最近24小时的git提交记录"></textarea>
+                <textarea
+                  id="cron-prompt"
+                  required
+                  placeholder="例：总结最近24小时的git提交记录"
+                ></textarea>
               </label>
               <label>
                 <span>工作空间路径</span>
@@ -101,7 +111,13 @@
               </label>
               <label>
                 <span>投递渠道（每行一个）</span>
-                <textarea id="cron-channels" required placeholder="wecom:chat:群聊ID&#10;wecom:user:用户ID&#10;sse:admin&#10;webhook:https://...">wecom:chat:</textarea>
+                <textarea
+                  id="cron-channels"
+                  required
+                  placeholder="wecom:chat:群聊ID&#10;wecom:user:用户ID&#10;sse:admin&#10;webhook:https://..."
+                >
+wecom:chat:</textarea
+                >
               </label>
               <label>
                 <span>超时（毫秒）</span>
@@ -129,6 +145,16 @@
       <select id="role-select" aria-label="Role">
         <!-- Populated dynamically by app.js -->
       </select>
+      <div class="attachment-picker">
+        <input
+          id="attachment-input"
+          type="file"
+          accept=".txt,.md,.markdown,text/plain,text/markdown"
+          multiple
+          aria-label="Attachments"
+        />
+        <div id="attachment-list" class="attachment-list" aria-live="polite"></div>
+      </div>
       <textarea id="message-input" placeholder="输入消息..." aria-label="Message"></textarea>
       <button id="send-button" type="submit">发送</button>
     </form>

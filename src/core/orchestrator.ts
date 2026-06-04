@@ -179,6 +179,9 @@ export class AgentOrchestrator implements MessageGateway {
     const request: AgentRequest = {
       user: message.user,
       text: message.text,
+      ...(message.attachments !== undefined && message.attachments.length > 0
+        ? { attachments: message.attachments }
+        : {}),
       workspacePath,
       role,
       progress: (event) => this.publishProgress(message, event),
@@ -328,7 +331,14 @@ export class AgentOrchestrator implements MessageGateway {
       chatId: message.chatId,
       input: message.text,
       output,
-      workspacePath
+      workspacePath,
+      attachmentCount: message.attachments?.length ?? 0,
+      attachments: message.attachments?.map((attachment) => ({
+        type: attachment.type,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes
+      }))
     });
   }
 

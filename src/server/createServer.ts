@@ -22,10 +22,10 @@ export function createServer(options: CreateServerOptions): FastifyInstance {
       feedbackStore: options.feedbackStore,
       authorization: options.authorization,
       progressBroker: options.progressBroker,
+      uploadRootPath: options.uploadRootPath
     };
     registerDevRoutes(server, devOptions);
   }
 
   return server;
 }
-

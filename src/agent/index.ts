@@ -9,5 +9,6 @@ export type {
   AgentStreamEvent,
   AgentStreamPublisher,
   ContextUsageReport,
+  InboundAttachment,
   ProgressReporter
 } from "../core/index.js";

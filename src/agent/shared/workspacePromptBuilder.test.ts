@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import {
   buildChatContext,
   buildHistoryContext,
@@ -198,5 +201,33 @@ describe("buildWorkspacePrompt", () => {
     expect(result).toContain("Previous conversation:");
     expect(result).toContain("User: 客户订单是怎么创建的");
     expect(result).toContain("User request:\n我的第一个问题是什么");
+  });
+
+  it("includes uploaded document content without exposing the storage path", async () => {
+    const uploadRootPath = await mkdtemp(path.join(tmpdir(), "pets-agent-docs-"));
+    const storagePath = path.join(uploadRootPath, "notes.md");
+    await writeFile(storagePath, "# Upload\nThe refund window is 14 days.", "utf8");
+    const request: AgentRequest = {
+      user: { id: "user-1" },
+      text: "What is the refund window?",
+      workspacePath: "/tmp/missing-workspace",
+      attachments: [
+        {
+          type: "document",
+          name: "notes.md",
+          mimeType: "text/markdown",
+          storagePath,
+          sizeBytes: 39
+        }
+      ]
+    };
+
+    const result = await buildWorkspacePrompt(request, 8_000, 20);
+
+    expect(result).toContain("Uploaded document context:");
+    expect(result).toContain("Document: notes.md");
+    expect(result).toContain("The refund window is 14 days.");
+    expect(result).toContain("User request:\nWhat is the refund window?");
+    expect(result).not.toContain(storagePath);
   });
 });

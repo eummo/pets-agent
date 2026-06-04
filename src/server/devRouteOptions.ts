@@ -9,4 +9,5 @@ export type DevRoutesOptions = {
   readonly feedbackStore?: FeedbackStore | undefined;
   readonly authorization?: AuthorizationService | undefined;
   readonly progressBroker?: SseProgressBroker | undefined;
+  readonly uploadRootPath?: string | undefined;
 };

@@ -4,6 +4,8 @@ const userIdEl = document.querySelector("#user-id");
 const roleSelect = document.querySelector("#role-select");
 const input = document.querySelector("#message-input");
 const button = document.querySelector("#send-button");
+const attachmentInput = document.querySelector("#attachment-input");
+const attachmentList = document.querySelector("#attachment-list");
 const feedbackList = document.querySelector("#feedback-list");
 const refreshFeedback = document.querySelector("#refresh-feedback");
 const cronJobList = document.querySelector("#cron-job-list");
@@ -18,6 +20,9 @@ const cronEditId = document.querySelector("#cron-edit-id");
 const cronScheduleType = document.querySelector("#cron-schedule-type");
 const feedbackPageSize = 20;
 let feedbackOffset = 0;
+const MAX_ATTACHMENT_COUNT = 4;
+const MAX_ATTACHMENT_BYTES = 256 * 1024;
+const SUPPORTED_ATTACHMENT_EXTENSIONS = [".txt", ".md", ".markdown"];
 
 // ── Tab switching ──
 const tabs = document.querySelectorAll(".tab");
@@ -146,7 +151,7 @@ const CAP = Object.freeze({
   KNOWLEDGE_BASE_UPDATE: "knowledge_base_update",
   FEEDBACK_VIEW: "feedback_view",
   FEEDBACK_MANAGE: "feedback_manage",
-  CRON_MANAGE: "cron_manage",
+  CRON_MANAGE: "cron_manage"
 });
 
 function hasCapability(cap) {
@@ -277,27 +282,33 @@ async function loadFeedback() {
   try {
     await fetchFeedbackPage(false);
   } catch (error) {
-    setFeedbackMessage("feedback-error", "加载失败: " + (error instanceof Error ? error.message : String(error)));
+    setFeedbackMessage(
+      "feedback-error",
+      "加载失败: " + (error instanceof Error ? error.message : String(error))
+    );
   }
 }
 
 async function fetchFeedbackPage(append) {
   const response = await fetch(
-    "/dev/feedback?userId=" + encodeURIComponent(userIdEl.value)
-      + "&limit=" + feedbackPageSize
-      + "&offset=" + feedbackOffset
+    "/dev/feedback?userId=" +
+      encodeURIComponent(userIdEl.value) +
+      "&limit=" +
+      feedbackPageSize +
+      "&offset=" +
+      feedbackOffset
   );
-    if (!response.ok) {
-      const body = await response.json();
+  if (!response.ok) {
+    const body = await response.json();
     setFeedbackMessage("feedback-error", body.error || "无法加载反馈");
-      return;
-    }
-    const data = await response.json();
-    const entries = data.feedback || [];
+    return;
+  }
+  const data = await response.json();
+  const entries = data.feedback || [];
   if (entries.length === 0 && !append) {
     setFeedbackMessage("feedback-empty", "暂无反馈记录");
-      return;
-    }
+    return;
+  }
   removeLoadMoreButton();
   if (!append) {
     feedbackList.replaceChildren();
@@ -329,7 +340,9 @@ function createLoadMoreButton() {
     try {
       await fetchFeedbackPage(true);
     } catch (error) {
-      addSystemMessage("加载更多反馈失败: " + (error instanceof Error ? error.message : String(error)));
+      addSystemMessage(
+        "加载更多反馈失败: " + (error instanceof Error ? error.message : String(error))
+      );
       button.disabled = false;
     }
   });
@@ -400,7 +413,9 @@ function createFeedbackCard(entry) {
     contextEl.className = "feedback-context";
     const summary = document.createElement("summary");
     const contextLines = entry.conversationContext.split("\n");
-    const messageCount = contextLines.filter((line) => line.startsWith("user:") || line.startsWith("assistant:")).length;
+    const messageCount = contextLines.filter(
+      (line) => line.startsWith("user:") || line.startsWith("assistant:")
+    ).length;
     summary.textContent = "完整对话上下文 (" + messageCount + " 条消息)";
     contextEl.append(summary);
 
@@ -451,10 +466,14 @@ function createFeedbackCard(entry) {
 
 function statusLabel(status) {
   switch (status) {
-    case "pending": return "待处理";
-    case "reviewed": return "已审阅";
-    case "resolved": return "已解决";
-    default: return status;
+    case "pending":
+      return "待处理";
+    case "reviewed":
+      return "已审阅";
+    case "resolved":
+      return "已解决";
+    default:
+      return status;
   }
 }
 
@@ -463,7 +482,7 @@ async function updateFeedbackStatus(id, status) {
     const response = await fetch("/dev/feedback/" + id, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status, userId: userIdEl.value }),
+      body: JSON.stringify({ status, userId: userIdEl.value })
     });
     if (!response.ok) {
       const body = await response.json();
@@ -473,7 +492,9 @@ async function updateFeedbackStatus(id, status) {
     addSystemMessage("反馈 #" + id + " 已更新为 " + statusLabel(status));
     loadFeedback();
   } catch (error) {
-    addSystemMessage("更新反馈状态失败: " + (error instanceof Error ? error.message : String(error)));
+    addSystemMessage(
+      "更新反馈状态失败: " + (error instanceof Error ? error.message : String(error))
+    );
   }
 }
 
@@ -487,20 +508,26 @@ const statusLabels = { success: "成功", error: "失败", timeout: "超时", sk
 
 function formatSchedule(schedule) {
   switch (schedule.type) {
-    case "cron": return schedule.expression;
-    case "interval": return "每 " + (schedule.milliseconds / 60000) + " 分钟";
-    case "once": return new Date(schedule.runAt).toLocaleString("zh-CN");
-    default: return JSON.stringify(schedule);
+    case "cron":
+      return schedule.expression;
+    case "interval":
+      return "每 " + schedule.milliseconds / 60000 + " 分钟";
+    case "once":
+      return new Date(schedule.runAt).toLocaleString("zh-CN");
+    default:
+      return JSON.stringify(schedule);
   }
 }
 
 function formatChannels(channels) {
-  return channels.map((c) => {
-    if (c.startsWith("wecom:")) return "企微:" + c.slice(6);
-    if (c.startsWith("sse:")) return "SSE:" + c.slice(4);
-    if (c.startsWith("webhook:")) return "Webhook:" + c.slice(8);
-    return c;
-  }).join("、");
+  return channels
+    .map((c) => {
+      if (c.startsWith("wecom:")) return "企微:" + c.slice(6);
+      if (c.startsWith("sse:")) return "SSE:" + c.slice(4);
+      if (c.startsWith("webhook:")) return "Webhook:" + c.slice(8);
+      return c;
+    })
+    .join("、");
 }
 
 async function loadCronStatus() {
@@ -508,9 +535,15 @@ async function loadCronStatus() {
   if (!statusEl) return;
   try {
     const resp = await fetch("/cron/status?userId=" + encodeURIComponent(userIdEl.value));
-    if (!resp.ok) { statusEl.textContent = "未连接"; statusEl.className = "cron-scheduler-status stopped"; return; }
+    if (!resp.ok) {
+      statusEl.textContent = "未连接";
+      statusEl.className = "cron-scheduler-status stopped";
+      return;
+    }
     const data = await resp.json();
-    statusEl.textContent = data.running ? "运行中 (" + data.enabledJobs + "/" + data.totalJobs + ")" : "已停止";
+    statusEl.textContent = data.running
+      ? "运行中 (" + data.enabledJobs + "/" + data.totalJobs + ")"
+      : "已停止";
     statusEl.className = "cron-scheduler-status" + (data.running ? "" : " stopped");
   } catch (_e) {
     statusEl.textContent = "未连接";
@@ -539,7 +572,10 @@ async function loadCronJobs() {
       cronJobList.append(createCronJobCard(job));
     }
   } catch (error) {
-    setCronMessage("cron-error", "加载失败: " + (error instanceof Error ? error.message : String(error)));
+    setCronMessage(
+      "cron-error",
+      "加载失败: " + (error instanceof Error ? error.message : String(error))
+    );
   }
 }
 
@@ -581,7 +617,7 @@ function createCronJobCard(job) {
     ["调度", scheduleTypeLabels[job.schedule.type] + ": " + formatSchedule(job.schedule)],
     ["下次执行", job.nextRunAt ? new Date(job.nextRunAt).toLocaleString("zh-CN") : "未计算"],
     ["提示词", job.prompt],
-    ["工作空间", job.workspacePath],
+    ["工作空间", job.workspacePath]
   ];
   if (job.role) fields.push(["角色", job.role]);
   fields.push(["投递渠道", formatChannels(job.delivery.channels)]);
@@ -603,8 +639,10 @@ function createCronJobCard(job) {
     resultEl.className = "cron-job-result";
     const statusEl = document.createElement("div");
     statusEl.className = "cron-result-status " + job.lastResult.status;
-    statusEl.textContent = (statusLabels[job.lastResult.status] || job.lastResult.status)
-      + " — " + new Date(job.lastResult.finishedAt).toLocaleString("zh-CN");
+    statusEl.textContent =
+      (statusLabels[job.lastResult.status] || job.lastResult.status) +
+      " — " +
+      new Date(job.lastResult.finishedAt).toLocaleString("zh-CN");
     resultEl.append(statusEl);
     if (job.lastResult.output) {
       const outputEl = document.createElement("div");
@@ -656,7 +694,7 @@ async function triggerCronJob(jobId) {
     const resp = await fetch("/cron/jobs/" + encodeURIComponent(jobId) + "/trigger", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: userIdEl.value }),
+      body: JSON.stringify({ userId: userIdEl.value })
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -676,7 +714,7 @@ async function deleteCronJob(jobId, jobName) {
     const resp = await fetch("/cron/jobs/" + encodeURIComponent(jobId), {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: userIdEl.value }),
+      body: JSON.stringify({ userId: userIdEl.value })
     });
     if (!resp.ok && resp.status !== 204) {
       const data = await resp.json();
@@ -696,9 +734,13 @@ function openCronForm(job) {
   cronFormTitle.textContent = job ? "编辑定时任务" : "新建定时任务";
   document.querySelector("#cron-name").value = job ? job.name : "";
   document.querySelector("#cron-prompt").value = job ? job.prompt : "";
-  document.querySelector("#cron-workspace").value = job ? job.workspacePath : ".harness/knowledge-base";
+  document.querySelector("#cron-workspace").value = job
+    ? job.workspacePath
+    : ".harness/knowledge-base";
   document.querySelector("#cron-role").value = job?.role || "";
-  document.querySelector("#cron-channels").value = job ? job.delivery.channels.join("\n") : "wecom:chat:";
+  document.querySelector("#cron-channels").value = job
+    ? job.delivery.channels.join("\n")
+    : "wecom:chat:";
   document.querySelector("#cron-timeout").value = job?.timeoutMs || 120000;
   document.querySelector("#cron-silent-empty").checked = job?.silentOnEmpty || false;
   document.querySelector("#cron-enabled").checked = job ? job.enabled : true;
@@ -748,7 +790,10 @@ const cronNlInput = document.querySelector("#cron-nl-input");
 if (cronNlParse) {
   cronNlParse.addEventListener("click", async () => {
     const description = cronNlInput?.value?.trim();
-    if (!description) { alert("请输入自然语言描述"); return; }
+    if (!description) {
+      alert("请输入自然语言描述");
+      return;
+    }
 
     cronNlParse.disabled = true;
     cronNlParse.textContent = "解析中...";
@@ -756,11 +801,13 @@ if (cronNlParse) {
       const resp = await fetch("/cron/parse", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ description, userId: userIdEl.value }),
+        body: JSON.stringify({ description, userId: userIdEl.value })
       });
       const data = await resp.json();
       if (!resp.ok) {
-        alert("解析失败: " + (data.error || "未知错误") + (data.details ? "\n" + data.details : ""));
+        alert(
+          "解析失败: " + (data.error || "未知错误") + (data.details ? "\n" + data.details : "")
+        );
         return;
       }
       // Fill form fields from parse result
@@ -769,7 +816,8 @@ if (cronNlParse) {
       if (data.workspacePath) document.querySelector("#cron-workspace").value = data.workspacePath;
       if (data.role) document.querySelector("#cron-role").value = data.role;
       if (data.timeoutMs) document.querySelector("#cron-timeout").value = data.timeoutMs;
-      if (data.silentOnEmpty !== undefined) document.querySelector("#cron-silent-empty").checked = data.silentOnEmpty;
+      if (data.silentOnEmpty !== undefined)
+        document.querySelector("#cron-silent-empty").checked = data.silentOnEmpty;
 
       // Fill schedule
       if (data.schedule) {
@@ -781,7 +829,9 @@ if (cronNlParse) {
           document.querySelector("#cron-interval-ms").value = data.schedule.milliseconds;
         } else if (data.schedule.type === "once" && data.schedule.runAt) {
           const d = new Date(data.schedule.runAt);
-          const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+          const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16);
           document.querySelector("#cron-run-at").value = local;
         }
       }
@@ -809,21 +859,36 @@ cronJobForm.addEventListener("submit", async (event) => {
   let schedule;
   if (type === "cron") {
     const expr = document.querySelector("#cron-expression").value.trim();
-    if (!expr) { alert("请输入 Cron 表达式"); return; }
+    if (!expr) {
+      alert("请输入 Cron 表达式");
+      return;
+    }
     schedule = { type: "cron", expression: expr };
   } else if (type === "interval") {
     const ms = Number(document.querySelector("#cron-interval-ms").value);
-    if (!ms || ms < 60000) { alert("间隔不能小于 60000 毫秒"); return; }
+    if (!ms || ms < 60000) {
+      alert("间隔不能小于 60000 毫秒");
+      return;
+    }
     schedule = { type: "interval", milliseconds: ms };
   } else {
     const runAt = document.querySelector("#cron-run-at").value;
-    if (!runAt) { alert("请选择执行时间"); return; }
+    if (!runAt) {
+      alert("请选择执行时间");
+      return;
+    }
     schedule = { type: "once", runAt: new Date(runAt).toISOString() };
   }
 
-  const channels = document.querySelector("#cron-channels").value
-    .split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
-  if (channels.length === 0) { alert("请至少添加一个投递渠道"); return; }
+  const channels = document
+    .querySelector("#cron-channels")
+    .value.split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (channels.length === 0) {
+    alert("请至少添加一个投递渠道");
+    return;
+  }
 
   const body = {
     name: document.querySelector("#cron-name").value.trim(),
@@ -834,7 +899,7 @@ cronJobForm.addEventListener("submit", async (event) => {
     enabled: document.querySelector("#cron-enabled").checked,
     timeoutMs: Number(document.querySelector("#cron-timeout").value) || 120000,
     silentOnEmpty: document.querySelector("#cron-silent-empty").checked,
-    userId: userIdEl.value,
+    userId: userIdEl.value
   };
   const role = document.querySelector("#cron-role").value;
   if (role) body.role = role;
@@ -842,10 +907,18 @@ cronJobForm.addEventListener("submit", async (event) => {
   try {
     const url = editId ? "/cron/jobs/" + encodeURIComponent(editId) : "/cron/jobs";
     const method = editId ? "PATCH" : "POST";
-    const resp = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const resp = await fetch(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
     if (!resp.ok) {
       const data = await resp.json();
-      alert("保存失败: " + (data.error || "未知错误") + (data.details ? "\n" + data.details.join("\n") : ""));
+      alert(
+        "保存失败: " +
+          (data.error || "未知错误") +
+          (data.details ? "\n" + data.details.join("\n") : "")
+      );
       return;
     }
     closeCronForm();
@@ -855,27 +928,103 @@ cronJobForm.addEventListener("submit", async (event) => {
   }
 });
 
+// ── Attachments ──
+if (attachmentInput) {
+  attachmentInput.addEventListener("change", updateAttachmentList);
+}
+
+function selectedAttachmentFiles() {
+  return Array.from(attachmentInput?.files || []);
+}
+
+function updateAttachmentList() {
+  if (!attachmentList) return;
+  const files = selectedAttachmentFiles();
+  if (files.length === 0) {
+    attachmentList.textContent = "";
+    return;
+  }
+  attachmentList.textContent = files
+    .map((file) => file.name + " (" + Math.ceil(file.size / 1024) + " KB)")
+    .join(", ");
+}
+
+function validateSelectedAttachments(files) {
+  if (files.length > MAX_ATTACHMENT_COUNT) {
+    throw new Error("Upload at most " + MAX_ATTACHMENT_COUNT + " documents.");
+  }
+
+  for (const file of files) {
+    if (!isSupportedAttachmentName(file.name)) {
+      throw new Error("Only .txt and .md uploads are supported.");
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      throw new Error(file.name + " must be 256 KB or smaller.");
+    }
+  }
+}
+
+function isSupportedAttachmentName(name) {
+  const lower = name.toLowerCase();
+  return SUPPORTED_ATTACHMENT_EXTENSIONS.some((extension) => lower.endsWith(extension));
+}
+
+async function buildAttachmentPayloads(files) {
+  const attachments = [];
+  for (const file of files) {
+    attachments.push({
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      contentBase64: await readFileAsBase64(file)
+    });
+  }
+  return attachments;
+}
+
+async function readFileAsBase64(file) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  }
+  return btoa(binary);
+}
+
 // ── Chat with SSE streaming ──
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text) return;
-  input.value = "";
   button.disabled = true;
-  addMessage("user", text);
+  if (attachmentInput) attachmentInput.disabled = true;
+  let requestAccepted = false;
 
   try {
+    const files = selectedAttachmentFiles();
+    validateSelectedAttachments(files);
+    const attachments = await buildAttachmentPayloads(files);
+    const userText =
+      attachments.length > 0
+        ? text + "\n\nAttached: " + attachments.map((attachment) => attachment.name).join(", ")
+        : text;
+    input.value = "";
+    addMessage("user", userText);
     await setRole();
+    const requestBody = { userId: userIdEl.value, text };
+    if (attachments.length > 0) requestBody.attachments = attachments;
     const response = await fetch("/dev/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: userIdEl.value, text })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
       const body = await response.json();
       throw new Error(body.error || "Request failed");
     }
+    requestAccepted = true;
 
     const { el: agentEl, content: agentContent } = createAgentMessage();
     let textContent = "";
@@ -899,13 +1048,19 @@ form.addEventListener("submit", async (event) => {
             const evt = JSON.parse(line.slice(6));
             switch (evt.type) {
               case "text_delta":
-                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                if (thinkingEl) {
+                  thinkingEl.remove();
+                  thinkingEl = null;
+                }
                 textContent += evt.text;
                 agentContent.textContent = textContent;
                 agentEl.scrollIntoView({ block: "end", behavior: "smooth" });
                 break;
               case "tool_use_start":
-                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                if (thinkingEl) {
+                  thinkingEl.remove();
+                  thinkingEl = null;
+                }
                 agentContent.append(createToolCallCard(evt.toolName, evt.input, evt.toolUseId));
                 agentEl.scrollIntoView({ block: "end", behavior: "smooth" });
                 break;
@@ -923,7 +1078,10 @@ form.addEventListener("submit", async (event) => {
                 agentEl.scrollIntoView({ block: "end", behavior: "smooth" });
                 break;
               case "completed":
-                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                if (thinkingEl) {
+                  thinkingEl.remove();
+                  thinkingEl = null;
+                }
                 if (evt.text && evt.text !== textContent) {
                   textContent = evt.text;
                   agentContent.textContent = textContent;
@@ -942,7 +1100,12 @@ form.addEventListener("submit", async (event) => {
   } catch (error) {
     addMessage("error", error instanceof Error ? error.message : String(error));
   } finally {
+    if (requestAccepted && attachmentInput) {
+      attachmentInput.value = "";
+      updateAttachmentList();
+    }
     button.disabled = false;
+    if (attachmentInput) attachmentInput.disabled = false;
     input.focus();
   }
 });

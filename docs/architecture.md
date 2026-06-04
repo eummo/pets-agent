@@ -2,7 +2,8 @@
 
 This service is a layered gateway for knowledge-base and workspace agents. Users may send messages
 from TUI, HTTP APIs, browser pages, Enterprise WeChat, or future channels, but every channel must
-normalize its input into the same core message contract and hand it to the gateway.
+normalize its input and supported attachment metadata into the same core message contract and hand
+it to the gateway.
 
 ## Target Flow
 
@@ -127,6 +128,8 @@ exported from each module's `index.ts`.
 Important contracts:
 
 - `MessageGateway`: the gateway entry point used by every channel adapter.
+- `InboundMessage`: provider-neutral user input, including text and optional uploaded document
+  metadata. Channel adapters own upload transport, validation, and storage before constructing it.
 - `AgentRuntime`: provider-neutral execution interface for Claude, pi-agent, Codex, or future SDKs.
 - `AgentRuntimeFactory`: creates a role-specific runtime from role configuration.
 - `AuthorizationService`: role lookup and capability checks.
