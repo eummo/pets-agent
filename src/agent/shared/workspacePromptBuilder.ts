@@ -64,9 +64,19 @@ export async function buildAttachmentContext(
   if (attachments === undefined || attachments.length === 0) return undefined;
 
   let remainingChars = maxChars;
-  const parts: string[] = ["Uploaded document context:"];
+  const parts: string[] = ["Uploaded attachment context:"];
   for (const attachment of attachments) {
     if (remainingChars <= 0) break;
+
+    if (attachment.type === "image") {
+      parts.push(
+        "",
+        `Image: ${attachment.name}`,
+        `Media type: ${attachment.mimeType}`,
+        `Size: ${attachment.sizeBytes} bytes`
+      );
+      continue;
+    }
 
     const normalized = await readAttachmentText(attachment);
     const text =
@@ -87,7 +97,7 @@ export async function buildAttachmentContext(
 
   parts.push(
     "",
-    "Use the uploaded document context above to answer this user request when it is relevant."
+    "Use the uploaded attachment context above to answer this user request when it is relevant."
   );
   return parts.join("\n");
 }

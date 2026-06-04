@@ -137,6 +137,49 @@ describe("createServer", () => {
     await expect(readFile(attachment?.storagePath ?? "", "utf8")).resolves.toBe(content);
   });
 
+  it("routes browser chat image attachments through saved metadata", async () => {
+    const uploadRootPath = await mkdtemp(path.join(tmpdir(), "pets-agent-uploads-"));
+    let capturedMessage: InboundMessage | undefined;
+    const content = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const server = createDevServer({
+      uploadRootPath,
+      messageHandler: {
+        handle(message) {
+          capturedMessage = message;
+          return Promise.resolve({ text: "ok" });
+        }
+      }
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/dev/chat",
+      payload: {
+        userId: "browser-user",
+        text: "describe the image",
+        attachments: [
+          {
+            name: "diagram.png",
+            mimeType: "application/octet-stream",
+            sizeBytes: content.length,
+            contentBase64: content.toString("base64")
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const attachment = capturedMessage?.attachments?.[0];
+    expect(attachment).toMatchObject({
+      type: "image",
+      name: "diagram.png",
+      mimeType: "image/png",
+      sizeBytes: content.length
+    });
+    expect(attachment?.storagePath.startsWith(uploadRootPath)).toBe(true);
+    await expect(readFile(attachment?.storagePath ?? "")).resolves.toEqual(content);
+  });
+
   it("rejects unsupported browser chat document attachments", async () => {
     let called = false;
     const server = createDevServer({
@@ -167,7 +210,7 @@ describe("createServer", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({
-      error: "Uploaded document notes.exe must be a .txt or .md file."
+      error: "Uploaded attachment notes.exe must be a .txt, .md, or supported image file."
     });
     expect(called).toBe(false);
   });

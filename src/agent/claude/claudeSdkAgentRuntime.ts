@@ -1,6 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
+import type { PermissionResult, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentRequest, AgentResponse, AgentRuntime, InboundAttachment } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import { arrayField, isRecord, recordField } from "../../core/unknownRecord.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
@@ -27,6 +28,8 @@ import {
   serializeQueryOptions,
   serializeSdkResult
 } from "../shared/sdkRuntimeHelpers.js";
+
+type ClaudeImageMimeType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
 export type ClaudeSdkAgentRuntimeOptions = {
   readonly roleConfig: StoredRoleConfig;
@@ -77,10 +80,12 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
       workspacePath: request.workspacePath,
       sessionId: request.sessionId,
       prompt,
+      imageAttachments: imageAttachmentMetadata(request.attachments),
       options: serializeQueryOptions(queryOptions)
     });
+    const sdkPrompt = await buildClaudePrompt(prompt, request.attachments);
     const stream = query({
-      prompt,
+      prompt: sdkPrompt,
       options: sdkOptions
     });
 
@@ -174,4 +179,74 @@ export class ClaudeSdkAgentRuntime implements AgentRuntime {
     );
     return toClaudePermissionResult(await result);
   }
+}
+
+async function buildClaudePrompt(
+  prompt: string,
+  attachments: readonly InboundAttachment[] | undefined
+): Promise<string | AsyncIterable<SDKUserMessage>> {
+  const images = attachments?.filter((attachment) => attachment.type === "image") ?? [];
+  if (images.length === 0) return prompt;
+
+  const content: SDKUserMessage["message"]["content"] = [{ type: "text", text: prompt }];
+  for (const image of images) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: toClaudeImageMimeType(image.mimeType),
+        data: (await readFile(image.storagePath)).toString("base64")
+      }
+    });
+  }
+
+  return singleMessagePrompt({
+    type: "user",
+    message: {
+      role: "user",
+      content
+    },
+    parent_tool_use_id: null
+  });
+}
+
+function singleMessagePrompt(message: SDKUserMessage): AsyncIterable<SDKUserMessage> {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+      let hasYielded = false;
+      return {
+        next(): Promise<IteratorResult<SDKUserMessage>> {
+          if (hasYielded) {
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          hasYielded = true;
+          return Promise.resolve({ done: false, value: message });
+        }
+      };
+    }
+  };
+}
+
+function toClaudeImageMimeType(mimeType: string): ClaudeImageMimeType {
+  switch (mimeType) {
+    case "image/jpeg":
+    case "image/png":
+    case "image/gif":
+    case "image/webp":
+      return mimeType;
+    default:
+      throw new Error(`Uploaded image media type ${mimeType} is not supported by Claude.`);
+  }
+}
+
+function imageAttachmentMetadata(
+  attachments: readonly InboundAttachment[] | undefined
+): readonly Record<string, unknown>[] {
+  return (attachments ?? [])
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => ({
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes
+    }));
 }

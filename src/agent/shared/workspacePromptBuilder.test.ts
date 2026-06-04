@@ -224,10 +224,39 @@ describe("buildWorkspacePrompt", () => {
 
     const result = await buildWorkspacePrompt(request, 8_000, 20);
 
-    expect(result).toContain("Uploaded document context:");
+    expect(result).toContain("Uploaded attachment context:");
     expect(result).toContain("Document: notes.md");
     expect(result).toContain("The refund window is 14 days.");
     expect(result).toContain("User request:\nWhat is the refund window?");
+    expect(result).not.toContain(storagePath);
+  });
+
+  it("includes uploaded image metadata without exposing the storage path", async () => {
+    const storagePath = path.join(
+      await mkdtemp(path.join(tmpdir(), "pets-agent-images-")),
+      "chart.png"
+    );
+    const request: AgentRequest = {
+      user: { id: "user-1" },
+      text: "What is in the image?",
+      workspacePath: "/tmp/missing-workspace",
+      attachments: [
+        {
+          type: "image",
+          name: "chart.png",
+          mimeType: "image/png",
+          storagePath,
+          sizeBytes: 8
+        }
+      ]
+    };
+
+    const result = await buildWorkspacePrompt(request, 8_000, 20);
+
+    expect(result).toContain("Uploaded attachment context:");
+    expect(result).toContain("Image: chart.png");
+    expect(result).toContain("Media type: image/png");
+    expect(result).toContain("User request:\nWhat is in the image?");
     expect(result).not.toContain(storagePath);
   });
 });

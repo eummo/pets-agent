@@ -46,7 +46,7 @@ export type InboundMessage = {
 };
 
 export type InboundAttachment = {
-  readonly type: "document";
+  readonly type: "document" | "image";
   readonly name: string;
   readonly mimeType: string;
   readonly storagePath: string;

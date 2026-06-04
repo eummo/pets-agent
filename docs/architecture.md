@@ -128,8 +128,9 @@ exported from each module's `index.ts`.
 Important contracts:
 
 - `MessageGateway`: the gateway entry point used by every channel adapter.
-- `InboundMessage`: provider-neutral user input, including text and optional uploaded document
-  metadata. Channel adapters own upload transport, validation, and storage before constructing it.
+- `InboundMessage`: provider-neutral user input, including text and optional uploaded attachment
+  metadata for documents or images. Channel adapters own upload transport, validation, and storage
+  before constructing it.
 - `AgentRuntime`: provider-neutral execution interface for Claude, pi-agent, Codex, or future SDKs.
 - `AgentRuntimeFactory`: creates a role-specific runtime from role configuration.
 - `AuthorizationService`: role lookup and capability checks.

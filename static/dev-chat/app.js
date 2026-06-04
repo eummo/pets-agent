@@ -21,8 +21,10 @@ const cronScheduleType = document.querySelector("#cron-schedule-type");
 const feedbackPageSize = 20;
 let feedbackOffset = 0;
 const MAX_ATTACHMENT_COUNT = 4;
-const MAX_ATTACHMENT_BYTES = 256 * 1024;
-const SUPPORTED_ATTACHMENT_EXTENSIONS = [".txt", ".md", ".markdown"];
+const MAX_DOCUMENT_BYTES = 256 * 1024;
+const MAX_IMAGE_BYTES = 1024 * 1024;
+const DOCUMENT_ATTACHMENT_EXTENSIONS = [".txt", ".md", ".markdown"];
+const IMAGE_ATTACHMENT_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 
 // ── Tab switching ──
 const tabs = document.querySelectorAll(".tab");
@@ -951,22 +953,31 @@ function updateAttachmentList() {
 
 function validateSelectedAttachments(files) {
   if (files.length > MAX_ATTACHMENT_COUNT) {
-    throw new Error("Upload at most " + MAX_ATTACHMENT_COUNT + " documents.");
+    throw new Error("Upload at most " + MAX_ATTACHMENT_COUNT + " attachments.");
   }
 
   for (const file of files) {
-    if (!isSupportedAttachmentName(file.name)) {
-      throw new Error("Only .txt and .md uploads are supported.");
+    const attachmentType = attachmentTypeForName(file.name);
+    if (!attachmentType) {
+      throw new Error("Only .txt, .md, and common image uploads are supported.");
     }
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      throw new Error(file.name + " must be 256 KB or smaller.");
+    const maxBytes = attachmentType === "image" ? MAX_IMAGE_BYTES : MAX_DOCUMENT_BYTES;
+    const maxKb = Math.ceil(maxBytes / 1024);
+    if (file.size > maxBytes) {
+      throw new Error(file.name + " must be " + maxKb + " KB or smaller.");
     }
   }
 }
 
-function isSupportedAttachmentName(name) {
+function attachmentTypeForName(name) {
   const lower = name.toLowerCase();
-  return SUPPORTED_ATTACHMENT_EXTENSIONS.some((extension) => lower.endsWith(extension));
+  if (DOCUMENT_ATTACHMENT_EXTENSIONS.some((extension) => lower.endsWith(extension))) {
+    return "document";
+  }
+  if (IMAGE_ATTACHMENT_EXTENSIONS.some((extension) => lower.endsWith(extension))) {
+    return "image";
+  }
+  return undefined;
 }
 
 async function buildAttachmentPayloads(files) {

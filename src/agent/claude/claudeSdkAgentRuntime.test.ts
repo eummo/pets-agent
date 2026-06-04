@@ -112,6 +112,83 @@ describe("ClaudeSdkAgentRuntime", () => {
     expect(call.prompt).toContain("User request:\nWhat is the current architecture?");
   });
 
+  it("passes uploaded images to the Claude SDK as image content blocks", async () => {
+    sdkMocks.query.mockReturnValue(
+      streamMessages({
+        type: "result",
+        subtype: "success",
+        result: "final answer"
+      })
+    );
+    const workspacePath = await mkdtemp(path.join(os.tmpdir(), "pets-agent-runtime-"));
+    const imagePath = path.join(workspacePath, "diagram.png");
+    const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    await writeFile(imagePath, imageBytes);
+    const rawEvents: Record<string, unknown>[] = [];
+    const rawLogger: JsonlLogger = {
+      filePath: "memory.jsonl",
+      write(event) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      }
+    };
+    const runtime = new ClaudeSdkAgentRuntime({ roleConfig, rawLogger });
+
+    try {
+      await runtime.run({
+        user: { id: "user-1" },
+        text: "What does this diagram show?",
+        workspacePath,
+        attachments: [
+          {
+            type: "image",
+            name: "diagram.png",
+            mimeType: "image/png",
+            storagePath: imagePath,
+            sizeBytes: imageBytes.length
+          }
+        ]
+      });
+    } finally {
+      await rm(workspacePath, { recursive: true, force: true });
+    }
+
+    const call = firstRawQueryCall();
+    if (typeof call.prompt === "string") {
+      throw new Error("Expected SDK prompt to be an image message iterable.");
+    }
+    const messages: Record<string, unknown>[] = [];
+    for await (const message of call.prompt as AsyncIterable<Record<string, unknown>>) {
+      messages.push(message);
+    }
+    const userMessage = asRecord(messages[0]);
+    const message = asRecord(userMessage["message"]);
+    const content = message["content"];
+    if (!Array.isArray(content)) {
+      throw new Error("Expected SDK message content blocks.");
+    }
+    const textBlock = asRecord(content[0]);
+    const imageBlock = asRecord(content[1]);
+    const source = asRecord(imageBlock["source"]);
+
+    expect(textBlock).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("What does this diagram show?") as string
+    });
+    expect(imageBlock["type"]).toBe("image");
+    expect(source).toMatchObject({
+      type: "base64",
+      media_type: "image/png",
+      data: imageBytes.toString("base64")
+    });
+    expect(JSON.stringify(rawEvents)).not.toContain(imageBytes.toString("base64"));
+    expect(rawEvents[0]).toMatchObject({
+      imageAttachments: [
+        { name: "diagram.png", mimeType: "image/png", sizeBytes: imageBytes.length }
+      ]
+    });
+  });
+
   it("does not pass mutating tools to the SDK when the role lacks edit permission mode", async () => {
     sdkMocks.query.mockReturnValue(
       streamMessages({
@@ -806,6 +883,20 @@ function streamMessages(...messages: readonly unknown[]): AsyncIterable<unknown>
 function firstQueryCall(): { readonly prompt: string; readonly options: Record<string, unknown> } {
   const calls = sdkMocks.query.mock.calls as unknown as [
     { readonly prompt: string; readonly options: Record<string, unknown> }
+  ][];
+  const call = calls[0]?.[0];
+  if (call === undefined) {
+    throw new Error("Expected SDK query to be called.");
+  }
+  return call;
+}
+
+function firstRawQueryCall(): {
+  readonly prompt: unknown;
+  readonly options: Record<string, unknown>;
+} {
+  const calls = sdkMocks.query.mock.calls as unknown as [
+    { readonly prompt: unknown; readonly options: Record<string, unknown> }
   ][];
   const call = calls[0]?.[0];
   if (call === undefined) {

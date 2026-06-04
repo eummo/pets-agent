@@ -16,22 +16,25 @@ export type SaveDevAttachmentsOptions = {
 };
 
 const MAX_ATTACHMENT_COUNT = 4;
-const MAX_ATTACHMENT_BYTES = 256 * 1024;
-const MAX_TOTAL_ATTACHMENT_BYTES = 512 * 1024;
+const MAX_DOCUMENT_BYTES = 256 * 1024;
+const MAX_IMAGE_BYTES = 1024 * 1024;
+const MAX_TOTAL_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 
-const SUPPORTED_EXTENSIONS = new Set([".txt", ".md", ".markdown"]);
-const SUPPORTED_MIME_TYPES = new Set([
+const DOCUMENT_EXTENSIONS = new Set([".txt", ".md", ".markdown"]);
+const DOCUMENT_MIME_TYPES = new Set([
   "text/plain",
   "text/markdown",
   "text/x-markdown",
   "application/octet-stream"
 ]);
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export async function saveDevAttachments(
   options: SaveDevAttachmentsOptions
 ): Promise<readonly InboundAttachment[]> {
   if (options.attachments.length > MAX_ATTACHMENT_COUNT) {
-    throw new Error(`Upload at most ${MAX_ATTACHMENT_COUNT} documents.`);
+    throw new Error(`Upload at most ${MAX_ATTACHMENT_COUNT} attachments.`);
   }
 
   let totalBytes = 0;
@@ -41,7 +44,7 @@ export async function saveDevAttachments(
     totalBytes += decoded.content.length;
     if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
       throw new Error(
-        `Uploaded documents must be ${MAX_TOTAL_ATTACHMENT_BYTES} bytes or less in total.`
+        `Uploaded attachments must be ${MAX_TOTAL_ATTACHMENT_BYTES} bytes or less in total.`
       );
     }
 
@@ -50,7 +53,7 @@ export async function saveDevAttachments(
     await mkdir(path.dirname(storagePath), { recursive: true });
     await writeFile(storagePath, decoded.content);
     saved.push({
-      type: "document",
+      type: decoded.type,
       name: decoded.name,
       mimeType: decoded.mimeType,
       storagePath,
@@ -62,44 +65,46 @@ export async function saveDevAttachments(
 }
 
 function decodeDevAttachment(attachment: DevChatAttachmentPayload): {
+  readonly type: "document" | "image";
   readonly name: string;
   readonly mimeType: string;
   readonly content: Buffer;
 } {
   const name = normalizeName(attachment.name);
   const mimeType = normalizeMimeType(attachment.mimeType);
-  validateDocumentType(name, mimeType);
+  const classification = classifyAttachment(name, mimeType);
 
   const contentBase64 = attachment.contentBase64?.trim();
   if (contentBase64 === undefined || contentBase64.length === 0) {
-    throw new Error(`Uploaded document ${name} is missing content.`);
+    throw new Error(`Uploaded attachment ${name} is missing content.`);
   }
   if (!isBase64(contentBase64)) {
-    throw new Error(`Uploaded document ${name} has invalid content encoding.`);
+    throw new Error(`Uploaded attachment ${name} has invalid content encoding.`);
   }
 
   const content = Buffer.from(contentBase64, "base64");
   if (content.length === 0) {
-    throw new Error(`Uploaded document ${name} is empty.`);
+    throw new Error(`Uploaded attachment ${name} is empty.`);
   }
-  if (content.length > MAX_ATTACHMENT_BYTES) {
-    throw new Error(`Uploaded document ${name} must be ${MAX_ATTACHMENT_BYTES} bytes or less.`);
+  const maxBytes = classification.type === "image" ? MAX_IMAGE_BYTES : MAX_DOCUMENT_BYTES;
+  if (content.length > maxBytes) {
+    throw new Error(`Uploaded ${classification.type} ${name} must be ${maxBytes} bytes or less.`);
   }
   if (attachment.sizeBytes !== undefined && attachment.sizeBytes !== content.length) {
-    throw new Error(`Uploaded document ${name} size does not match its content.`);
+    throw new Error(`Uploaded attachment ${name} size does not match its content.`);
   }
 
-  return { name, mimeType, content };
+  return { type: classification.type, name, mimeType: classification.mimeType, content };
 }
 
 function normalizeName(name: string | undefined): string {
   if (name === undefined || name.trim().length === 0) {
-    throw new Error("Uploaded document name is required.");
+    throw new Error("Uploaded attachment name is required.");
   }
 
   const fileName = name.trim().split(/[\\/]/).pop() ?? "";
   if (fileName.length === 0 || fileName === "." || fileName === "..") {
-    throw new Error("Uploaded document name is invalid.");
+    throw new Error("Uploaded attachment name is invalid.");
   }
   return fileName;
 }
@@ -109,13 +114,43 @@ function normalizeMimeType(mimeType: string | undefined): string {
   return mimeType.split(";")[0]?.trim().toLowerCase() ?? "application/octet-stream";
 }
 
-function validateDocumentType(name: string, mimeType: string): void {
+function classifyAttachment(
+  name: string,
+  mimeType: string
+): { readonly type: "document" | "image"; readonly mimeType: string } {
   const extension = path.extname(name).toLowerCase();
-  if (!SUPPORTED_EXTENSIONS.has(extension)) {
-    throw new Error(`Uploaded document ${name} must be a .txt or .md file.`);
+  if (DOCUMENT_EXTENSIONS.has(extension)) {
+    if (!DOCUMENT_MIME_TYPES.has(mimeType)) {
+      throw new Error(`Uploaded document ${name} has unsupported media type ${mimeType}.`);
+    }
+    return { type: "document", mimeType };
   }
-  if (!SUPPORTED_MIME_TYPES.has(mimeType)) {
-    throw new Error(`Uploaded document ${name} has unsupported media type ${mimeType}.`);
+
+  if (IMAGE_EXTENSIONS.has(extension)) {
+    const imageMimeType =
+      mimeType === "application/octet-stream" ? inferImageMimeType(extension) : mimeType;
+    if (imageMimeType === undefined || !IMAGE_MIME_TYPES.has(imageMimeType)) {
+      throw new Error(`Uploaded image ${name} has unsupported media type ${mimeType}.`);
+    }
+    return { type: "image", mimeType: imageMimeType };
+  }
+
+  throw new Error(`Uploaded attachment ${name} must be a .txt, .md, or supported image file.`);
+}
+
+function inferImageMimeType(extension: string): string | undefined {
+  switch (extension) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return undefined;
   }
 }
 
@@ -125,7 +160,7 @@ function isBase64(value: string): boolean {
 
 function sanitizeFileName(name: string): string {
   const sanitized = name.replace(/[^A-Za-z0-9._-]/g, "_");
-  return sanitized.length > 0 ? sanitized : "document.txt";
+  return sanitized.length > 0 ? sanitized : "attachment";
 }
 
 function resolveStoragePath(uploadRootPath: string, messageId: string, fileName: string): string {
