@@ -68,9 +68,10 @@ export function buildHistoryContext(
 /**
  * Build chat context instructions for the agent prompt.
  *
- * In group chats, tells the AI the sender's userid and the `<@userid>` syntax
- * for @mentioning group members. In single chats, instructs the AI not to use
- * @mentions. Returns undefined when chatType is not set (non-chat channels).
+ * In group chats, tells the AI the sender's userid for conversational context.
+ * The WeChat smart bot channel renders mention markup as literal text, so the
+ * prompt explicitly forbids @mentions. Returns undefined when chatType is not
+ * set (non-chat channels).
  */
 export function buildChatContext(request: AgentRequest): string | undefined {
   if (request.chatType === undefined) return undefined;
@@ -79,10 +80,8 @@ export function buildChatContext(request: AgentRequest): string | undefined {
     return [
       "Chat context: group chat.",
       `The sender's userid is "${request.user.id}".`,
-      "You may @mention the sender or other group members in your reply using the syntax <@userid>.",
-      `For example, to mention the sender, include <@${request.user.id}> in your Markdown response.`,
-      "Use @mentions sparingly -- only when directly addressing or drawing attention to a specific person.",
-      "Do not use @mentions in single chats."
+      "Do not use @mentions or angle-bracket userid mention markup; this channel renders them as plain text.",
+      "Address people in natural language instead."
     ].join("\n");
   }
 

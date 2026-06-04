@@ -1,7 +1,10 @@
 import { MessageType } from "@wecom/aibot-node-sdk";
 import type { TextMessage, WsFrame } from "@wecom/aibot-node-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { stripBotMention } from "./wechatSmartBotAdapter.js";
+import {
+  sanitizeOutgoingWechatContent,
+  stripBotMention
+} from "./wechatSmartBotAdapter.js";
 import { WechatSmartBotAdapter } from "./wechatSmartBotAdapter.js";
 import { SessionLock } from "./sessionLock.js";
 import type { ConversationLogger, MessageGateway, OutboundMessage } from "../core/index.js";
@@ -29,6 +32,22 @@ describe("stripBotMention", () => {
 
   it("handles @mention only with trailing space", () => {
     expect(stripBotMention("@Bot ")).toBe("");
+  });
+});
+
+describe("sanitizeOutgoingWechatContent", () => {
+  it("strips smart bot mention markup that renders as literal text", () => {
+    expect(
+      sanitizeOutgoingWechatContent(
+        "<@wohR_KCgAAMvvV2XiALPE4KfNY-jz2kA> 我一直在的呀！"
+      )
+    ).toBe("我一直在的呀！");
+  });
+
+  it("strips multiple mention tokens while preserving normal content", () => {
+    expect(sanitizeOutgoingWechatContent("请 <@user-1> 和 <@user_2> 看一下")).toBe(
+      "请 和 看一下"
+    );
   });
 });
 

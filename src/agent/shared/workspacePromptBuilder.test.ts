@@ -108,7 +108,7 @@ describe("buildChatContext", () => {
     expect(buildChatContext(request)).toBeUndefined();
   });
 
-  it("returns group chat mention instructions for group chatType", () => {
+  it("returns group chat no-mention instructions for group chatType", () => {
     const request: AgentRequest = {
       user: { id: "zhangsan" },
       text: "hello",
@@ -119,9 +119,9 @@ describe("buildChatContext", () => {
     expect(result).toBeDefined();
     expect(result).toContain("group chat");
     expect(result).toContain("zhangsan");
-    expect(result).toContain("<@userid>");
-    expect(result).toContain("<@zhangsan>");
-    expect(result).toContain("@mention");
+    expect(result).toContain("Do not use @mentions");
+    expect(result).toContain("plain text");
+    expect(result).not.toContain("<@");
   });
 
   it("returns single chat no-mention instruction for single chatType", () => {
@@ -148,7 +148,7 @@ describe("buildChatContext", () => {
     };
     const result = buildChatContext(request);
     expect(result).toContain("wangwu");
-    expect(result).toContain("<@wangwu>");
+    expect(result).not.toContain("<@wangwu>");
   });
 });
 

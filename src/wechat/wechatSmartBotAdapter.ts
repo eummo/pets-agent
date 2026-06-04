@@ -135,7 +135,7 @@ export class WechatSmartBotAdapter {
         void this.replyStreamBestEffort(
           frame,
           streamId,
-          accumulated,
+          sanitizeOutgoingWechatContent(accumulated),
           false,
           streamState.inbound,
           "delta"
@@ -185,9 +185,11 @@ export class WechatSmartBotAdapter {
     try {
       const response = await this.config.messageHandler.handle(inbound);
       // Send the final response with finish=true, replacing any intermediate content
-      const finalContent = accumulated.length > 0 ? accumulated : response.text;
+      const finalContent = sanitizeOutgoingWechatContent(
+        accumulated.length > 0 ? accumulated : response.text
+      );
       await this.sendReply(frame, streamId, replyTarget, inbound, finalContent, "final");
-      await this.logConversation(inbound, response.text);
+      await this.logConversation(inbound, finalContent);
     } catch (error) {
       await this.logConversation(inbound, `WeChat adapter error: ${formatUnknownError(error)}`);
       // Try to send an error reply
@@ -261,7 +263,12 @@ export class WechatSmartBotAdapter {
     phase: "initial" | "delta" | "rejection" | "final" | "error"
   ): Promise<boolean> {
     try {
-      await this.wsClient.replyStream(frame, streamId, content, finish);
+      await this.wsClient.replyStream(
+        frame,
+        streamId,
+        sanitizeOutgoingWechatContent(content),
+        finish
+      );
       return true;
     } catch (error) {
       await this.logMessageEvent("wechat.reply_stream_failed", message, {
@@ -281,7 +288,7 @@ export class WechatSmartBotAdapter {
     try {
       await this.wsClient.sendMessage(replyTarget, {
         msgtype: "markdown",
-        markdown: { content }
+        markdown: { content: sanitizeOutgoingWechatContent(content) }
       });
       await this.logMessageEvent("wechat.fallback_message_sent", message, { phase, replyTarget });
     } catch (error) {
@@ -316,4 +323,12 @@ export function stripBotMention(content: string): string {
   // Match @ mention at the start of the message, followed by a space
   const mentionPattern = /^@\S+\s*/;
   return content.replace(mentionPattern, "").trim();
+}
+
+/**
+ * Strip mention markup that Enterprise WeChat smart bot replies render as
+ * literal text instead of a notification.
+ */
+export function sanitizeOutgoingWechatContent(content: string): string {
+  return content.replace(/<@[A-Za-z0-9_-]+>\s*/g, "").trimStart();
 }
