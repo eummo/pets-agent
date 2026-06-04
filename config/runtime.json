@@ -11,7 +11,8 @@
     "botId": "dev-bot-id",
     "secret": "dev-secret",
     "botIdEnv": "WECOM_BOT_ID",
-    "secretEnv": "WECOM_BOT_SECRET"
+    "secretEnv": "WECOM_BOT_SECRET",
+    "uploadRootPath": ".harness/wechat-uploads"
   },
   "llm": {
     "baseUrl": "https://api.minimaxi.com/anthropic",

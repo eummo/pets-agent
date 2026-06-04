@@ -87,7 +87,8 @@ const runtimeConfigSchema = z.object({
       secretEnv: z.string().min(1).optional(),
       wsUrl: z.string().min(1).optional(),
       reconnectInterval: z.number().int().positive().optional(),
-      maxReconnectAttempts: z.number().int().optional()
+      maxReconnectAttempts: z.number().int().optional(),
+      uploadRootPath: z.string().min(1).optional()
     })
     .default({ botId: "dev-bot-id", secret: "dev-secret" }),
   llm: llmConfigSchema,
@@ -103,6 +104,7 @@ export type WechatConfig = {
   readonly wsUrl?: string;
   readonly reconnectInterval?: number;
   readonly maxReconnectAttempts?: number;
+  readonly uploadRootPath?: string;
 };
 
 export type ContextConfig = {
@@ -198,6 +200,9 @@ export async function loadRuntimeConfig(
       : {}),
     ...(parsed.data.wechat.maxReconnectAttempts !== undefined
       ? { maxReconnectAttempts: parsed.data.wechat.maxReconnectAttempts }
+      : {}),
+    ...(parsed.data.wechat.uploadRootPath !== undefined
+      ? { uploadRootPath: parsed.data.wechat.uploadRootPath }
       : {})
   };
   const cron: CronConfig = {

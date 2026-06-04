@@ -7,12 +7,28 @@
  *
  * Architecture: channel adapter -> core contracts.
  */
+import path from "node:path";
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import { formatUnknownError } from "../core/unknownRecord.js";
-import type { WsFrame, TextMessage, EventMessage } from "@wecom/aibot-node-sdk";
-import type { ConversationLogger, InboundMessage, MessageGateway } from "../core/index.js";
+import type {
+  WsFrame,
+  TextMessage,
+  EventMessage,
+  ImageMessage,
+  FileMessage,
+  MixedMessage,
+  ImageContent,
+  FileContent
+} from "@wecom/aibot-node-sdk";
+import type {
+  ConversationLogger,
+  InboundAttachment,
+  InboundMessage,
+  MessageGateway
+} from "../core/index.js";
 import type { AgentStreamPublisher } from "../agent/index.js";
 import { SessionLock } from "./sessionLock.js";
+import { saveWechatAttachments, type WechatDownloadedAttachment } from "./wechatAttachmentStore.js";
 
 export type WechatAdapterConfig = {
   readonly botId: string;
@@ -33,12 +49,19 @@ export type WechatAdapterConfig = {
    * Max reconnect attempts. -1 for infinite. Default: 10
    */
   readonly maxReconnectAttempts?: number;
+  readonly uploadRootPath?: string;
   /**
    * Max inflight messages per user session before rejecting with "please wait".
    * Default: 3 (matches WeChat platform limit).
    */
   readonly maxInflightPerSession?: number;
 };
+
+type ChatMessage = TextMessage | ImageMessage | FileMessage | MixedMessage;
+type ChatFrame = WsFrame<ChatMessage>;
+type DownloadableMediaContent = ImageContent | FileContent;
+
+const DEFAULT_WECHAT_UPLOAD_ROOT_PATH = path.resolve(".harness", "wechat-uploads");
 
 export class WechatSmartBotAdapter {
   private readonly wsClient: WSClient;
@@ -80,7 +103,7 @@ export class WechatSmartBotAdapter {
   public async sendProactiveMessage(targetId: string, content: string): Promise<void> {
     await this.wsClient.sendMessage(targetId, {
       msgtype: "markdown",
-      markdown: { content },
+      markdown: { content }
     });
   }
 
@@ -106,6 +129,18 @@ export class WechatSmartBotAdapter {
       void this.handleTextMessage(frame);
     });
 
+    this.wsClient.on("message.image", (frame: WsFrame<ImageMessage>) => {
+      void this.handleImageMessage(frame);
+    });
+
+    this.wsClient.on("message.file", (frame: WsFrame<FileMessage>) => {
+      void this.handleFileMessage(frame);
+    });
+
+    this.wsClient.on("message.mixed", (frame: WsFrame<MixedMessage>) => {
+      void this.handleMixedMessage(frame);
+    });
+
     // Handle enter chat event - send welcome message
     this.wsClient.on("event.enter_chat", (frame: WsFrame<EventMessage>) => {
       this.handleEnterChat(frame);
@@ -116,16 +151,78 @@ export class WechatSmartBotAdapter {
     const body = frame.body;
     if (body === undefined) return;
 
-    const userId = body.from.userid;
-    const content = body.text.content;
+    await this.handleChatMessage(frame, stripBotMention(body.text.content), []);
+  }
 
-    // Strip @bot mention prefix from content if present in group chat
-    const cleanContent = stripBotMention(content);
+  private async handleImageMessage(frame: WsFrame<ImageMessage>): Promise<void> {
+    const body = frame.body;
+    if (body === undefined) return;
+
+    await this.handleChatMessage(frame, "请描述这张图片。", [
+      await this.downloadWechatAttachment(body.image, "image")
+    ]);
+  }
+
+  private async handleFileMessage(frame: WsFrame<FileMessage>): Promise<void> {
+    const body = frame.body;
+    if (body === undefined) return;
+
+    await this.handleChatMessage(frame, "请根据上传的文档回答。", [
+      await this.downloadWechatAttachment(body.file, "file")
+    ]);
+  }
+
+  private async handleMixedMessage(frame: WsFrame<MixedMessage>): Promise<void> {
+    const body = frame.body;
+    if (body === undefined) return;
+
+    const textParts: string[] = [];
+    const downloads: WechatDownloadedAttachment[] = [];
+    for (const item of body.mixed.msg_item) {
+      if (item.msgtype === "text" && item.text !== undefined) {
+        textParts.push(item.text.content);
+      }
+      if (item.msgtype === "image" && item.image !== undefined) {
+        downloads.push(await this.downloadWechatAttachment(item.image, "image"));
+      }
+    }
+
+    const text = stripBotMention(textParts.join("\n").trim());
+    await this.handleChatMessage(frame, text.length > 0 ? text : "请描述这张图片。", downloads);
+  }
+
+  private async handleChatMessage(
+    frame: ChatFrame,
+    text: string,
+    downloads: readonly WechatDownloadedAttachment[]
+  ): Promise<void> {
+    const body = frame.body;
+    if (body === undefined) return;
+
+    const userId = body.from.userid;
 
     const chatId = body.chattype === "group" ? body.chatid : undefined;
     const replyTarget = chatId ?? userId;
     const streamId = generateReqId("stream");
     const streamState: { inbound: InboundMessage | undefined } = { inbound: undefined };
+
+    let savedAttachments: readonly InboundAttachment[];
+    try {
+      savedAttachments =
+        downloads.length > 0
+          ? await saveWechatAttachments({
+              uploadRootPath: this.config.uploadRootPath ?? DEFAULT_WECHAT_UPLOAD_ROOT_PATH,
+              messageId: body.msgid,
+              attachments: downloads
+            })
+          : [];
+    } catch (error) {
+      const errorMessage = `附件下载或校验失败：${formatUnknownError(error)}`;
+      const inbound = buildWechatInboundMessage(body, text, []);
+      await this.logConversation(inbound, errorMessage);
+      await this.sendReply(frame, streamId, replyTarget, inbound, errorMessage, "error");
+      return;
+    }
 
     // Accumulate text deltas for intermediate stream updates.
     let accumulated = "";
@@ -143,16 +240,7 @@ export class WechatSmartBotAdapter {
       }
     };
 
-    const inbound: InboundMessage = {
-      id: body.msgid,
-      channel: "wechat-work",
-      user: { id: userId },
-      text: cleanContent,
-      receivedAt: body.create_time !== undefined ? new Date(body.create_time * 1000) : new Date(),
-      stream: streamCallback,
-      ...(chatId !== undefined ? { chatId } : {}),
-      chatType: body.chattype
-    };
+    const inbound = buildWechatInboundMessage(body, text, savedAttachments, streamCallback);
     streamState.inbound = inbound;
 
     await this.logConversation(inbound, "processing");
@@ -221,7 +309,8 @@ export class WechatSmartBotAdapter {
       userId: message.user.id,
       chatId: message.chatId,
       input: message.text,
-      output
+      output,
+      attachmentCount: message.attachments?.length ?? 0
     });
   }
 
@@ -233,7 +322,7 @@ export class WechatSmartBotAdapter {
   }
 
   private async sendReply(
-    frame: WsFrame<TextMessage>,
+    frame: ChatFrame,
     streamId: string,
     replyTarget: string,
     message: InboundMessage,
@@ -255,7 +344,7 @@ export class WechatSmartBotAdapter {
   }
 
   private async replyStreamBestEffort(
-    frame: WsFrame<TextMessage>,
+    frame: ChatFrame,
     streamId: string,
     content: string,
     finish: boolean,
@@ -313,6 +402,38 @@ export class WechatSmartBotAdapter {
       ...data
     });
   }
+
+  private async downloadWechatAttachment(
+    content: DownloadableMediaContent,
+    kind: "image" | "file"
+  ): Promise<WechatDownloadedAttachment> {
+    const result = await this.wsClient.downloadFile(content.url, content.aeskey);
+    return {
+      kind,
+      ...(result.filename !== undefined ? { name: result.filename } : {}),
+      content: result.buffer
+    };
+  }
+}
+
+function buildWechatInboundMessage(
+  body: ChatMessage,
+  text: string,
+  attachments: readonly InboundAttachment[],
+  stream?: AgentStreamPublisher
+): InboundMessage {
+  const chatId = body.chattype === "group" ? body.chatid : undefined;
+  return {
+    id: body.msgid,
+    channel: "wechat-work",
+    user: { id: body.from.userid },
+    text,
+    ...(attachments.length > 0 ? { attachments } : {}),
+    receivedAt: body.create_time !== undefined ? new Date(body.create_time * 1000) : new Date(),
+    ...(stream !== undefined ? { stream } : {}),
+    ...(chatId !== undefined ? { chatId } : {}),
+    chatType: body.chattype
+  };
 }
 
 /**

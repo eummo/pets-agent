@@ -134,6 +134,9 @@ export async function main(): Promise<void> {
       : {}),
     ...(config.wechat.maxReconnectAttempts !== undefined
       ? { maxReconnectAttempts: config.wechat.maxReconnectAttempts }
+      : {}),
+    ...(config.wechat.uploadRootPath !== undefined
+      ? { uploadRootPath: config.wechat.uploadRootPath }
       : {})
   });
 
