@@ -34,7 +34,6 @@ export type WechatAdapterConfig = {
   readonly botId: string;
   readonly secret: string;
   readonly messageHandler: MessageGateway;
-  readonly conversationLogger?: ConversationLogger;
   readonly eventLogger?: ConversationLogger;
   /**
    * Custom WebSocket URL (for private deployment).
@@ -219,7 +218,10 @@ export class WechatSmartBotAdapter {
     } catch (error) {
       const errorMessage = `附件下载或校验失败：${formatUnknownError(error)}`;
       const inbound = buildWechatInboundMessage(body, text, []);
-      await this.logConversation(inbound, errorMessage);
+      await this.logMessageEvent("wechat.message_failed", inbound, {
+        phase: "attachment",
+        error: formatUnknownError(error)
+      });
       await this.sendReply(frame, streamId, replyTarget, inbound, errorMessage, "error");
       return;
     }
@@ -243,7 +245,9 @@ export class WechatSmartBotAdapter {
     const inbound = buildWechatInboundMessage(body, text, savedAttachments, streamCallback);
     streamState.inbound = inbound;
 
-    await this.logConversation(inbound, "processing");
+    await this.logMessageEvent("wechat.message_processing", inbound, {
+      attachmentCount: inbound.attachments?.length ?? 0
+    });
 
     // Send "thinking" feedback without letting transport backpressure drop the message.
     await this.replyStreamBestEffort(frame, streamId, "思考中...", false, inbound, "initial");
@@ -264,7 +268,9 @@ export class WechatSmartBotAdapter {
         "请稍等，您还有消息正在处理中，请等我回复后再发送新消息。",
         "rejection"
       );
-      await this.logConversation(inbound, "rejected: too many inflight messages");
+      await this.logMessageEvent("wechat.message_rejected", inbound, {
+        reason: "too many inflight messages"
+      });
       return;
     }
 
@@ -277,9 +283,14 @@ export class WechatSmartBotAdapter {
         accumulated.length > 0 ? accumulated : response.text
       );
       await this.sendReply(frame, streamId, replyTarget, inbound, finalContent, "final");
-      await this.logConversation(inbound, finalContent);
+      await this.logMessageEvent("wechat.message_completed", inbound, {
+        attachmentCount: inbound.attachments?.length ?? 0
+      });
     } catch (error) {
-      await this.logConversation(inbound, `WeChat adapter error: ${formatUnknownError(error)}`);
+      await this.logMessageEvent("wechat.message_failed", inbound, {
+        phase: "gateway",
+        error: formatUnknownError(error)
+      });
       // Try to send an error reply
       await this.sendReply(
         frame,
@@ -298,19 +309,6 @@ export class WechatSmartBotAdapter {
     void this.wsClient.replyWelcome(frame, {
       msgtype: "text",
       text: { content: "您好！我是知识库助手，可以帮您查询知识库内容。请问有什么可以帮您的？" }
-    });
-  }
-
-  private async logConversation(message: InboundMessage, output: string): Promise<void> {
-    await this.config.conversationLogger?.write({
-      type: "conversation.turn",
-      channel: message.channel,
-      messageId: message.id,
-      userId: message.user.id,
-      chatId: message.chatId,
-      input: message.text,
-      output,
-      attachmentCount: message.attachments?.length ?? 0
     });
   }
 

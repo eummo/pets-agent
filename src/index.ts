@@ -126,7 +126,6 @@ export async function main(): Promise<void> {
     botId: config.wechat.botId,
     secret: config.wechat.secret,
     messageHandler: orchestrator,
-    conversationLogger,
     eventLogger: systemLogger,
     ...(config.wechat.wsUrl !== undefined ? { wsUrl: config.wechat.wsUrl } : {}),
     ...(config.wechat.reconnectInterval !== undefined

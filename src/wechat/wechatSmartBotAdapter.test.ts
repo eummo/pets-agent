@@ -199,7 +199,6 @@ describe("WechatSmartBotAdapter replies", () => {
       botId: "bot-id",
       secret: "secret",
       messageHandler,
-      conversationLogger: collectingLogger(conversationEvents),
       eventLogger: collectingLogger(systemEvents)
     });
 
@@ -224,14 +223,14 @@ describe("WechatSmartBotAdapter replies", () => {
       msgtype: "markdown",
       markdown: { content: "最终答案" }
     });
-    expect(conversationEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ messageId: "msg-1", chatId: "group-1", output: "processing" }),
-        expect.objectContaining({ messageId: "msg-1", chatId: "group-1", output: "最终答案" })
-      ])
-    );
+    expect(conversationEvents).toEqual([]);
     expect(systemEvents).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          type: "wechat.message_processing",
+          messageId: "msg-1",
+          chatId: "group-1"
+        }),
         expect.objectContaining({
           type: "wechat.reply_stream_failed",
           phase: "initial",
@@ -241,6 +240,11 @@ describe("WechatSmartBotAdapter replies", () => {
         expect.objectContaining({
           type: "wechat.fallback_message_sent",
           phase: "final",
+          messageId: "msg-1",
+          chatId: "group-1"
+        }),
+        expect.objectContaining({
+          type: "wechat.message_completed",
           messageId: "msg-1",
           chatId: "group-1"
         })

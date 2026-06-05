@@ -150,7 +150,7 @@ interface BaseMessage {
 - `message.file`：下载并保存 `.txt`、`.md`、`.markdown` 文档，默认请求文本为“请根据上传的文档回答。”。
 - `message.mixed`：合并文本子项，下载图片子项，一起进入同一个请求。
 
-暂不接入语音和视频。附件保存到 `wechat.uploadRootPath`，日志只记录附件数量和最终元数据，不记录下载 URL、aeskey 或图片 base64 内容。
+暂不接入语音和视频。附件保存到 `wechat.uploadRootPath`，日志只记录附件数量和最终元数据，不记录下载 URL、aeskey 或图片 base64 内容。企业微信适配器只把流式回复、fallback、拒绝和附件失败等通道状态写入系统事件日志；最终的 `conversation.turn` 由网关统一记录，避免同一个 `messageId` 出现重复对话记录。
 
 ## 对话隔离
 
