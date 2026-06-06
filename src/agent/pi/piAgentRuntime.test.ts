@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { AgentStreamEvent } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import type { JsonlLogger } from "../../logging/jsonlLogger.js";
@@ -126,6 +129,63 @@ describe("PiAgentRuntime", () => {
     expect(mockSession.prompt).toHaveBeenCalled();
     expect(response.text).toContain("final answer");
     expect(response.sessionId).toBeDefined();
+  });
+
+  it("passes uploaded images to the Pi SDK prompt options", async () => {
+    mockSession.prompt.mockImplementation(() => {
+      mockSession._emit({ type: "agent_end", messages: [] });
+    });
+    const workspacePath = await mkdtemp(path.join(os.tmpdir(), "pets-agent-pi-image-"));
+    const imagePath = path.join(workspacePath, "diagram.png");
+    const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    await writeFile(imagePath, imageBytes);
+    const rawEvents: Record<string, unknown>[] = [];
+    const rawLogger: JsonlLogger = {
+      filePath: "test.jsonl",
+      write(event) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      }
+    };
+    const runtime = new PiAgentRuntime({ roleConfig, agentSdkConfig, rawLogger });
+
+    try {
+      await runtime.run({
+        user: { id: "user-1" },
+        text: "Describe this image",
+        workspacePath,
+        attachments: [
+          {
+            type: "image",
+            name: "diagram.png",
+            mimeType: "image/png",
+            storagePath: imagePath,
+            sizeBytes: imageBytes.length
+          }
+        ]
+      });
+    } finally {
+      await rm(workspacePath, { recursive: true, force: true });
+    }
+
+    expect(mockSession.prompt).toHaveBeenCalledWith(
+      expect.stringContaining("Describe this image"),
+      {
+        images: [
+          {
+            type: "image",
+            data: imageBytes.toString("base64"),
+            mimeType: "image/png"
+          }
+        ]
+      }
+    );
+    expect(JSON.stringify(rawEvents)).not.toContain(imageBytes.toString("base64"));
+    expect(rawEvents[0]).toMatchObject({
+      imageAttachments: [
+        { name: "diagram.png", mimeType: "image/png", sizeBytes: imageBytes.length }
+      ]
+    });
   });
 
   it("returns the final text from text_delta events", async () => {

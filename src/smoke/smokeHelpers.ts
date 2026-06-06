@@ -28,6 +28,13 @@ export type ChatResult = {
   readonly events: readonly SseEvent[];
 };
 
+export type ChatAttachmentPayload = {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly contentBase64: string;
+  readonly sizeBytes: number;
+};
+
 export type ProgressEvent = {
   readonly stage?: string;
   readonly message?: string;
@@ -170,7 +177,11 @@ export async function fetchWithTimeout(
 // ── Chat helpers ──────────────────────────────────────────────────────────────
 
 export function createChatHelpers(config: SmokeConfig) {
-  async function chat(text: string, userId = "smoke-user"): Promise<ChatResult> {
+  async function chat(
+    text: string,
+    userId = "smoke-user",
+    attachments: readonly ChatAttachmentPayload[] = []
+  ): Promise<ChatResult> {
     const response = await fetchWithTimeout(
       `${config.baseUrl}/dev/chat`,
       {
@@ -180,7 +191,8 @@ export function createChatHelpers(config: SmokeConfig) {
         },
         body: JSON.stringify({
           userId,
-          text
+          text,
+          ...(attachments.length > 0 ? { attachments } : {})
         })
       },
       {
@@ -411,6 +423,9 @@ export async function runBaseSmokeCases(
     console.info(`[pass] ${smokeCase.name}`);
   }
 
+  await assertUploadedAttachmentAnswerFlow(config, helpers);
+  console.info("[pass] uploaded-attachment-answer-flow");
+
   // Reviewer mutation denied and recorded as feedback
   const feedbackUserId = "smoke-feedback-user";
   await resetChat(feedbackUserId);
@@ -532,6 +547,79 @@ export async function runBaseSmokeCases(
 }
 
 // ── Dev server lifecycle ──────────────────────────────────────────────────────
+
+async function assertUploadedAttachmentAnswerFlow(
+  config: SmokeConfig,
+  helpers: ReturnType<typeof createChatHelpers>
+): Promise<void> {
+  const documentUserId = "smoke-upload-document-user";
+  const documentText = "Uploaded support token: GLACIER-742.";
+  await helpers.resetChat(documentUserId);
+  const documentResult = await helpers.chat(
+    "Use the uploaded document only. What is the uploaded support token?",
+    documentUserId,
+    [
+      {
+        name: "support-note.md",
+        mimeType: "text/markdown",
+        contentBase64: Buffer.from(documentText, "utf8").toString("base64"),
+        sizeBytes: Buffer.byteLength(documentText)
+      }
+    ]
+  );
+  assertIncludes(documentResult.text, ["GLACIER-742"], "uploaded-document-answer");
+
+  const imageUserId = "smoke-upload-image-user";
+  const imageBytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+    "base64"
+  );
+  await helpers.resetChat(imageUserId);
+  const imageResult = await helpers.chat(
+    "Acknowledge the uploaded image named smoke-diagram.png.",
+    imageUserId,
+    [
+      {
+        name: "smoke-diagram.png",
+        mimeType: "application/octet-stream",
+        contentBase64: imageBytes.toString("base64"),
+        sizeBytes: imageBytes.length
+      }
+    ]
+  );
+  if (imageResult.text.length === 0) {
+    throw new Error("uploaded-image-answer: expected a non-empty response.");
+  }
+
+  await assertLogContains(config.conversationLogPath, [
+    '"userId":"smoke-upload-document-user"',
+    '"attachmentCount":1',
+    '"name":"support-note.md"',
+    '"userId":"smoke-upload-image-user"',
+    '"name":"smoke-diagram.png"',
+    '"mimeType":"image/png"'
+  ]);
+  await assertLogContains(config.llmRawLogPath, [
+    "Uploaded support token: GLACIER-742",
+    "Image: smoke-diagram.png",
+    "Media type: image/png"
+  ]);
+  await assertLogsDoNotExposeUploadStoragePath(config);
+}
+
+async function assertLogsDoNotExposeUploadStoragePath(config: SmokeConfig): Promise<void> {
+  const [conversationContent, rawContent, systemContent] = await Promise.all([
+    readFile(config.conversationLogPath, "utf8"),
+    readFile(config.llmRawLogPath, "utf8"),
+    readFile(config.systemLogPath, "utf8")
+  ]);
+  const combined = [conversationContent, rawContent, systemContent].join("\n");
+  const forbiddenPaths = [".harness/uploads", ".harness\\uploads"];
+  const leakedPath = forbiddenPaths.find((value) => combined.includes(value));
+  if (leakedPath !== undefined) {
+    throw new Error(`Upload logs exposed storage path segment: ${leakedPath}`);
+  }
+}
 
 export async function startDevServer(configPath: string, port: number): Promise<ChildProcess> {
   const tsxCliPath = path.resolve("node_modules", "tsx", "dist", "cli.mjs");
@@ -795,7 +883,11 @@ function assertFeedbackTimestampLocal(dbPath: string, userId: string, caseName: 
 
 // ── SDK-specific shared assertion functions ──────────────────────────────────
 
-export type ChatFn = (text: string, userId?: string) => Promise<ChatResult>;
+export type ChatFn = (
+  text: string,
+  userId?: string,
+  attachments?: readonly ChatAttachmentPayload[]
+) => Promise<ChatResult>;
 export type ResetChatFn = (userId: string) => Promise<void>;
 export type SetRoleFn = (userId: string, role: string) => Promise<void>;
 
@@ -943,9 +1035,7 @@ export async function assertToolPermissionLogged(options: {
     );
 
   if (runtimeResponseLines.length === 0) {
-    throw new Error(
-      `Tool permission: no agent_runtime llm.response found for ${userId}.`
-    );
+    throw new Error(`Tool permission: no agent_runtime llm.response found for ${userId}.`);
   }
 }
 

@@ -102,7 +102,7 @@ export class WechatSmartBotAdapter {
   public async sendProactiveMessage(targetId: string, content: string): Promise<void> {
     await this.wsClient.sendMessage(targetId, {
       msgtype: "markdown",
-      markdown: { content }
+      markdown: { content: formatProactiveWechatNotificationContent(content) }
     });
   }
 
@@ -204,6 +204,14 @@ export class WechatSmartBotAdapter {
     const replyTarget = chatId ?? userId;
     const streamId = generateReqId("stream");
     const streamState: { inbound: InboundMessage | undefined } = { inbound: undefined };
+    const channelInfoReply = buildWechatDeliveryChannelInfo(body);
+    if (channelInfoReply !== undefined && downloads.length === 0) {
+      const inbound = buildWechatInboundMessage(body, text, []);
+      await this.logMessageEvent("wechat.channel_info_requested", inbound, {});
+      await this.sendReply(frame, streamId, replyTarget, inbound, channelInfoReply, "final");
+      await this.logMessageEvent("wechat.channel_info_sent", inbound, { replyTarget });
+      return;
+    }
 
     let savedAttachments: readonly InboundAttachment[];
     try {
@@ -449,5 +457,90 @@ export function stripBotMention(content: string): string {
  * literal text instead of a notification.
  */
 export function sanitizeOutgoingWechatContent(content: string): string {
-  return content.replace(/<@[A-Za-z0-9_-]+>\s*/g, "").trimStart();
+  return content.replace(/<@[A-Za-z0-9_.-]+>\s*/g, "").trimStart();
+}
+
+/**
+ * Convert human-authored notification mentions into Enterprise WeChat smart bot
+ * mention markup. This is only for proactive notifications, not model replies.
+ */
+export function formatProactiveWechatNotificationContent(content: string): string {
+  return content.replace(
+    /(^|[^A-Za-z0-9_<@.-])@([A-Za-z0-9][A-Za-z0-9_.-]*|all)\b/g,
+    "$1<@$2>"
+  );
+}
+
+export function buildWechatDeliveryChannelInfo(body: ChatMessage): string | undefined {
+  if (!isDeliveryChannelInfoRequest(getChatMessageText(body))) {
+    return undefined;
+  }
+
+  if (body.chattype === "group" && body.chatid !== undefined) {
+    const channel = `wecom:chat:${body.chatid}`;
+    return [
+      "当前群聊的定时任务投递渠道：",
+      "",
+      `\`${channel}\``,
+      "",
+      "在定时任务的 `delivery.channels` 中填写：",
+      "",
+      "```text",
+      channel,
+      "```"
+    ].join("\n");
+  }
+
+  const channel = `wecom:user:${body.from.userid}`;
+  return [
+    "当前单聊的定时任务投递渠道：",
+    "",
+    `\`${channel}\``,
+    "",
+    "如果要推送到群聊，请在目标群里发送 `/channel` 获取群聊渠道。"
+  ].join("\n");
+}
+
+function getChatMessageText(body: ChatMessage): string {
+  if (isTextChatMessage(body)) {
+    return body.text.content;
+  }
+  if (isMixedChatMessage(body)) {
+    return body.mixed.msg_item
+      .filter((item) => item.msgtype === "text" && item.text !== undefined)
+      .map((item) => item.text?.content ?? "")
+      .join("\n");
+  }
+  return "";
+}
+
+function isTextChatMessage(body: ChatMessage): body is TextMessage {
+  return Object.prototype.hasOwnProperty.call(body, "text");
+}
+
+function isMixedChatMessage(body: ChatMessage): body is MixedMessage {
+  return Object.prototype.hasOwnProperty.call(body, "mixed");
+}
+
+function isDeliveryChannelInfoRequest(text: string): boolean {
+  const normalized = stripBotMention(text).trim().toLowerCase();
+  if (["/channel", "/channels", "/cron-channel", "channel", "channels"].includes(normalized)) {
+    return true;
+  }
+
+  const asksForChannel = normalized.includes("channel") || normalized.includes("渠道");
+  const asksForDelivery =
+    normalized.includes("定时") ||
+    normalized.includes("投递") ||
+    normalized.includes("消息") ||
+    normalized.includes("推送") ||
+    normalized.includes("配置");
+  const asksForCurrent =
+    normalized.includes("当前") ||
+    normalized.includes("本群") ||
+    normalized.includes("群聊") ||
+    normalized.includes("获取") ||
+    normalized.includes("查看") ||
+    normalized.includes("配置");
+  return asksForChannel && asksForDelivery && asksForCurrent;
 }

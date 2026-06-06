@@ -6,8 +6,10 @@ import {
   type AgentSession,
   type AgentSessionEvent
 } from "@earendil-works/pi-coding-agent";
+import { readFile } from "node:fs/promises";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { ResolvedAgentSdkConfig } from "../../config/llmConfig.js";
-import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
+import type { AgentRequest, AgentResponse, AgentRuntime, InboundAttachment } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
 import type { JsonlLogger } from "../../logging/jsonlLogger.js";
@@ -85,6 +87,7 @@ export class PiAgentRuntime implements AgentRuntime {
       this.contextConfig.workspaceMaxChars,
       this.contextConfig.historyMaxMessages
     );
+    const imageAttachments = await buildPiImageAttachments(request.attachments);
 
     const sessionId = request.sessionId ?? generateSessionId();
     const session = await this.getOrCreateSession(request, sessionId);
@@ -102,6 +105,7 @@ export class PiAgentRuntime implements AgentRuntime {
       workspacePath: request.workspacePath,
       sessionId,
       prompt,
+      imageAttachments: imageAttachmentMetadata(request.attachments),
       turn: 0
     });
 
@@ -110,7 +114,10 @@ export class PiAgentRuntime implements AgentRuntime {
     });
 
     try {
-      await session.prompt(prompt);
+      await session.prompt(
+        prompt,
+        imageAttachments.length > 0 ? { images: imageAttachments } : undefined
+      );
     } catch (error) {
       void this.rawLogger?.write({
         type: "llm.error",
@@ -212,9 +219,7 @@ function generateSessionId(): string {
 const PI_UNSUPPORTED_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "WebFetch"]);
 
 function piToolsForRole(roleConfig: StoredRoleConfig): readonly string[] {
-  const tools = availableToolsForRole(roleConfig).filter(
-    (tool) => !PI_UNSUPPORTED_TOOLS.has(tool)
-  );
+  const tools = availableToolsForRole(roleConfig).filter((tool) => !PI_UNSUPPORTED_TOOLS.has(tool));
 
   if (roleCanUseFileMutationTools(roleConfig)) {
     return tools;
@@ -227,3 +232,30 @@ function piToolsForRole(roleConfig: StoredRoleConfig): readonly string[] {
 
 export type { PiAgentRuntimeOptions as _PiAgentRuntimeOptions };
 export { piToolsForRole as _piToolsForRole };
+
+async function buildPiImageAttachments(
+  attachments: readonly InboundAttachment[] | undefined
+): Promise<ImageContent[]> {
+  const images = attachments?.filter((attachment) => attachment.type === "image") ?? [];
+  const result: ImageContent[] = [];
+  for (const image of images) {
+    result.push({
+      type: "image",
+      data: (await readFile(image.storagePath)).toString("base64"),
+      mimeType: image.mimeType
+    });
+  }
+  return result;
+}
+
+function imageAttachmentMetadata(
+  attachments: readonly InboundAttachment[] | undefined
+): readonly Record<string, unknown>[] {
+  return (attachments ?? [])
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => ({
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes
+    }));
+}

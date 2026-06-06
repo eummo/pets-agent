@@ -1,6 +1,7 @@
 import { query } from "@tencent-ai/agent-sdk";
-import type { PermissionResult } from "@tencent-ai/agent-sdk";
-import type { AgentRequest, AgentResponse, AgentRuntime } from "../index.js";
+import { readFile } from "node:fs/promises";
+import type { ImageMediaType, PermissionResult, UserMessage } from "@tencent-ai/agent-sdk";
+import type { AgentRequest, AgentResponse, AgentRuntime, InboundAttachment } from "../index.js";
 import type { StoredRoleConfig } from "../../auth/index.js";
 import { isRecord } from "../../core/unknownRecord.js";
 import type { ContextConfig } from "../../config/runtimeConfig.js";
@@ -95,10 +96,12 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
       workspacePath: request.workspacePath,
       sessionId: request.sessionId,
       prompt,
+      imageAttachments: imageAttachmentMetadata(request.attachments),
       options: serializeQueryOptions(queryOptions)
     });
+    const sdkPrompt = await buildCodebuddyPrompt(prompt, request.attachments);
     const stream = query({
-      prompt,
+      prompt: sdkPrompt,
       options: queryOptions
     });
 
@@ -199,6 +202,77 @@ export class CodebuddySdkAgentRuntime implements AgentRuntime {
       message: result.message ?? `Tool ${toolName} denied.`
     };
   }
+}
+
+async function buildCodebuddyPrompt(
+  prompt: string,
+  attachments: readonly InboundAttachment[] | undefined
+): Promise<string | AsyncIterable<UserMessage>> {
+  const images = attachments?.filter((attachment) => attachment.type === "image") ?? [];
+  if (images.length === 0) return prompt;
+
+  const content: UserMessage["message"]["content"] = [{ type: "text", text: prompt }];
+  for (const image of images) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: toCodebuddyImageMimeType(image.mimeType),
+        data: (await readFile(image.storagePath)).toString("base64")
+      }
+    });
+  }
+
+  return singleMessagePrompt({
+    type: "user",
+    session_id: "",
+    message: {
+      role: "user",
+      content
+    },
+    parent_tool_use_id: null
+  });
+}
+
+function singleMessagePrompt(message: UserMessage): AsyncIterable<UserMessage> {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<UserMessage> {
+      let hasYielded = false;
+      return {
+        next(): Promise<IteratorResult<UserMessage>> {
+          if (hasYielded) {
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          hasYielded = true;
+          return Promise.resolve({ done: false, value: message });
+        }
+      };
+    }
+  };
+}
+
+function toCodebuddyImageMimeType(mimeType: string): ImageMediaType {
+  switch (mimeType) {
+    case "image/jpeg":
+    case "image/png":
+    case "image/gif":
+    case "image/webp":
+      return mimeType;
+    default:
+      throw new Error(`Uploaded image media type ${mimeType} is not supported by Codebuddy.`);
+  }
+}
+
+function imageAttachmentMetadata(
+  attachments: readonly InboundAttachment[] | undefined
+): readonly Record<string, unknown>[] {
+  return (attachments ?? [])
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => ({
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes
+    }));
 }
 
 function codebuddySdkConnectionOptions(config: ResolvedAgentSdkConfig): {

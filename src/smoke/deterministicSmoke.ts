@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -10,8 +10,18 @@ import type {
   AgentRuntime,
   AgentRuntimeFactory
 } from "../agent/index.js";
-import type { AuthorizationAction, AuthorizationDecision, AuthorizationService } from "../auth/index.js";
-import type { ConversationHistoryStore, ConversationSessionKey, ConversationSessionStore, FeedbackEntry, FeedbackStore } from "../persistence/index.js";
+import type {
+  AuthorizationAction,
+  AuthorizationDecision,
+  AuthorizationService
+} from "../auth/index.js";
+import type {
+  ConversationHistoryStore,
+  ConversationSessionKey,
+  ConversationSessionStore,
+  FeedbackEntry,
+  FeedbackStore
+} from "../persistence/index.js";
 import { AgentOrchestrator } from "../core/orchestrator.js";
 import { ConfiguredWorkspaceResolver } from "../workspace/configuredWorkspaceResolver.js";
 import { createServer } from "../server/createServer.js";
@@ -24,7 +34,7 @@ const stubRuntime: AgentRuntime = {
   },
   disposeSession(): Promise<void> {
     return Promise.resolve();
-  },
+  }
 };
 
 /**
@@ -47,20 +57,18 @@ function assertNoContractsTsRemnants(): void {
   if (forbiddenFiles.length > 0) {
     throw new Error(
       `Found contracts.ts files that should have been migrated to index.ts:\n` +
-      forbiddenFiles.map((f) => `  ${f}`).join("\n")
+        forbiddenFiles.map((f) => `  ${f}`).join("\n")
     );
   }
 
   // 2. No imports referencing contracts.js in src/
   try {
-    const result = execSync(
-      `grep -r "from.*contracts\\.js" --include="*.ts" -l "${srcRoot}"`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-    ).trim();
+    const result = execSync(`grep -r "from.*contracts\\.js" --include="*.ts" -l "${srcRoot}"`, {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
     if (result.length > 0) {
-      throw new Error(
-        `Found imports referencing contracts.js (should use index.js):\n${result}`
-      );
+      throw new Error(`Found imports referencing contracts.js (should use index.js):\n${result}`);
     }
   } catch (error: unknown) {
     // grep returns exit code 1 when no matches — that's the passing case
@@ -87,30 +95,37 @@ async function main(): Promise<void> {
       },
       disposeSession(): Promise<void> {
         return Promise.resolve();
-      },
-    },
+      }
+    }
   };
   const runtimeFactory: AgentRuntimeFactory = {
-    warmup() { return Promise.resolve(runtimes); },
-    createRuntime(role: string) { return Promise.resolve(runtimes[role]); },
+    warmup() {
+      return Promise.resolve(runtimes);
+    },
+    createRuntime(role: string) {
+      return Promise.resolve(runtimes[role]);
+    }
   };
   const orchestrator = new AgentOrchestrator({
-    workspaceResolver: new ConfiguredWorkspaceResolver({ knowledgeBasePath: path.join(root, "knowledge-base") }),
+    workspaceResolver: new ConfiguredWorkspaceResolver({
+      knowledgeBasePath: path.join(root, "knowledge-base")
+    }),
     authorization,
     runtimeFactory,
     initialRuntimes: runtimes,
-    feedbackStore,
+    feedbackStore
   });
   const server = createServer({
     messageHandler: orchestrator,
     feedbackStore,
     authorization,
-    enableDevRoutes: true,
+    enableDevRoutes: true
   });
 
   await assertHealth(server);
   await assertReviewerMutationDeniedWithoutIntentLlm(server, feedbackStore);
   await assertPathTraversalRejected(server);
+  await assertUploadedDocumentReachesRuntime();
   await assertRoleSwitchCarriesHistory();
   assertNoContractsTsRemnants();
 
@@ -127,15 +142,15 @@ async function assertHealth(server: ReturnType<typeof createServer>): Promise<vo
 
 async function assertReviewerMutationDeniedWithoutIntentLlm(
   server: ReturnType<typeof createServer>,
-  feedbackStore: MemoryFeedbackStore,
+  feedbackStore: MemoryFeedbackStore
 ): Promise<void> {
   const response = await server.inject({
     method: "POST",
     url: "/dev/chat",
     payload: {
       userId: "reviewer-1",
-      text: "请修改订单系统",
-    },
+      text: "请修改订单系统"
+    }
   });
   if (response.statusCode !== 200) {
     throw new Error(`chat failed: ${response.statusCode} ${response.body}`);
@@ -155,6 +170,92 @@ async function assertPathTraversalRejected(server: ReturnType<typeof createServe
     throw new Error(`expected path traversal rejection, got: ${response.statusCode}`);
   }
   console.info("[pass] deterministic-path-traversal-rejected");
+}
+
+async function assertUploadedDocumentReachesRuntime(): Promise<void> {
+  const uploadRootPath = await mkdtemp(path.join(tmpdir(), "pets-agent-deterministic-upload-"));
+  const uploadRuntime: AgentRuntime = {
+    name: "upload-runtime",
+    async run(request: AgentRequest): Promise<AgentResponse> {
+      const attachment = request.attachments?.[0];
+      if (attachment === undefined) {
+        return { text: "missing attachment" };
+      }
+      const content = await readFile(attachment.storagePath, "utf8");
+      return {
+        text: `upload:${attachment.type}:${attachment.name}:${attachment.mimeType}:${content}`
+      };
+    },
+    disposeSession(): Promise<void> {
+      return Promise.resolve();
+    }
+  };
+  const uploadRuntimes: Record<string, AgentRuntime> = {
+    reviewer: uploadRuntime,
+    intent: {
+      name: "intent",
+      run(): Promise<AgentResponse> {
+        return Promise.resolve({ text: "query" });
+      },
+      disposeSession(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+  };
+  const authorization = new ReviewerAuthorization();
+  const orchestrator = new AgentOrchestrator({
+    workspaceResolver: new ConfiguredWorkspaceResolver({
+      knowledgeBasePath: path.join(
+        await mkdtemp(path.join(tmpdir(), "pets-agent-upload-kb-")),
+        "kb"
+      )
+    }),
+    authorization,
+    runtimeFactory: {
+      warmup() {
+        return Promise.resolve(uploadRuntimes);
+      },
+      createRuntime(role: string) {
+        return Promise.resolve(uploadRuntimes[role]);
+      }
+    },
+    initialRuntimes: uploadRuntimes
+  });
+  const server = createServer({
+    messageHandler: orchestrator,
+    feedbackStore: new MemoryFeedbackStore(),
+    authorization,
+    enableDevRoutes: true,
+    uploadRootPath
+  });
+  const content = "deterministic upload fact";
+
+  const response = await server.inject({
+    method: "POST",
+    url: "/dev/chat",
+    payload: {
+      userId: "upload-user",
+      text: "answer from the upload",
+      attachments: [
+        {
+          name: "facts.md",
+          mimeType: "text/markdown",
+          contentBase64: Buffer.from(content, "utf8").toString("base64"),
+          sizeBytes: Buffer.byteLength(content)
+        }
+      ]
+    }
+  });
+
+  if (response.statusCode !== 200) {
+    throw new Error(`upload chat failed: ${response.statusCode} ${response.body}`);
+  }
+  if (!response.body.includes(`upload:document:facts.md:text/markdown:${content}`)) {
+    throw new Error(`expected upload document to reach runtime, got: ${response.body}`);
+  }
+
+  await server.close();
+  console.info("[pass] deterministic-uploaded-document-reaches-runtime");
 }
 
 class ReviewerAuthorization implements AuthorizationService {
@@ -205,7 +306,7 @@ async function assertRoleSwitchCarriesHistory(): Promise<void> {
     disposeSession(sessionId: string): Promise<void> {
       disposedSessions.push(sessionId);
       return Promise.resolve();
-    },
+    }
   };
   const adminRuntime: AgentRuntime = {
     name: "stub-admin",
@@ -217,7 +318,7 @@ async function assertRoleSwitchCarriesHistory(): Promise<void> {
     },
     disposeSession(): Promise<void> {
       return Promise.resolve();
-    },
+    }
   };
   const switchingAuth = new SwitchableAuthorization("reviewer");
   const switchRuntimes: Record<string, AgentRuntime> = {
@@ -230,32 +331,41 @@ async function assertRoleSwitchCarriesHistory(): Promise<void> {
       },
       disposeSession(): Promise<void> {
         return Promise.resolve();
-      },
-    },
+      }
+    }
   };
   const switchOrchestrator = new AgentOrchestrator({
-    workspaceResolver: new ConfiguredWorkspaceResolver({ knowledgeBasePath: path.join(await mkdtemp(path.join(tmpdir(), "pets-agent-role-switch-")), "kb") }),
+    workspaceResolver: new ConfiguredWorkspaceResolver({
+      knowledgeBasePath: path.join(
+        await mkdtemp(path.join(tmpdir(), "pets-agent-role-switch-")),
+        "kb"
+      )
+    }),
     authorization: switchingAuth,
     runtimeFactory: {
-      warmup() { return Promise.resolve(switchRuntimes); },
-      createRuntime(role: string) { return Promise.resolve(switchRuntimes[role]); },
+      warmup() {
+        return Promise.resolve(switchRuntimes);
+      },
+      createRuntime(role: string) {
+        return Promise.resolve(switchRuntimes[role]);
+      }
     },
     initialRuntimes: switchRuntimes,
     sessionStore: new InMemorySessionStore(),
-    historyStore: new InMemoryHistoryStore(),
+    historyStore: new InMemoryHistoryStore()
   });
   const switchServer = createServer({
     messageHandler: switchOrchestrator,
     feedbackStore: new MemoryFeedbackStore(),
     authorization: switchingAuth,
-    enableDevRoutes: true,
+    enableDevRoutes: true
   });
 
   // First message as reviewer
   const first = await switchServer.inject({
     method: "POST",
     url: "/dev/chat",
-    payload: { userId: "switch-user", text: "hello" },
+    payload: { userId: "switch-user", text: "hello" }
   });
   if (first.statusCode !== 200) {
     throw new Error(`Role switch first chat failed: ${first.statusCode}`);
@@ -266,7 +376,7 @@ async function assertRoleSwitchCarriesHistory(): Promise<void> {
   const second = await switchServer.inject({
     method: "POST",
     url: "/dev/chat",
-    payload: { userId: "switch-user", text: "admin task" },
+    payload: { userId: "switch-user", text: "admin task" }
   });
   if (second.statusCode !== 200) {
     throw new Error(`Role switch second chat failed: ${second.statusCode}`);
@@ -274,7 +384,9 @@ async function assertRoleSwitchCarriesHistory(): Promise<void> {
 
   // Verify old session was disposed
   if (!disposedSessions.includes("reviewer-s-1")) {
-    throw new Error(`Role switch: expected reviewer-s-1 to be disposed. Got: ${disposedSessions.join(", ")}`);
+    throw new Error(
+      `Role switch: expected reviewer-s-1 to be disposed. Got: ${disposedSessions.join(", ")}`
+    );
   }
 
   // Verify the admin runtime received the prior conversation history
@@ -297,10 +409,14 @@ async function assertRoleSwitchCarriesHistory(): Promise<void> {
     throw new Error("Role switch: second history message is undefined.");
   }
   if (firstMsg.role !== "user" || firstMsg.content !== "hello") {
-    throw new Error(`Role switch: expected first history message to be user:hello, got ${JSON.stringify(firstMsg)}`);
+    throw new Error(
+      `Role switch: expected first history message to be user:hello, got ${JSON.stringify(firstMsg)}`
+    );
   }
   if (secondMsg.role !== "assistant" || !secondMsg.content.includes("reviewer")) {
-    throw new Error(`Role switch: expected second history message to be assistant with reviewer response, got ${JSON.stringify(secondMsg)}`);
+    throw new Error(
+      `Role switch: expected second history message to be assistant with reviewer response, got ${JSON.stringify(secondMsg)}`
+    );
   }
 
   await switchServer.close();
@@ -323,7 +439,9 @@ class SwitchableAuthorization implements AuthorizationService {
   }
 
   public can(_user: ChannelUser, action: AuthorizationAction): Promise<AuthorizationDecision> {
-    return Promise.resolve(action === "mutate" ? { allowed: this.currentRole !== "reviewer" } : { allowed: true });
+    return Promise.resolve(
+      action === "mutate" ? { allowed: this.currentRole !== "reviewer" } : { allowed: true }
+    );
   }
 
   public hasCapability(): Promise<boolean> {
@@ -350,9 +468,14 @@ class InMemorySessionStore implements ConversationSessionStore {
 }
 
 class InMemoryHistoryStore implements ConversationHistoryStore {
-  private readonly histories = new Map<string, { readonly role: "user" | "assistant"; readonly content: string }[]>();
+  private readonly histories = new Map<
+    string,
+    { readonly role: "user" | "assistant"; readonly content: string }[]
+  >();
 
-  public get(key: ConversationSessionKey): Promise<readonly { readonly role: "user" | "assistant"; readonly content: string }[]> {
+  public get(
+    key: ConversationSessionKey
+  ): Promise<readonly { readonly role: "user" | "assistant"; readonly content: string }[]> {
     return Promise.resolve(this.histories.get(JSON.stringify(key)) ?? []);
   }
 

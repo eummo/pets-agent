@@ -10,7 +10,11 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { sanitizeOutgoingWechatContent, stripBotMention } from "./wechatSmartBotAdapter.js";
+import {
+  formatProactiveWechatNotificationContent,
+  sanitizeOutgoingWechatContent,
+  stripBotMention
+} from "./wechatSmartBotAdapter.js";
 import { WechatSmartBotAdapter } from "./wechatSmartBotAdapter.js";
 import { SessionLock } from "./sessionLock.js";
 import type {
@@ -55,6 +59,23 @@ describe("sanitizeOutgoingWechatContent", () => {
 
   it("strips multiple mention tokens while preserving normal content", () => {
     expect(sanitizeOutgoingWechatContent("请 <@user-1> 和 <@user_2> 看一下")).toBe("请 和 看一下");
+  });
+});
+
+describe("formatProactiveWechatNotificationContent", () => {
+  it("converts notification @mentions to smart bot mention markup", () => {
+    expect(formatProactiveWechatNotificationContent("@zhangsan please review")).toBe(
+      "<@zhangsan> please review"
+    );
+    expect(formatProactiveWechatNotificationContent("cc @li.si and @user-2")).toBe(
+      "cc <@li.si> and <@user-2>"
+    );
+  });
+
+  it("preserves existing mention markup and email addresses", () => {
+    expect(
+      formatProactiveWechatNotificationContent("notify <@zhangsan> via ops@example.com")
+    ).toBe("notify <@zhangsan> via ops@example.com");
   });
 });
 
@@ -183,6 +204,90 @@ describe("SessionLock", () => {
 });
 
 describe("WechatSmartBotAdapter replies", () => {
+  it("returns the current group cron delivery channel without invoking the gateway", async () => {
+    const systemEvents: Record<string, unknown>[] = [];
+    const handle = vi.fn(() => Promise.resolve({ text: "should not run" }));
+    const messageHandler: MessageGateway = {
+      handle
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      eventLogger: collectingLogger(systemEvents)
+    });
+
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
+      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "sent" } } as WsFrame))
+    };
+
+    const privateAdapter = adapter as unknown as {
+      wsClient: typeof fakeClient;
+      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+    };
+    privateAdapter.wsClient = fakeClient;
+
+    await privateAdapter.handleTextMessage(
+      groupTextFrame("msg-channel", "user-1", "group-1", "@Bot 获取当前群聊投递渠道")
+    );
+
+    expect(handle).not.toHaveBeenCalled();
+    expect(fakeClient.replyStream).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.stringContaining("wecom:chat:group-1"),
+      true
+    );
+    expect(fakeClient.sendMessage).not.toHaveBeenCalled();
+    expect(systemEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "wechat.channel_info_requested",
+          messageId: "msg-channel",
+          chatId: "group-1"
+        }),
+        expect.objectContaining({
+          type: "wechat.channel_info_sent",
+          messageId: "msg-channel",
+          chatId: "group-1",
+          replyTarget: "group-1"
+        })
+      ])
+    );
+  });
+
+  it("sends proactive bot notifications with working @mention markup", async () => {
+    const messageHandler: MessageGateway = {
+      handle(): Promise<OutboundMessage> {
+        return Promise.resolve({ text: "ok" });
+      }
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler
+    });
+
+    const fakeClient = {
+      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "sent" } } as WsFrame))
+    };
+
+    const privateAdapter = adapter as unknown as {
+      wsClient: typeof fakeClient;
+    };
+    privateAdapter.wsClient = fakeClient;
+
+    await adapter.sendProactiveMessage("group-1", "Build failed, @zhangsan please check.");
+
+    expect(fakeClient.sendMessage).toHaveBeenCalledWith("group-1", {
+      msgtype: "markdown",
+      markdown: { content: "Build failed, <@zhangsan> please check." }
+    });
+  });
+
   it("continues processing and sends a fallback message when stream replies fail", async () => {
     const conversationEvents: Record<string, unknown>[] = [];
     const systemEvents: Record<string, unknown>[] = [];
