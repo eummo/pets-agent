@@ -60,14 +60,19 @@ const cronConfigSchema = z
     enabled: z.boolean().default(false),
     tickIntervalMs: z.number().int().positive().default(60_000),
     staleGraceMs: z.number().int().positive().default(300_000),
+    jobStore: z.enum(["sqlite", "file"]).default("sqlite"),
     jobStorePath: z.string().min(1).default(".harness/state/cron-jobs.json"),
+    leaderLeasePath: z.string().min(1).optional(),
+    leaderLeaseTtlMs: z.number().int().positive().default(180_000),
     wecom: cronWecomConfigSchema.optional()
   })
   .default(() => ({
     enabled: false,
     tickIntervalMs: 60_000,
     staleGraceMs: 300_000,
-    jobStorePath: ".harness/state/cron-jobs.json"
+    jobStore: "sqlite" as const,
+    jobStorePath: ".harness/state/cron-jobs.json",
+    leaderLeaseTtlMs: 180_000
   }));
 
 const runtimeConfigSchema = z.object({
@@ -76,6 +81,9 @@ const runtimeConfigSchema = z.object({
   knowledgeBasePath: z.string().min(1).default(".harness/knowledge-base"),
   logDir: z.string().min(1).default(".harness/logs"),
   dbPath: z.string().min(1).default(".harness/state/agent.db"),
+  conversationStore: z.enum(["sqlite", "file"]).default("sqlite"),
+  conversationArchiveRetentionDays: z.number().int().positive().default(180),
+  conversationArchiveCleanupIntervalMs: z.number().int().positive().default(86_400_000),
   sessionStorePath: z.string().min(1).default(".harness/state/sessions.json"),
   historyStorePath: z.string().min(1).default(".harness/state/history.json"),
   enableDevRoutes: z.boolean().default(false),
@@ -88,9 +96,14 @@ const runtimeConfigSchema = z.object({
       wsUrl: z.string().min(1).optional(),
       reconnectInterval: z.number().int().positive().optional(),
       maxReconnectAttempts: z.number().int().optional(),
-      uploadRootPath: z.string().min(1).optional()
+      uploadRootPath: z.string().min(1).optional(),
+      rejectWhenConnectionUnavailable: z.boolean().default(false)
     })
-    .default({ botId: "dev-bot-id", secret: "dev-secret" }),
+    .default({
+      botId: "dev-bot-id",
+      secret: "dev-secret",
+      rejectWhenConnectionUnavailable: false
+    }),
   llm: llmConfigSchema,
   agentSdkType: agentSdkTypeSchema,
   agentSdks: agentSdksSchema,
@@ -105,6 +118,7 @@ export type WechatConfig = {
   readonly reconnectInterval?: number;
   readonly maxReconnectAttempts?: number;
   readonly uploadRootPath?: string;
+  readonly rejectWhenConnectionUnavailable: boolean;
 };
 
 export type ContextConfig = {
@@ -132,7 +146,10 @@ export type CronConfig = {
   readonly enabled: boolean;
   readonly tickIntervalMs: number;
   readonly staleGraceMs: number;
+  readonly jobStore: "sqlite" | "file";
   readonly jobStorePath: string;
+  readonly leaderLeasePath: string;
+  readonly leaderLeaseTtlMs: number;
   readonly wecom?: CronWecomConfig;
 };
 
@@ -142,6 +159,9 @@ export type RuntimeConfig = {
   readonly knowledgeBasePath: string;
   readonly logDir: string;
   readonly dbPath: string;
+  readonly conversationStore: "sqlite" | "file";
+  readonly conversationArchiveRetentionDays: number;
+  readonly conversationArchiveCleanupIntervalMs: number;
   readonly sessionStorePath: string;
   readonly historyStorePath: string;
   readonly enableDevRoutes: boolean;
@@ -203,13 +223,17 @@ export async function loadRuntimeConfig(
       : {}),
     ...(parsed.data.wechat.uploadRootPath !== undefined
       ? { uploadRootPath: parsed.data.wechat.uploadRootPath }
-      : {})
+      : {}),
+    rejectWhenConnectionUnavailable: parsed.data.wechat.rejectWhenConnectionUnavailable
   };
   const cron: CronConfig = {
     enabled: parsed.data.cron.enabled,
     tickIntervalMs: parsed.data.cron.tickIntervalMs,
     staleGraceMs: parsed.data.cron.staleGraceMs,
+    jobStore: parsed.data.cron.jobStore,
     jobStorePath: parsed.data.cron.jobStorePath,
+    leaderLeasePath: parsed.data.cron.leaderLeasePath ?? `${parsed.data.cron.jobStorePath}.leader`,
+    leaderLeaseTtlMs: parsed.data.cron.leaderLeaseTtlMs,
     ...(parsed.data.cron.wecom !== undefined
       ? {
           wecom: {

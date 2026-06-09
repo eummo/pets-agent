@@ -16,6 +16,34 @@ User channel
   -> selected workspace / knowledge base
 ```
 
+```mermaid
+sequenceDiagram
+    participant User as User channel
+    participant Adapter as Channel adapter
+    participant Gateway as Orchestrator
+    participant Auth as Authorization + intent
+    participant Runtime as Agent runtime
+    participant Workspace as Workspace / knowledge base
+    participant Logs as Stores + JSONL logs
+
+    User->>Adapter: User message and attachments
+    Adapter->>Gateway: InboundMessage
+    Gateway->>Workspace: Resolve selected workspace
+    Gateway->>Auth: Resolve role, read access, intent, action
+    Auth-->>Gateway: Allow or deny
+    alt Denied useful request
+        Gateway->>Logs: Save feedback and system event
+        Gateway-->>Adapter: Outbound denial
+    else Allowed request
+        Gateway->>Runtime: AgentRequest with role config and session
+        Runtime->>Workspace: Read or mutate selected workspace
+        Runtime-->>Gateway: Stream events and final response
+        Gateway->>Logs: Save session, history, progress, conversation logs
+        Gateway-->>Adapter: Outbound response
+    end
+    Adapter-->>User: Channel response or stream
+```
+
 The gateway is the only place that coordinates the business flow:
 
 1. receive a normalized `InboundMessage`;

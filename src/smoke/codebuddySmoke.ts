@@ -38,7 +38,8 @@ const CODEBUDDY_MODEL_ENV = "CODEBUDDY_SMOKE_MODEL";
 async function main(): Promise<void> {
   // Load the base config and create a temp copy with agentSdkType="codebuddy"
   const baseConfig = await loadRuntimeConfig();
-  const tempDir = path.join(tmpdir(), `pets-agent-smoke-codebuddy-${Date.now()}`);
+  const tempDir = resolveCodebuddySmokeTempDir();
+  await rm(tempDir, { recursive: true, force: true });
   await mkdir(tempDir, { recursive: true });
 
   const tempConfigPath = path.join(tempDir, "runtime.json");
@@ -135,6 +136,7 @@ async function main(): Promise<void> {
   // Start dev server with the codebuddy config
   console.info(`Starting Codebuddy dev server on port ${CODEBUDDY_PORT}...`);
   const serverProcess = await startDevServer(tempConfigPath, CODEBUDDY_PORT);
+  let succeeded = false;
 
   try {
     const baseUrl = `http://127.0.0.1:${CODEBUDDY_PORT}`;
@@ -213,15 +215,30 @@ async function main(): Promise<void> {
       sessionIdMismatchIsError: false
     });
     console.info("[pass] codebuddy-role-switch-carries-history");
+    succeeded = true;
   } finally {
     stopDevServer(serverProcess);
-    // Only clean up on success; keep temp directory on failure for debugging.
-    if (process.env["CODEBUDDY_SMOKE_KEEP_TEMP"] !== "1") {
+    if (shouldRemoveCodebuddySmokeTemp(succeeded)) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     } else {
       console.info(`[info] Codebuddy smoke: temp directory kept at ${tempDir}`);
     }
   }
+}
+
+function resolveCodebuddySmokeTempDir(): string {
+  const configured = nonEmptyEnv("CODEBUDDY_SMOKE_TEMP_DIR");
+  if (configured !== undefined) {
+    return path.resolve(configured);
+  }
+  return path.join(tmpdir(), `pets-agent-smoke-codebuddy-${Date.now()}`);
+}
+
+function shouldRemoveCodebuddySmokeTemp(succeeded: boolean): boolean {
+  if (process.env["CODEBUDDY_SMOKE_KEEP_TEMP"] === "1") {
+    return false;
+  }
+  return succeeded;
 }
 
 function nonEmptyEnv(name: string): string | undefined {

@@ -4,6 +4,9 @@
   "knowledgeBasePath": ".harness/knowledge-base",
   "logDir": ".harness/logs",
   "dbPath": ".harness/state/agent.db",
+  "conversationStore": "sqlite",
+  "conversationArchiveRetentionDays": 180,
+  "conversationArchiveCleanupIntervalMs": 86400000,
   "sessionStorePath": ".harness/state/sessions.json",
   "historyStorePath": ".harness/state/history.json",
   "enableDevRoutes": true,
@@ -12,7 +15,8 @@
     "secret": "dev-secret",
     "botIdEnv": "WECOM_BOT_ID",
     "secretEnv": "WECOM_BOT_SECRET",
-    "uploadRootPath": ".harness/wechat-uploads"
+    "uploadRootPath": ".harness/wechat-uploads",
+    "rejectWhenConnectionUnavailable": false
   },
   "llm": {
     "baseUrl": "https://api.minimaxi.com/anthropic",
@@ -46,6 +50,7 @@
     "enabled": true,
     "tickIntervalMs": 60000,
     "staleGraceMs": 300000,
+    "jobStore": "sqlite",
     "jobStorePath": ".harness/state/cron-jobs.json"
   }
 }

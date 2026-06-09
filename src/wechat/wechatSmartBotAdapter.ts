@@ -1,5 +1,5 @@
 /**
- * WeChat Smart Bot adapter using @wecom/aibot-node-sdk (WebSocket long connection).
+ * WeChat Smart Bot adapter using the WeCom SDK wrapper (WebSocket long connection).
  *
  * This adapter replaces the previous HTTP callback (XML self-built app) approach.
  * It connects to WeChat's WebSocket server, receives messages, bridges them
@@ -8,18 +8,7 @@
  * Architecture: channel adapter -> core contracts.
  */
 import path from "node:path";
-import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import { formatUnknownError } from "../core/unknownRecord.js";
-import type {
-  WsFrame,
-  TextMessage,
-  EventMessage,
-  ImageMessage,
-  FileMessage,
-  MixedMessage,
-  ImageContent,
-  FileContent
-} from "@wecom/aibot-node-sdk";
 import type {
   ConversationLogger,
   InboundAttachment,
@@ -29,6 +18,19 @@ import type {
 import type { AgentStreamPublisher } from "../agent/index.js";
 import { SessionLock } from "./sessionLock.js";
 import { saveWechatAttachments, type WechatDownloadedAttachment } from "./wechatAttachmentStore.js";
+import {
+  WecomAibotSdkClient,
+  createWechatStreamId,
+  type WechatChatMessage,
+  type WechatEventMessage,
+  type WechatFileMessage,
+  type WechatFrame,
+  type WechatImageMessage,
+  type WechatMediaContent,
+  type WechatMixedMessage,
+  type WechatSdkClient,
+  type WechatTextMessage
+} from "./wecomSdkClient.js";
 
 export type WechatAdapterConfig = {
   readonly botId: string;
@@ -49,6 +51,13 @@ export type WechatAdapterConfig = {
    */
   readonly maxReconnectAttempts?: number;
   readonly uploadRootPath?: string;
+  readonly sdkClient?: WechatSdkClient;
+  /**
+   * Reject inbound messages while the WSS connection is unavailable.
+   * Default: false, so already-received frames can still be answered through
+   * the HTTP fallback channel when streaming is unavailable.
+   */
+  readonly rejectWhenConnectionUnavailable?: boolean;
   /**
    * Max inflight messages per user session before rejecting with "please wait".
    * Default: 3 (matches WeChat platform limit).
@@ -56,28 +65,46 @@ export type WechatAdapterConfig = {
   readonly maxInflightPerSession?: number;
 };
 
-type ChatMessage = TextMessage | ImageMessage | FileMessage | MixedMessage;
-type ChatFrame = WsFrame<ChatMessage>;
-type DownloadableMediaContent = ImageContent | FileContent;
+export type WechatSessionMetrics = {
+  readonly connected: boolean;
+  readonly activeLockCount: number;
+  /**
+   * Messages waiting for or holding a session lock.
+   */
+  readonly inflightMessageCount: number;
+  readonly trackedSessionCount: number;
+  readonly streamFailureCount: number;
+  readonly connectionUnavailableRejectionCount: number;
+};
+
+type ChatFrame = WechatFrame<WechatChatMessage>;
+type DownloadableMediaContent = WechatMediaContent;
 
 const DEFAULT_WECHAT_UPLOAD_ROOT_PATH = path.resolve(".harness", "wechat-uploads");
+const WECHAT_CONNECTION_UNAVAILABLE_REPLY =
+  "企业微信长连接正在重连，当前消息未进入处理队列，请稍后重试。";
 
 export class WechatSmartBotAdapter {
-  private readonly wsClient: WSClient;
+  private readonly wsClient: WechatSdkClient;
   private readonly sessionLock = new SessionLock();
+  private streamFailureCount = 0;
+  private connectionUnavailableRejectionCount = 0;
+  private readonly streamFailureCountsByPhase = new Map<string, number>();
 
   public constructor(private readonly config: WechatAdapterConfig) {
-    this.wsClient = new WSClient({
-      botId: config.botId,
-      secret: config.secret,
-      ...(config.wsUrl !== undefined ? { wsUrl: config.wsUrl } : {}),
-      ...(config.reconnectInterval !== undefined
-        ? { reconnectInterval: config.reconnectInterval }
-        : {}),
-      ...(config.maxReconnectAttempts !== undefined
-        ? { maxReconnectAttempts: config.maxReconnectAttempts }
-        : {})
-    });
+    this.wsClient =
+      config.sdkClient ??
+      new WecomAibotSdkClient({
+        botId: config.botId,
+        secret: config.secret,
+        ...(config.wsUrl !== undefined ? { wsUrl: config.wsUrl } : {}),
+        ...(config.reconnectInterval !== undefined
+          ? { reconnectInterval: config.reconnectInterval }
+          : {}),
+        ...(config.maxReconnectAttempts !== undefined
+          ? { maxReconnectAttempts: config.maxReconnectAttempts }
+          : {})
+      });
 
     this.registerHandlers();
   }
@@ -93,6 +120,17 @@ export class WechatSmartBotAdapter {
 
   public get isConnected(): boolean {
     return this.wsClient.isConnected;
+  }
+
+  public getSessionMetrics(): WechatSessionMetrics {
+    return {
+      connected: this.isConnected,
+      activeLockCount: this.sessionLock.activeLockCount(),
+      inflightMessageCount: this.sessionLock.totalQueuedOrHeldCount(),
+      trackedSessionCount: this.sessionLock.trackedKeyCount(),
+      streamFailureCount: this.streamFailureCount,
+      connectionUnavailableRejectionCount: this.connectionUnavailableRejectionCount
+    };
   }
 
   /**
@@ -124,70 +162,129 @@ export class WechatSmartBotAdapter {
     });
 
     // Handle text messages
-    this.wsClient.on("message.text", (frame: WsFrame<TextMessage>) => {
+    this.wsClient.on("message.text", (frame: WechatFrame<WechatTextMessage>) => {
       void this.handleTextMessage(frame);
     });
 
-    this.wsClient.on("message.image", (frame: WsFrame<ImageMessage>) => {
+    this.wsClient.on("message.image", (frame: WechatFrame<WechatImageMessage>) => {
       void this.handleImageMessage(frame);
     });
 
-    this.wsClient.on("message.file", (frame: WsFrame<FileMessage>) => {
+    this.wsClient.on("message.file", (frame: WechatFrame<WechatFileMessage>) => {
       void this.handleFileMessage(frame);
     });
 
-    this.wsClient.on("message.mixed", (frame: WsFrame<MixedMessage>) => {
+    this.wsClient.on("message.mixed", (frame: WechatFrame<WechatMixedMessage>) => {
       void this.handleMixedMessage(frame);
     });
 
     // Handle enter chat event - send welcome message
-    this.wsClient.on("event.enter_chat", (frame: WsFrame<EventMessage>) => {
+    this.wsClient.on("event.enter_chat", (frame: WechatFrame<WechatEventMessage>) => {
       this.handleEnterChat(frame);
     });
   }
 
-  private async handleTextMessage(frame: WsFrame<TextMessage>): Promise<void> {
+  private async handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void> {
     const body = frame.body;
     if (body === undefined) return;
 
-    await this.handleChatMessage(frame, stripBotMention(body.text.content), []);
+    const text = stripBotMention(body.text.content);
+    if (await this.rejectWhenConnectionUnavailable(frame, text)) {
+      return;
+    }
+
+    await this.handleChatMessage(frame, text, []);
   }
 
-  private async handleImageMessage(frame: WsFrame<ImageMessage>): Promise<void> {
+  private async handleImageMessage(frame: WechatFrame<WechatImageMessage>): Promise<void> {
     const body = frame.body;
     if (body === undefined) return;
 
-    await this.handleChatMessage(frame, "请描述这张图片。", [
+    const text = "请描述这张图片。";
+    if (await this.rejectWhenConnectionUnavailable(frame, text)) {
+      return;
+    }
+
+    await this.handleChatMessage(frame, text, [
       await this.downloadWechatAttachment(body.image, "image")
     ]);
   }
 
-  private async handleFileMessage(frame: WsFrame<FileMessage>): Promise<void> {
+  private async handleFileMessage(frame: WechatFrame<WechatFileMessage>): Promise<void> {
     const body = frame.body;
     if (body === undefined) return;
 
-    await this.handleChatMessage(frame, "请根据上传的文档回答。", [
+    const text = "请根据上传的文档回答。";
+    if (await this.rejectWhenConnectionUnavailable(frame, text)) {
+      return;
+    }
+
+    await this.handleChatMessage(frame, text, [
       await this.downloadWechatAttachment(body.file, "file")
     ]);
   }
 
-  private async handleMixedMessage(frame: WsFrame<MixedMessage>): Promise<void> {
+  private async handleMixedMessage(frame: WechatFrame<WechatMixedMessage>): Promise<void> {
     const body = frame.body;
     if (body === undefined) return;
 
     const textParts: string[] = [];
-    const downloads: WechatDownloadedAttachment[] = [];
+    const imageContents: WechatMediaContent[] = [];
     for (const item of body.mixed.msg_item) {
-      if (item.msgtype === "text" && item.text !== undefined) {
+      if (item.msgtype === "text") {
         textParts.push(item.text.content);
       }
-      if (item.msgtype === "image" && item.image !== undefined) {
-        downloads.push(await this.downloadWechatAttachment(item.image, "image"));
+      if (item.msgtype === "image") {
+        imageContents.push(item.image);
       }
     }
 
     const text = stripBotMention(textParts.join("\n").trim());
+    const normalizedText = text.length > 0 ? text : "请描述这张图片。";
+    if (await this.rejectWhenConnectionUnavailable(frame, normalizedText)) {
+      return;
+    }
+
+    const downloads: WechatDownloadedAttachment[] = [];
+    for (const image of imageContents) {
+      downloads.push(await this.downloadWechatAttachment(image, "image"));
+    }
+
     await this.handleChatMessage(frame, text.length > 0 ? text : "请描述这张图片。", downloads);
+  }
+
+  private async rejectWhenConnectionUnavailable(frame: ChatFrame, text: string): Promise<boolean> {
+    const body = frame.body;
+    const rejectWhenUnavailable = this.config.rejectWhenConnectionUnavailable ?? false;
+    if (body === undefined || this.isConnected || !rejectWhenUnavailable) {
+      return false;
+    }
+
+    const inbound = buildWechatInboundMessage(body, text, []);
+    const replyTarget =
+      body.chattype === "group" && body.chatid !== undefined ? body.chatid : body.from.userid;
+    this.connectionUnavailableRejectionCount += 1;
+    const eventData = {
+      reason: "wss disconnected",
+      connected: false,
+      connectionUnavailableRejectionCount: this.connectionUnavailableRejectionCount
+    };
+
+    await this.logMessageEvent("wechat.message_rejected", inbound, eventData);
+    await this.logMessageEvent(
+      "wechat.connection_unavailable_message_rejected",
+      inbound,
+      eventData
+    );
+    await this.sendReply(
+      frame,
+      createWechatStreamId(),
+      replyTarget,
+      inbound,
+      WECHAT_CONNECTION_UNAVAILABLE_REPLY,
+      "rejection"
+    );
+    return true;
   }
 
   private async handleChatMessage(
@@ -202,7 +299,7 @@ export class WechatSmartBotAdapter {
 
     const chatId = body.chattype === "group" ? body.chatid : undefined;
     const replyTarget = chatId ?? userId;
-    const streamId = generateReqId("stream");
+    const streamId = createWechatStreamId();
     const streamState: { inbound: InboundMessage | undefined } = { inbound: undefined };
     const channelInfoReply = buildWechatDeliveryChannelInfo(body);
     if (channelInfoReply !== undefined && downloads.length === 0) {
@@ -267,7 +364,7 @@ export class WechatSmartBotAdapter {
 
     // Reject immediately if too many inflight messages for this session
     const maxInflight = this.config.maxInflightPerSession ?? 3;
-    if (this.sessionLock.inflightFor(lockKey) >= maxInflight) {
+    if (this.sessionLock.queuedOrHeldFor(lockKey) >= maxInflight) {
       await this.sendReply(
         frame,
         streamId,
@@ -313,7 +410,7 @@ export class WechatSmartBotAdapter {
     }
   }
 
-  private handleEnterChat(frame: WsFrame<EventMessage>): void {
+  private handleEnterChat(frame: WechatFrame<WechatEventMessage>): void {
     void this.wsClient.replyWelcome(frame, {
       msgtype: "text",
       text: { content: "您好！我是知识库助手，可以帮您查询知识库内容。请问有什么可以帮您的？" }
@@ -366,12 +463,24 @@ export class WechatSmartBotAdapter {
       );
       return true;
     } catch (error) {
-      await this.logMessageEvent("wechat.reply_stream_failed", message, {
+      const failureCounts = this.recordStreamFailure(phase);
+      const failureEvent = {
         phase,
-        error: formatUnknownError(error)
-      });
+        error: formatUnknownError(error),
+        streamFailureCount: failureCounts.total,
+        phaseFailureCount: failureCounts.phase
+      };
+      await this.logMessageEvent("wechat.reply_stream_failed", message, failureEvent);
+      await this.logMessageEvent("wechat.stream.failure", message, failureEvent);
       return false;
     }
+  }
+
+  private recordStreamFailure(phase: string): { readonly total: number; readonly phase: number } {
+    this.streamFailureCount += 1;
+    const phaseFailureCount = (this.streamFailureCountsByPhase.get(phase) ?? 0) + 1;
+    this.streamFailureCountsByPhase.set(phase, phaseFailureCount);
+    return { total: this.streamFailureCount, phase: phaseFailureCount };
   }
 
   private async sendMessageFallback(
@@ -423,7 +532,7 @@ export class WechatSmartBotAdapter {
 }
 
 function buildWechatInboundMessage(
-  body: ChatMessage,
+  body: WechatChatMessage,
   text: string,
   attachments: readonly InboundAttachment[],
   stream?: AgentStreamPublisher
@@ -465,13 +574,10 @@ export function sanitizeOutgoingWechatContent(content: string): string {
  * mention markup. This is only for proactive notifications, not model replies.
  */
 export function formatProactiveWechatNotificationContent(content: string): string {
-  return content.replace(
-    /(^|[^A-Za-z0-9_<@.-])@([A-Za-z0-9][A-Za-z0-9_.-]*|all)\b/g,
-    "$1<@$2>"
-  );
+  return content.replace(/(^|[^A-Za-z0-9_<@.-])@([A-Za-z0-9][A-Za-z0-9_.-]*|all)\b/g, "$1<@$2>");
 }
 
-export function buildWechatDeliveryChannelInfo(body: ChatMessage): string | undefined {
+export function buildWechatDeliveryChannelInfo(body: WechatChatMessage): string | undefined {
   if (!isDeliveryChannelInfoRequest(getChatMessageText(body))) {
     return undefined;
   }
@@ -501,24 +607,23 @@ export function buildWechatDeliveryChannelInfo(body: ChatMessage): string | unde
   ].join("\n");
 }
 
-function getChatMessageText(body: ChatMessage): string {
+function getChatMessageText(body: WechatChatMessage): string {
   if (isTextChatMessage(body)) {
     return body.text.content;
   }
   if (isMixedChatMessage(body)) {
     return body.mixed.msg_item
-      .filter((item) => item.msgtype === "text" && item.text !== undefined)
-      .map((item) => item.text?.content ?? "")
+      .flatMap((item) => (item.msgtype === "text" ? [item.text.content] : []))
       .join("\n");
   }
   return "";
 }
 
-function isTextChatMessage(body: ChatMessage): body is TextMessage {
+function isTextChatMessage(body: WechatChatMessage): body is WechatTextMessage {
   return Object.prototype.hasOwnProperty.call(body, "text");
 }
 
-function isMixedChatMessage(body: ChatMessage): body is MixedMessage {
+function isMixedChatMessage(body: WechatChatMessage): body is WechatMixedMessage {
   return Object.prototype.hasOwnProperty.call(body, "mixed");
 }
 

@@ -3,6 +3,7 @@ import type { CronJobStore, CronJob, CronJobResult } from "./cronTypes.js";
 import { TickCronScheduler } from "./cronScheduler.js";
 import type { MessageGateway, OutboundMessage } from "../core/index.js";
 import type { CompositeDeliveryChannel } from "./delivery/compositeDelivery.js";
+import type { CronLeaderLease } from "./cronLeaderLease.js";
 
 function makeJob(overrides: Partial<CronJob> = {}): CronJob {
   return {
@@ -15,13 +16,18 @@ function makeJob(overrides: Partial<CronJob> = {}): CronJob {
     delivery: { channels: ["sse:admin"] },
     createdAt: "2026-05-28T10:00:00Z",
     updatedAt: "2026-05-28T10:00:00Z",
-    ...overrides,
+    ...overrides
   };
 }
 
 type MockFn = ReturnType<typeof vi.fn>;
 
-function createMockStore(jobs: CronJob[] = []): CronJobStore & { setNextRunAtMock: MockFn; updateMock: MockFn } {
+function createMockStore(jobs: CronJob[] = []): CronJobStore & {
+  getAllMock: MockFn;
+  setLastResultMock: MockFn;
+  setNextRunAtMock: MockFn;
+  updateMock: MockFn;
+} {
   const jobMap = new Map(jobs.map((j) => [j.id, { ...j }]));
   const runStateMap = new Map<string, { nextRunAt?: string; lastResult?: CronJobResult }>();
 
@@ -43,12 +49,24 @@ function createMockStore(jobs: CronJob[] = []): CronJobStore & { setNextRunAtMoc
     jobMap.set(id, updated);
     return Promise.resolve(updated);
   });
+  const getAllMock = vi.fn(() => Promise.resolve(Array.from(jobMap.values())));
+  const setLastResultMock = vi.fn((id: string, result: CronJobResult) => {
+    const state = runStateMap.get(id) ?? {};
+    state.lastResult = result;
+    runStateMap.set(id, state);
+    return Promise.resolve();
+  });
 
   return {
-    getAll: vi.fn(() => Promise.resolve(Array.from(jobMap.values()))),
+    getAll: getAllMock,
     getById: vi.fn((id: string) => Promise.resolve(jobMap.get(id))),
     create: vi.fn((data) => {
-      const job = { ...data, id: "generated-id", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as CronJob;
+      const job = {
+        ...data,
+        id: "generated-id",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      } as CronJob;
       jobMap.set(job.id, job);
       runStateMap.set(job.id, {});
       return Promise.resolve(job);
@@ -63,18 +81,17 @@ function createMockStore(jobs: CronJob[] = []): CronJobStore & { setNextRunAtMoc
     getNextRunAt: vi.fn((id: string) => Promise.resolve(runStateMap.get(id)?.nextRunAt)),
     setNextRunAt: setNextRunAtMock,
     getLastResult: vi.fn((id: string) => Promise.resolve(runStateMap.get(id)?.lastResult)),
-    setLastResult: vi.fn((id: string, result: CronJobResult) => {
-      const state = runStateMap.get(id) ?? {};
-      state.lastResult = result;
-      runStateMap.set(id, state);
-      return Promise.resolve();
-    }),
+    setLastResult: setLastResultMock,
+    getAllMock,
+    setLastResultMock,
     setNextRunAtMock,
-    updateMock,
+    updateMock
   };
 }
 
-function createMockGateway(response: OutboundMessage = { text: "Done" }): MessageGateway & { handleMock: MockFn } {
+function createMockGateway(
+  response: OutboundMessage = { text: "Done" }
+): MessageGateway & { handleMock: MockFn } {
   const handleMock = vi.fn(() => Promise.resolve(response));
   return { handle: handleMock, handleMock };
 }
@@ -85,8 +102,29 @@ function createMockDelivery(): CompositeDeliveryChannel & { deliverAllMock: Mock
     prefix: "",
     deliver: vi.fn(() => Promise.resolve()),
     deliverAll: deliverAllMock,
-    deliverAllMock,
+    deliverAllMock
   } as unknown as CompositeDeliveryChannel & { deliverAllMock: MockFn };
+}
+
+function createMockLeaderLease(acquireResult: boolean): CronLeaderLease & {
+  acquireMock: MockFn;
+  renewMock: MockFn;
+  releaseMock: MockFn;
+} {
+  const acquireMock = vi.fn(() => Promise.resolve(acquireResult));
+  const renewMock = vi.fn(() => Promise.resolve(acquireResult));
+  const releaseMock = vi.fn(() => Promise.resolve());
+
+  return {
+    leasePath: "/tmp/cron.leader",
+    ownerId: "test-owner",
+    acquire: acquireMock,
+    renew: renewMock,
+    release: releaseMock,
+    acquireMock,
+    renewMock,
+    releaseMock
+  };
 }
 
 describe("TickCronScheduler", () => {
@@ -103,7 +141,7 @@ describe("TickCronScheduler", () => {
       jobStore: createMockStore(),
       messageHandler: createMockGateway(),
       delivery: createMockDelivery(),
-      tickIntervalMs: 1000,
+      tickIntervalMs: 1000
     });
 
     expect(scheduler.isRunning).toBe(false);
@@ -118,7 +156,7 @@ describe("TickCronScheduler", () => {
       jobStore: createMockStore(),
       messageHandler: createMockGateway(),
       delivery: createMockDelivery(),
-      tickIntervalMs: 1000,
+      tickIntervalMs: 1000
     });
 
     scheduler.start();
@@ -136,7 +174,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     const result = await scheduler.triggerNow(job.id);
@@ -156,7 +194,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     await scheduler.triggerNow(job.id);
@@ -164,7 +202,7 @@ describe("TickCronScheduler", () => {
     expect(gateway.handleMock).toHaveBeenCalledWith(
       expect.objectContaining({
         chatId: `job:${job.id}`,
-        roleOverride: "developer",
+        roleOverride: "developer"
       })
     );
   });
@@ -173,7 +211,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: createMockStore(),
       messageHandler: createMockGateway(),
-      delivery: createMockDelivery(),
+      delivery: createMockDelivery()
     });
 
     await expect(scheduler.triggerNow("nonexistent")).rejects.toThrow("Cron job not found");
@@ -189,7 +227,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     const result = await scheduler.triggerNow(job.id);
@@ -201,16 +239,19 @@ describe("TickCronScheduler", () => {
   it("records timeout when gateway takes too long", async () => {
     const job = makeJob({ timeoutMs: 100 });
     const store = createMockStore([job]);
-    const slowFn = vi.fn(() => new Promise<OutboundMessage>((resolve) => {
-      setTimeout(() => resolve({ text: "Should not see this" }), 200);
-    }));
+    const slowFn = vi.fn(
+      () =>
+        new Promise<OutboundMessage>((resolve) => {
+          setTimeout(() => resolve({ text: "Should not see this" }), 200);
+        })
+    );
     const gateway: MessageGateway = { handle: slowFn };
     const delivery = createMockDelivery();
 
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     // Start the trigger which will set up the timeout
@@ -227,16 +268,19 @@ describe("TickCronScheduler", () => {
     const job = makeJob();
     const store = createMockStore([job]);
     let resolveFirst: ((response: OutboundMessage) => void) | undefined;
-    const handleMock = vi.fn(() => new Promise<OutboundMessage>((resolve) => {
-      resolveFirst = resolve;
-    }));
+    const handleMock = vi.fn(
+      () =>
+        new Promise<OutboundMessage>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
     const gateway: MessageGateway = { handle: handleMock };
     const delivery = createMockDelivery();
 
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     const firstRun = scheduler.triggerNow(job.id);
@@ -260,7 +304,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     await scheduler.triggerNow(job.id);
@@ -276,7 +320,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
-      delivery,
+      delivery
     });
 
     await scheduler.triggerNow(job.id);
@@ -298,7 +342,7 @@ describe("TickCronScheduler", () => {
       jobStore: store,
       messageHandler: createMockGateway(),
       delivery,
-      tickIntervalMs: 60_000,
+      tickIntervalMs: 60_000
     });
 
     scheduler.start();
@@ -331,7 +375,7 @@ describe("TickCronScheduler", () => {
       messageHandler: gateway,
       delivery,
       staleGraceMs: 300_000,
-      tickIntervalMs: 60_000,
+      tickIntervalMs: 60_000
     });
 
     scheduler.start();
@@ -348,16 +392,19 @@ describe("TickCronScheduler", () => {
     const job = makeJob({ schedule: { type: "interval", milliseconds: 1_000 } });
     const store = createMockStore([job]);
     (store.getNextRunAt as MockFn).mockResolvedValue("2026-05-28T11:59:59Z");
-    const slowFn = vi.fn(() => new Promise<OutboundMessage>((resolve) => {
-      setTimeout(() => resolve({ text: "Done" }), 5_000);
-    }));
+    const slowFn = vi.fn(
+      () =>
+        new Promise<OutboundMessage>((resolve) => {
+          setTimeout(() => resolve({ text: "Done" }), 5_000);
+        })
+    );
     const gateway: MessageGateway = { handle: slowFn };
 
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: gateway,
       delivery: createMockDelivery(),
-      tickIntervalMs: 1_000,
+      tickIntervalMs: 1_000
     });
 
     scheduler.start();
@@ -368,6 +415,111 @@ describe("TickCronScheduler", () => {
     await vi.advanceTimersByTimeAsync(5_000);
   });
 
+  it("does not run scheduled ticks when another process owns the leader lease", async () => {
+    const now = new Date("2026-05-28T12:00:00Z");
+    vi.setSystemTime(now);
+
+    const job = makeJob({ schedule: { type: "interval", milliseconds: 1_000 } });
+    const store = createMockStore([job]);
+    (store.getNextRunAt as MockFn).mockResolvedValue("2026-05-28T11:59:59Z");
+    const gateway = createMockGateway();
+    const leaderLease = createMockLeaderLease(false);
+
+    const scheduler = new TickCronScheduler({
+      jobStore: store,
+      messageHandler: gateway,
+      delivery: createMockDelivery(),
+      leaderLease,
+      tickIntervalMs: 1_000
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(leaderLease.acquireMock).toHaveBeenCalled();
+    expect(scheduler.isLeader).toBe(false);
+    expect(store.getAllMock).not.toHaveBeenCalled();
+    expect(gateway.handleMock).not.toHaveBeenCalled();
+
+    scheduler.stop();
+  });
+
+  it("renews the leader lease while running", async () => {
+    const leaderLease = createMockLeaderLease(true);
+    const scheduler = new TickCronScheduler({
+      jobStore: createMockStore(),
+      messageHandler: createMockGateway(),
+      delivery: createMockDelivery(),
+      leaderLease,
+      tickIntervalMs: 1_000,
+      leaderRenewIntervalMs: 1_000
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(scheduler.isLeader).toBe(true);
+    expect(leaderLease.renewMock).toHaveBeenCalled();
+
+    scheduler.stop();
+    expect(leaderLease.releaseMock).toHaveBeenCalled();
+  });
+
+  it("skips delivery when leadership is lost while a job is running", async () => {
+    const now = new Date("2026-05-28T12:00:00Z");
+    vi.setSystemTime(now);
+
+    const job = makeJob({ schedule: { type: "interval", milliseconds: 1_000 } });
+    const store = createMockStore([job]);
+    (store.getNextRunAt as MockFn).mockResolvedValue("2026-05-28T11:59:59Z");
+    const delivery = createMockDelivery();
+    let resolveGateway: ((message: OutboundMessage) => void) | undefined;
+    const handleMock = vi.fn(
+      () =>
+        new Promise<OutboundMessage>((resolve) => {
+          resolveGateway = resolve;
+        })
+    );
+    const gateway: MessageGateway & { handleMock: MockFn } = {
+      handle: handleMock,
+      handleMock
+    };
+    const leaderLease: CronLeaderLease = {
+      leasePath: "/tmp/cron.leader",
+      ownerId: "test-owner",
+      acquire: vi.fn(() => Promise.resolve(true)),
+      renew: vi.fn(() => Promise.resolve(false)),
+      release: vi.fn(() => Promise.resolve())
+    };
+
+    const scheduler = new TickCronScheduler({
+      jobStore: store,
+      messageHandler: gateway,
+      delivery,
+      leaderLease,
+      tickIntervalMs: 1_000,
+      leaderRenewIntervalMs: 1_000
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(gateway.handleMock).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(store.setLastResultMock).toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({
+        status: "skipped",
+        error: "Lost cron leader lease"
+      })
+    );
+    expect(delivery.deliverAllMock).not.toHaveBeenCalled();
+
+    resolveGateway?.({ text: "late result" });
+    scheduler.stop();
+  });
+
   it("executes one-shot jobs via triggerNow", async () => {
     const job = makeJob({ schedule: { type: "once", runAt: "2026-05-28T09:00:00Z" } });
     const store = createMockStore([job]);
@@ -376,7 +528,7 @@ describe("TickCronScheduler", () => {
     const scheduler = new TickCronScheduler({
       jobStore: store,
       messageHandler: createMockGateway({ text: "Done" }),
-      delivery,
+      delivery
     });
 
     const result = await scheduler.triggerNow(job.id);

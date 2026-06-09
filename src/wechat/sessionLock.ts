@@ -1,8 +1,8 @@
 /**
  * Per-key mutex that serializes async operations sharing the same key.
  *
- * Extends the core AsyncMutex with inflight count tracking for monitoring
- * concurrent operations per session key.
+ * Extends the core AsyncMutex with queued-or-held count tracking for applying
+ * the WeChat per-session interaction limit.
  */
 import { AsyncMutex } from "../core/asyncMutex.js";
 
@@ -25,8 +25,24 @@ export class SessionLock {
     };
   }
 
-  public inflightFor(key: string): number {
+  public queuedOrHeldFor(key: string): number {
     return this.inflightCounts.get(key) ?? 0;
+  }
+
+  public totalQueuedOrHeldCount(): number {
+    return [...this.inflightCounts.values()].reduce((sum, count) => sum + count, 0);
+  }
+
+  public inflightFor(key: string): number {
+    return this.queuedOrHeldFor(key);
+  }
+
+  public totalInflightCount(): number {
+    return this.totalQueuedOrHeldCount();
+  }
+
+  public trackedKeyCount(): number {
+    return this.inflightCounts.size;
   }
 
   public activeLockCount(): number {

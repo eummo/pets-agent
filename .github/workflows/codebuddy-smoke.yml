@@ -1,0 +1,64 @@
+name: Codebuddy Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * 1-5"
+
+jobs:
+  codebuddy-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LOCAL_LLM_API_KEY: ${{ secrets.LOCAL_LLM_API_KEY }}
+      CODEBUDDY_SMOKE_API_KEY: ${{ secrets.CODEBUDDY_SMOKE_API_KEY }}
+      CODEBUDDY_AUTH_TOKEN: ${{ secrets.CODEBUDDY_AUTH_TOKEN }}
+      CODEBUDDY_SMOKE_ENDPOINT: ${{ vars.CODEBUDDY_SMOKE_ENDPOINT }}
+      CODEBUDDY_SMOKE_ENVIRONMENT: ${{ vars.CODEBUDDY_SMOKE_ENVIRONMENT }}
+      CODEBUDDY_SMOKE_MODEL: ${{ vars.CODEBUDDY_SMOKE_MODEL }}
+      CODEBUDDY_SMOKE_TEMP_DIR: .harness/codebuddy-smoke
+      SMOKE_REQUEST_TIMEOUT_MS: "45000"
+      SMOKE_CHAT_TIMEOUT_MS: "300000"
+
+    steps:
+      - name: Check required secrets
+        shell: bash
+        run: |
+          if [[ -z "${LOCAL_LLM_API_KEY}" ]]; then
+            echo "LOCAL_LLM_API_KEY secret is required for intent/model smoke."
+            exit 1
+          fi
+          if [[ -z "${CODEBUDDY_SMOKE_API_KEY}" && -z "${CODEBUDDY_AUTH_TOKEN}" ]]; then
+            echo "CODEBUDDY_SMOKE_API_KEY or CODEBUDDY_AUTH_TOKEN secret is required."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run local checks
+        run: npm run check
+
+      - name: Reset harness
+        run: npm run harness -- --reset
+
+      - name: Run Codebuddy smoke
+        run: npm run smoke:codebuddy
+
+      - name: Upload Codebuddy smoke artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codebuddy-smoke-artifacts
+          path: .harness/codebuddy-smoke
+          if-no-files-found: ignore
+          retention-days: 7

@@ -21,6 +21,59 @@ const CREATE_TABLE_MIGRATIONS = [
     status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','reviewed','resolved')),
     created_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS conversation_sessions (
+    session_key   TEXT PRIMARY KEY NOT NULL,
+    channel       TEXT NOT NULL,
+    user_id       TEXT NOT NULL,
+    workspace_path TEXT NOT NULL,
+    chat_id       TEXT,
+    session_id    TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS conversation_histories (
+    session_key    TEXT PRIMARY KEY NOT NULL,
+    channel        TEXT NOT NULL,
+    user_id        TEXT NOT NULL,
+    workspace_path TEXT NOT NULL,
+    chat_id        TEXT,
+    messages_json  TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS conversation_history_archives (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_key    TEXT NOT NULL,
+    channel        TEXT NOT NULL,
+    user_id        TEXT NOT NULL,
+    workspace_path TEXT NOT NULL,
+    chat_id        TEXT,
+    messages_json  TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    archived_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS cron_jobs (
+    id              TEXT PRIMARY KEY NOT NULL,
+    name            TEXT NOT NULL,
+    schedule_json   TEXT NOT NULL,
+    prompt          TEXT NOT NULL,
+    workspace_path  TEXT NOT NULL,
+    role            TEXT,
+    enabled         INTEGER NOT NULL CHECK (enabled IN (0,1)),
+    delivery_json   TEXT NOT NULL,
+    timeout_ms      INTEGER,
+    silent_on_empty INTEGER CHECK (silent_on_empty IN (0,1)),
+    created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS cron_run_state (
+    job_id           TEXT PRIMARY KEY NOT NULL,
+    next_run_at      TEXT,
+    last_result_json TEXT,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY(job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
   )`
 ];
 
@@ -43,7 +96,12 @@ const FEEDBACK_METADATA_COLUMNS = [
 const CREATE_INDEX_MIGRATIONS = [
   "CREATE INDEX IF NOT EXISTS idx_feedback_status_id ON feedback(status, id DESC)",
   "CREATE INDEX IF NOT EXISTS idx_feedback_user_id_id ON feedback(user_id, id DESC)",
-  "CREATE INDEX IF NOT EXISTS idx_feedback_workspace_path_id ON feedback(workspace_path, id DESC)"
+  "CREATE INDEX IF NOT EXISTS idx_feedback_workspace_path_id ON feedback(workspace_path, id DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_conversation_sessions_user ON conversation_sessions(user_id, updated_at DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_conversation_histories_user ON conversation_histories(user_id, updated_at DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_conversation_history_archives_key ON conversation_history_archives(session_key, id DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_conversation_history_archives_archived_at ON conversation_history_archives(archived_at)",
+  "CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_updated ON cron_jobs(enabled, updated_at DESC)"
 ] as const;
 
 export function createSqliteConnection(dbPath: string): Database.Database {
@@ -52,6 +110,8 @@ export function createSqliteConnection(dbPath: string): Database.Database {
 
   // Enable WAL mode for better concurrent read performance
   db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.pragma("busy_timeout = 5000");
 
   // Run migrations inside a transaction
   const runMigrations = db.transaction(() => {

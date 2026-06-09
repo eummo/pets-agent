@@ -49,3 +49,9 @@ export type FeedbackStore = {
   updateStatus(id: number, status: FeedbackStatus): Promise<boolean>;
   getAll(query?: FeedbackQuery): Promise<readonly FeedbackEntry[]>;
 };
+
+export {
+  SqliteConversationHistoryStore,
+  SqliteConversationSessionStore
+} from "./sqliteConversationStores.js";
+export type { SqliteConversationHistoryStoreOptions } from "./sqliteConversationStores.js";

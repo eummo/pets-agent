@@ -2,7 +2,7 @@
 
 ## 接入模式：WebSocket 长连接
 
-本项目使用企业微信智能机器人的 **WebSocket 长连接模式**（非 Webhook 短连接），通过官方 SDK `@wecom/aibot-node-sdk` 接入。
+本项目使用企业微信智能机器人的 **WebSocket 长连接模式**（非 Webhook 短连接），当前通过 `@wecom/aibot-node-sdk` 接入。
 
 ### 长连接 vs Webhook 对比
 
@@ -17,13 +17,26 @@
 
 长连接模式的优势：无需公网 IP、无需 AES 加解密、天然支持流式回复。
 
-## 官方 SDK
+## SDK 依赖与官方性核验
 
 ```bash
 npm install @wecom/aibot-node-sdk
 ```
 
 SDK 仓库：https://github.com/WecomTeam/aibot-node-sdk
+
+核验结果（2026-06-06）：
+
+- npm 包名：`@wecom/aibot-node-sdk`
+- 当前版本：`1.0.7`
+- npm 描述：企业微信智能机器人 Node.js SDK - WebSocket 长连接通道
+- npm repository/homepage：`https://github.com/WecomTeam/aibot-node-sdk`
+- npm maintainer：`wecom-bot <jason.daurus+wecom-bot@gmail.com>`
+- 包内 `author` 为空
+
+结论：该包与企业微信智能机器人长连接能力匹配，仓库命名也指向 WeCom 生态；但当前未找到企业微信官方开发者站对该 npm 包归属的明确背书，因此不能把它视为已经完全核实的腾讯官方 npm 包。
+
+工程决策：继续使用该 SDK，但项目代码把 provider-specific 能力隔离在 `src/wechat/wecomSdkClient.ts`。`WechatSmartBotAdapter` 只依赖本项目的 `WechatSdkClient`、`WechatFrame` 和消息类型；业务编排层不得直接依赖该 SDK 类型，后续如需替换 SDK，应只改 wrapper 和接入层。
 
 ### 核心能力
 
@@ -170,6 +183,20 @@ interface BaseMessage {
 - 流式消息超时：从首次发送开始 10 分钟内必须 finish
 - 欢迎语/卡片更新：5 秒内回复
 - 同一用户同一机器人最多 3 条消息同时交互中
+
+## 断连期策略
+
+默认策略是继续处理已经收到的消息：如果流式回复不可用，最终答复会通过 HTTP fallback 发送，
+并记录 `wechat.stream.failure`。如需在断连或重连期间保护下游模型和附件处理，可设置
+`wechat.rejectWhenConnectionUnavailable: true` 启用**立即拒绝**策略：
+
+- 入站消息不会进入 `MessageGateway` 或模型运行时。
+- 图片、文件和混合消息不会触发附件下载。
+- 适配器会 best-effort 回复“长连接正在重连，请稍后重试”。
+- `system.jsonl` 会记录 `wechat.message_rejected` 和 `wechat.connection_unavailable_message_rejected`。
+- `wechat.session_metrics` 会累计 `connectionUnavailableRejectionCount`。
+
+拒收模式不采用排队或落盘补偿，是因为企业微信被动回复窗口较短，延迟处理更容易造成迟到回复、重复回复或用户误判。
 
 ## 流式回复机制
 

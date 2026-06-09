@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { isLocalRequest, normalizeOptionalText } from "../server/serverUtils.js";
 import type { AuthorizationService } from "../auth/index.js";
-import type { CronJobStore } from "./cronTypes.js";
+import type { CronJob, CronJobResult, CronJobStore } from "./cronTypes.js";
 import type { CronScheduler } from "./cronTypes.js";
 import type { CronParseService } from "./cronParseService.js";
 import { cronScheduleSchema, deliveryTargetSchema } from "./cronTypes.js";
@@ -23,7 +23,7 @@ const createJobBodySchema = z.object({
   enabled: z.boolean().default(true),
   delivery: deliveryTargetSchema,
   timeoutMs: z.number().int().positive().optional(),
-  silentOnEmpty: z.boolean().optional(),
+  silentOnEmpty: z.boolean().optional()
 });
 
 const updateJobBodySchema = z.object({
@@ -35,22 +35,26 @@ const updateJobBodySchema = z.object({
   enabled: z.boolean().optional(),
   delivery: deliveryTargetSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
-  silentOnEmpty: z.boolean().optional(),
+  silentOnEmpty: z.boolean().optional()
 });
 
 const parseBodySchema = z.object({
   description: z.string().min(1),
-  userId: z.string().optional(),
+  userId: z.string().optional()
 });
 
 type CronQuery = {
   readonly userId?: string;
 };
 
-export function registerCronRoutes(
-  server: FastifyInstance,
-  options: CronRoutesOptions
-): void {
+type CronJobWithRunState = CronJob & {
+  readonly nextRunAt?: string;
+  readonly lastStatus?: CronJobResult["status"];
+  readonly lastError?: string;
+  readonly lastResult?: CronJobResult;
+};
+
+export function registerCronRoutes(server: FastifyInstance, options: CronRoutesOptions): void {
   const { jobStore, scheduler } = options;
 
   // List all jobs
@@ -61,37 +65,36 @@ export function registerCronRoutes(
     }
     const jobs = await jobStore.getAll();
     const results = await Promise.all(
-      jobs.map(async (job) => ({
-        ...job,
-        nextRunAt: await jobStore.getNextRunAt(job.id),
-        lastResult: await jobStore.getLastResult(job.id),
-      }))
+      jobs.map(async (job) => serializeCronJobWithRunState(jobStore, job))
     );
     return reply.send(results);
   });
 
   // Get a single job
-  server.get<{ Params: { id: string }; Querystring: CronQuery }>("/cron/jobs/:id", async (request, reply) => {
-    const authResult = await requireCronManage(options, request.ip, request.query.userId);
-    if (!authResult.authorized) {
-      return reply.code(authResult.statusCode).send({ error: authResult.error });
+  server.get<{ Params: { id: string }; Querystring: CronQuery }>(
+    "/cron/jobs/:id",
+    async (request, reply) => {
+      const authResult = await requireCronManage(options, request.ip, request.query.userId);
+      if (!authResult.authorized) {
+        return reply.code(authResult.statusCode).send({ error: authResult.error });
+      }
+      const { id } = request.params;
+      const job = await jobStore.getById(id);
+      if (job === undefined) {
+        return reply.code(404).send({ error: "Job not found" });
+      }
+      return reply.send(await serializeCronJobWithRunState(jobStore, job));
     }
-    const { id } = request.params;
-    const job = await jobStore.getById(id);
-    if (job === undefined) {
-      return reply.code(404).send({ error: "Job not found" });
-    }
-    return reply.send({
-      ...job,
-      nextRunAt: await jobStore.getNextRunAt(id),
-      lastResult: await jobStore.getLastResult(id),
-    });
-  });
+  );
 
   // Create a new job
   server.post("/cron/jobs", async (request, reply) => {
     const body = request.body as Record<string, unknown>;
-    const authResult = await requireCronManage(options, request.ip, body["userId"] as string | undefined);
+    const authResult = await requireCronManage(
+      options,
+      request.ip,
+      body["userId"] as string | undefined
+    );
     if (!authResult.authorized) {
       return reply.code(authResult.statusCode).send({ error: authResult.error });
     }
@@ -99,7 +102,7 @@ export function registerCronRoutes(
     if (!parsed.success) {
       return reply.code(400).send({
         error: "Invalid request body",
-        details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+        details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)
       });
     }
     const job = await jobStore.create(parsed.data);
@@ -109,7 +112,11 @@ export function registerCronRoutes(
   // Update a job
   server.patch<{ Params: { id: string } }>("/cron/jobs/:id", async (request, reply) => {
     const body = request.body as Record<string, unknown>;
-    const authResult = await requireCronManage(options, request.ip, body["userId"] as string | undefined);
+    const authResult = await requireCronManage(
+      options,
+      request.ip,
+      body["userId"] as string | undefined
+    );
     if (!authResult.authorized) {
       return reply.code(authResult.statusCode).send({ error: authResult.error });
     }
@@ -118,10 +125,15 @@ export function registerCronRoutes(
     if (!parsed.success) {
       return reply.code(400).send({
         error: "Invalid request body",
-        details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+        details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)
       });
     }
-    const updated = await jobStore.update(id, stripUndefined(parsed.data) as Partial<Omit<import("./cronTypes.js").CronJob, "id" | "createdAt">>);
+    const updated = await jobStore.update(
+      id,
+      stripUndefined(parsed.data) as Partial<
+        Omit<import("./cronTypes.js").CronJob, "id" | "createdAt">
+      >
+    );
     if (updated === undefined) {
       return reply.code(404).send({ error: "Job not found" });
     }
@@ -129,24 +141,35 @@ export function registerCronRoutes(
   });
 
   // Delete a job
-  server.delete<{ Params: { id: string }; Body?: { userId?: string } }>("/cron/jobs/:id", async (request, reply) => {
-    const body = request.body as Record<string, unknown> | undefined;
-    const authResult = await requireCronManage(options, request.ip, body?.["userId"] as string | undefined);
-    if (!authResult.authorized) {
-      return reply.code(authResult.statusCode).send({ error: authResult.error });
+  server.delete<{ Params: { id: string }; Body?: { userId?: string } }>(
+    "/cron/jobs/:id",
+    async (request, reply) => {
+      const body = request.body as Record<string, unknown> | undefined;
+      const authResult = await requireCronManage(
+        options,
+        request.ip,
+        body?.["userId"] as string | undefined
+      );
+      if (!authResult.authorized) {
+        return reply.code(authResult.statusCode).send({ error: authResult.error });
+      }
+      const { id } = request.params;
+      const deleted = await jobStore.delete(id);
+      if (!deleted) {
+        return reply.code(404).send({ error: "Job not found" });
+      }
+      return reply.code(204).send();
     }
-    const { id } = request.params;
-    const deleted = await jobStore.delete(id);
-    if (!deleted) {
-      return reply.code(404).send({ error: "Job not found" });
-    }
-    return reply.code(204).send();
-  });
+  );
 
   // Trigger a job immediately
   server.post<{ Params: { id: string } }>("/cron/jobs/:id/trigger", async (request, reply) => {
     const body = request.body as Record<string, unknown> | undefined;
-    const authResult = await requireCronManage(options, request.ip, body?.["userId"] as string | undefined);
+    const authResult = await requireCronManage(
+      options,
+      request.ip,
+      body?.["userId"] as string | undefined
+    );
     if (!authResult.authorized) {
       return reply.code(authResult.statusCode).send({ error: authResult.error });
     }
@@ -169,15 +192,20 @@ export function registerCronRoutes(
     const jobs = await jobStore.getAll();
     return reply.send({
       running: scheduler.isRunning,
+      ...(scheduler.isLeader !== undefined ? { leader: scheduler.isLeader } : {}),
       totalJobs: jobs.length,
-      enabledJobs: jobs.filter((j) => j.enabled).length,
+      enabledJobs: jobs.filter((j) => j.enabled).length
     });
   });
 
   // Parse natural language into cron job config
   server.post("/cron/parse", async (request, reply) => {
     const body = request.body as Record<string, unknown>;
-    const authResult = await requireCronManage(options, request.ip, body["userId"] as string | undefined);
+    const authResult = await requireCronManage(
+      options,
+      request.ip,
+      body["userId"] as string | undefined
+    );
     if (!authResult.authorized) {
       return reply.code(authResult.statusCode).send({ error: authResult.error });
     }
@@ -188,7 +216,7 @@ export function registerCronRoutes(
     if (!parsed.success) {
       return reply.code(400).send({
         error: "Invalid request body",
-        details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+        details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)
       });
     }
     try {
@@ -199,6 +227,25 @@ export function registerCronRoutes(
       return reply.code(422).send({ error: "Failed to parse description", details: message });
     }
   });
+}
+
+async function serializeCronJobWithRunState(
+  jobStore: CronJobStore,
+  job: CronJob
+): Promise<CronJobWithRunState> {
+  const nextRunAt = await jobStore.getNextRunAt(job.id);
+  const lastResult = await jobStore.getLastResult(job.id);
+  return {
+    ...job,
+    ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+    ...(lastResult !== undefined
+      ? {
+          lastStatus: lastResult.status,
+          ...(lastResult.error !== undefined ? { lastError: lastResult.error } : {}),
+          lastResult
+        }
+      : {})
+  };
 }
 
 // ── Auth Helper ──────────────────────────────────────────────────────────────
@@ -216,7 +263,7 @@ async function requireCronManage(
     return {
       authorized: false,
       statusCode: 403,
-      error: "Cron management is only available from localhost.",
+      error: "Cron management is only available from localhost."
     };
   }
 
@@ -231,7 +278,11 @@ async function requireCronManage(
   );
 
   if (!hasPermission) {
-    return { authorized: false, statusCode: 403, error: "Insufficient permissions for cron management." };
+    return {
+      authorized: false,
+      statusCode: 403,
+      error: "Insufficient permissions for cron management."
+    };
   }
 
   return { authorized: true };

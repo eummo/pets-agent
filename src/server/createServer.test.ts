@@ -31,6 +31,89 @@ describe("createServer", () => {
     expect(response.json()).toEqual({ ok: true, service: "pets-agent" });
   });
 
+  it("serves liveness checks", async () => {
+    const server = createServer({
+      messageHandler: echoHandler
+    });
+
+    const response = await server.inject({ method: "GET", url: "/healthz" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true, service: "pets-agent" });
+  });
+
+  it("serves readiness checks as ok when all checks pass", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      readinessChecks: [
+        {
+          name: "sqlite",
+          check: () => ({ status: "ok" })
+        }
+      ]
+    });
+
+    const response = await server.inject({ method: "GET", url: "/readyz" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      service: "pets-agent",
+      status: "ok",
+      checks: {
+        sqlite: { status: "ok" }
+      }
+    });
+  });
+
+  it("serves readiness checks as degraded when a check warns", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      readinessChecks: [
+        {
+          name: "cron",
+          check: () => ({ status: "warn", message: "disabled" })
+        }
+      ]
+    });
+
+    const response = await server.inject({ method: "GET", url: "/readyz" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      service: "pets-agent",
+      status: "degraded",
+      checks: {
+        cron: { status: "warn", message: "disabled" }
+      }
+    });
+  });
+
+  it("serves readiness checks as not ready when a check fails", async () => {
+    const server = createServer({
+      messageHandler: echoHandler,
+      readinessChecks: [
+        {
+          name: "wechat_ws",
+          check: () => ({ status: "fail", message: "disconnected" })
+        }
+      ]
+    });
+
+    const response = await server.inject({ method: "GET", url: "/readyz" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      ok: false,
+      service: "pets-agent",
+      status: "not_ready",
+      checks: {
+        wechat_ws: { status: "fail", message: "disconnected" }
+      }
+    });
+  });
+
   it("serves the development chat page", async () => {
     const server = createDevServer({
       messageHandler: echoHandler

@@ -4,23 +4,23 @@ import { z } from "zod";
 
 export const cronExpressionSchema = z.object({
   type: z.literal("cron"),
-  expression: z.string().min(1),
+  expression: z.string().min(1)
 });
 
 export const intervalScheduleSchema = z.object({
   type: z.literal("interval"),
-  milliseconds: z.number().int().positive(),
+  milliseconds: z.number().int().positive()
 });
 
 export const onceScheduleSchema = z.object({
   type: z.literal("once"),
-  runAt: z.string().min(1), // ISO 8601
+  runAt: z.string().min(1) // ISO 8601
 });
 
 export const cronScheduleSchema = z.discriminatedUnion("type", [
   cronExpressionSchema,
   intervalScheduleSchema,
-  onceScheduleSchema,
+  onceScheduleSchema
 ]);
 
 export type CronSchedule = z.infer<typeof cronScheduleSchema>;
@@ -29,7 +29,7 @@ export type CronSchedule = z.infer<typeof cronScheduleSchema>;
 
 export const deliveryTargetSchema = z.object({
   channels: z.array(z.string().min(1)),
-  template: z.string().min(1).optional(),
+  template: z.string().min(1).optional()
 });
 
 export type DeliveryTarget = z.infer<typeof deliveryTargetSchema>;
@@ -48,7 +48,7 @@ export const cronJobSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   silentOnEmpty: z.boolean().optional(),
   createdAt: z.string().min(1),
-  updatedAt: z.string().min(1),
+  updatedAt: z.string().min(1)
 });
 
 export type CronJob = z.infer<typeof cronJobSchema>;
@@ -61,7 +61,7 @@ export const cronJobResultSchema = z.object({
   finishedAt: z.string().min(1),
   status: z.enum(["success", "error", "timeout", "skipped"]),
   output: z.string(),
-  error: z.string().optional(),
+  error: z.string().optional()
 });
 
 export type CronJobResult = z.infer<typeof cronJobResultSchema>;
@@ -70,7 +70,7 @@ export type CronJobResult = z.infer<typeof cronJobResultSchema>;
 
 export const cronRunStateSchema = z.object({
   nextRunAt: z.string().min(1).optional(),
-  lastResult: cronJobResultSchema.optional(),
+  lastResult: cronJobResultSchema.optional()
 });
 
 export type CronRunState = z.infer<typeof cronRunStateSchema>;
@@ -79,7 +79,7 @@ export type CronRunState = z.infer<typeof cronRunStateSchema>;
 
 export const cronJobStoreFileSchema = z.object({
   jobs: z.record(z.string(), cronJobSchema),
-  runState: z.record(z.string(), cronRunStateSchema),
+  runState: z.record(z.string(), cronRunStateSchema)
 });
 
 export type CronJobStoreFile = z.infer<typeof cronJobStoreFileSchema>;
@@ -121,4 +121,5 @@ export type CronScheduler = {
   stop(): void;
   triggerNow(jobId: string): Promise<CronJobResult>;
   readonly isRunning: boolean;
+  readonly isLeader?: boolean;
 };

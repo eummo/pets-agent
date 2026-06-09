@@ -38,6 +38,7 @@ describe("createJsonlLogger", () => {
     });
 
     const content = await readFile(logger.filePath, "utf8");
+    await logger.close?.();
 
     expect(content).toContain('"message":"hello"');
     expect(content).toContain('"apiKey":"[REDACTED]"');
@@ -56,6 +57,7 @@ describe("createJsonlLogger", () => {
     });
 
     const content = await readFile(logger.filePath, "utf8");
+    await logger.close?.();
 
     expect(content).toContain("[REDACTED_API_KEY]");
     expect(content).not.toContain("sk-abcdefghijklmnopqrstuv");
@@ -75,6 +77,7 @@ describe("createJsonlLogger", () => {
     });
 
     const content = await readFile(logger.filePath, "utf8");
+    await logger.close?.();
 
     expect(content).toContain('"secret":"[REDACTED]"');
     expect(content).toContain('"Authorization":"[REDACTED]"');
@@ -91,6 +94,7 @@ describe("createJsonlLogger", () => {
     await logger.write({ message: "ts-test" });
 
     const content = await readFile(logger.filePath, "utf8");
+    await logger.close?.();
     // Local ISO format: 2026-05-26T16:30:00.123+08:00
     expect(content).toMatch(
       /"timestamp":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}"/
@@ -105,6 +109,7 @@ describe("createJsonlLogger", () => {
     await logger.write({ message: "second" });
 
     const content = await readFile(logger.filePath, "utf8");
+    await logger.close?.();
     const lines = content.trim().split("\n");
 
     expect(lines).toHaveLength(2);
@@ -119,8 +124,10 @@ describe("createJsonlLogger", () => {
     await Promise.all(
       Array.from({ length: 25 }, (_, index) => logger.write({ message: `event-${index}` }))
     );
+    await logger.flush?.();
 
     const content = await readFile(logger.filePath, "utf8");
+    await logger.close?.();
     const lines = content.trim().split("\n");
 
     expect(lines).toHaveLength(25);
@@ -130,5 +137,23 @@ describe("createJsonlLogger", () => {
     expect(new Set(lines.map((line) => (JSON.parse(line) as { message: string }).message))).toEqual(
       new Set(Array.from({ length: 25 }, (_, index) => `event-${index}`))
     );
+  });
+
+  it("closes idempotently and rejects writes after close", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "pets-agent-log-"));
+    const logger = createJsonlLogger(path.join(dir, "events.jsonl"));
+
+    await logger.write({ message: "before-close" });
+    await logger.close?.();
+    await logger.close?.();
+
+    await expect(logger.write({ message: "after-close" })).rejects.toThrow(
+      "Cannot write to closed JSONL logger"
+    );
+
+    const content = await readFile(logger.filePath, "utf8");
+    const lines = content.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('"message":"before-close"');
   });
 });

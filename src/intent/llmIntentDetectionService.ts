@@ -12,6 +12,7 @@ import { isValidIntentType } from "./index.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
 import { isRecord, stringField, formatUnknownError } from "../core/unknownRecord.js";
 import type { JsonlLogger } from "../logging/jsonlLogger.js";
+import { reconcileIntentWithHeuristics } from "../core/intentHeuristics.js";
 
 const INTENT_SYSTEM_PROMPT = `You are an intent classifier for a knowledge-base assistant.
 Given a user message, conversation history (if any), and their current role, classify the intent into exactly one of:
@@ -152,13 +153,17 @@ export class LlmIntentDetectionService {
       const label = text.trim().toLowerCase();
 
       if (isValidIntentType(label)) {
-        const intent = { type: label };
+        const modelIntent = { type: label };
+        const intent = reconcileIntentWithHeuristics(userMessage, modelIntent);
         await this.logResponseAndResult({
           role,
           userMessage,
           response: serializePiResponse(response),
           intent,
-          source: "model",
+          source: intent.type === modelIntent.type ? "model" : "fallback",
+          ...(intent.type !== modelIntent.type
+            ? { reason: "deterministic_attachment_query_override" }
+            : {}),
           durationMs: Date.now() - startTime
         });
         return intent;

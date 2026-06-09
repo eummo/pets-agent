@@ -9,7 +9,7 @@ const KNOWLEDGE_BASE_TERMS = [
   "readme",
   "知识库",
   "文档",
-  "说明",
+  "说明"
 ] as const;
 
 const UPDATE_TERMS = [
@@ -36,7 +36,7 @@ const UPDATE_TERMS = [
   "写入",
   "实现",
   "重构",
-  "修复",
+  "修复"
 ] as const;
 
 const INFORMATION_QUESTION_TERMS = [
@@ -56,7 +56,36 @@ const INFORMATION_QUESTION_TERMS = [
   "哪里",
   "哪个",
   "介绍",
-  "说明",
+  "说明"
+] as const;
+
+const ATTACHMENT_REFERENCE_TERMS = [
+  "uploaded",
+  "upload",
+  "attachment",
+  "image",
+  "file",
+  "document",
+  "上传",
+  "附件",
+  "图片",
+  "文件",
+  "文档"
+] as const;
+
+const ATTACHMENT_QUERY_TERMS = [
+  "acknowledge",
+  "describe",
+  "summarize",
+  "read",
+  "extract",
+  "what",
+  "确认",
+  "描述",
+  "总结",
+  "读取",
+  "提取",
+  "是什么"
 ] as const;
 
 export function fallbackIntentFor(userMessage: string): UserIntent {
@@ -77,7 +106,22 @@ export function fallbackIntentFor(userMessage: string): UserIntent {
   return { type: "mutate" };
 }
 
+export function reconcileIntentWithHeuristics(userMessage: string, intent: UserIntent): UserIntent {
+  if (intent.type === "query") {
+    return intent;
+  }
+
+  const normalized = userMessage.trim().toLowerCase();
+  if (
+    containsAnyTerm(normalized, ATTACHMENT_REFERENCE_TERMS) &&
+    containsAnyTerm(normalized, ATTACHMENT_QUERY_TERMS)
+  ) {
+    return { type: "query" };
+  }
+
+  return intent;
+}
+
 function containsAnyTerm(text: string, terms: readonly string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
-

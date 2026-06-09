@@ -8,7 +8,7 @@ export type {
   DeliveryPayload,
   CronJobStore,
   DeliveryChannel,
-  CronScheduler,
+  CronScheduler
 } from "./cronTypes.js";
 
 export {
@@ -17,13 +17,16 @@ export {
   cronJobSchema,
   cronJobResultSchema,
   cronRunStateSchema,
-  cronJobStoreFileSchema,
+  cronJobStoreFileSchema
 } from "./cronTypes.js";
 
 export { TickCronScheduler } from "./cronScheduler.js";
 export type { CronSchedulerDependencies } from "./cronScheduler.js";
 
 export { FileCronJobStore } from "./cronJobStore.js";
+export { SqliteCronJobStore } from "./sqliteCronJobStore.js";
+export { FileCronLeaderLease } from "./cronLeaderLease.js";
+export type { CronLeaderLease, FileCronLeaderLeaseOptions } from "./cronLeaderLease.js";
 
 export { CompositeDeliveryChannel } from "./delivery/compositeDelivery.js";
 export { SseDeliveryChannel } from "./delivery/sseDelivery.js";

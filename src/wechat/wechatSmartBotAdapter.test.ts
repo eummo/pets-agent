@@ -1,11 +1,3 @@
-import { MessageType } from "@wecom/aibot-node-sdk";
-import type {
-  FileMessage,
-  ImageMessage,
-  MixedMessage,
-  TextMessage,
-  WsFrame
-} from "@wecom/aibot-node-sdk";
 import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -17,6 +9,14 @@ import {
 } from "./wechatSmartBotAdapter.js";
 import { WechatSmartBotAdapter } from "./wechatSmartBotAdapter.js";
 import { SessionLock } from "./sessionLock.js";
+import type {
+  WechatFileMessage,
+  WechatFrame,
+  WechatImageMessage,
+  WechatMixedMessage,
+  WechatSdkClient,
+  WechatTextMessage
+} from "./wecomSdkClient.js";
 import type {
   ConversationLogger,
   InboundMessage,
@@ -73,9 +73,9 @@ describe("formatProactiveWechatNotificationContent", () => {
   });
 
   it("preserves existing mention markup and email addresses", () => {
-    expect(
-      formatProactiveWechatNotificationContent("notify <@zhangsan> via ops@example.com")
-    ).toBe("notify <@zhangsan> via ops@example.com");
+    expect(formatProactiveWechatNotificationContent("notify <@zhangsan> via ops@example.com")).toBe(
+      "notify <@zhangsan> via ops@example.com"
+    );
   });
 });
 
@@ -185,25 +185,88 @@ describe("SessionLock", () => {
     const lock = new SessionLock();
 
     expect(lock.inflightFor("user-a")).toBe(0);
+    expect(lock.queuedOrHeldFor("user-a")).toBe(0);
+    expect(lock.totalInflightCount()).toBe(0);
+    expect(lock.totalQueuedOrHeldCount()).toBe(0);
+    expect(lock.trackedKeyCount()).toBe(0);
 
     const r1 = await lock.acquire("user-a");
     expect(lock.inflightFor("user-a")).toBe(1);
+    expect(lock.queuedOrHeldFor("user-a")).toBe(1);
+    expect(lock.totalInflightCount()).toBe(1);
+    expect(lock.totalQueuedOrHeldCount()).toBe(1);
+    expect(lock.trackedKeyCount()).toBe(1);
 
     // Second acquire is queued but still counted as inflight
     const p2 = lock.acquire("user-a");
     expect(lock.inflightFor("user-a")).toBe(2);
+    expect(lock.queuedOrHeldFor("user-a")).toBe(2);
+    expect(lock.totalInflightCount()).toBe(2);
+    expect(lock.totalQueuedOrHeldCount()).toBe(2);
+    expect(lock.trackedKeyCount()).toBe(1);
 
     r1();
     const r2 = await p2;
     expect(lock.inflightFor("user-a")).toBe(1);
+    expect(lock.totalInflightCount()).toBe(1);
+    expect(lock.trackedKeyCount()).toBe(1);
 
     r2();
     await Promise.resolve();
     expect(lock.inflightFor("user-a")).toBe(0);
+    expect(lock.totalInflightCount()).toBe(0);
+    expect(lock.trackedKeyCount()).toBe(0);
+  });
+
+  it("tracks inflight totals across multiple keys", async () => {
+    const lock = new SessionLock();
+
+    const releaseA = await lock.acquire("user-a");
+    const releaseB = await lock.acquire("user-b");
+
+    expect(lock.totalInflightCount()).toBe(2);
+    expect(lock.trackedKeyCount()).toBe(2);
+    expect(lock.activeLockCount()).toBe(2);
+
+    releaseA();
+    await Promise.resolve();
+    expect(lock.totalInflightCount()).toBe(1);
+    expect(lock.trackedKeyCount()).toBe(1);
+
+    releaseB();
+    await Promise.resolve();
+    expect(lock.totalInflightCount()).toBe(0);
+    expect(lock.trackedKeyCount()).toBe(0);
   });
 });
 
 describe("WechatSmartBotAdapter replies", () => {
+  it("reports session metrics without exposing the lock", () => {
+    const messageHandler: MessageGateway = {
+      handle(): Promise<OutboundMessage> {
+        return Promise.resolve({ text: "ok" });
+      }
+    };
+
+    const fakeClient = createFakeSdkClient({ isConnected: true });
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      sdkClient: fakeClient
+    });
+
+    expect(adapter.getSessionMetrics()).toEqual({
+      connected: true,
+      activeLockCount: 0,
+      inflightMessageCount: 0,
+      trackedSessionCount: 0,
+      streamFailureCount: 0,
+      connectionUnavailableRejectionCount: 0
+    });
+  });
+
   it("returns the current group cron delivery channel without invoking the gateway", async () => {
     const systemEvents: Record<string, unknown>[] = [];
     const handle = vi.fn(() => Promise.resolve({ text: "should not run" }));
@@ -211,24 +274,22 @@ describe("WechatSmartBotAdapter replies", () => {
       handle
     };
 
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame("sent")))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
       messageHandler,
-      eventLogger: collectingLogger(systemEvents)
+      eventLogger: collectingLogger(systemEvents),
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "sent" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+      handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleTextMessage(
       groupTextFrame("msg-channel", "user-1", "group-1", "@Bot 获取当前群聊投递渠道")
     );
@@ -265,21 +326,16 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame("sent")))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
-      messageHandler
+      messageHandler,
+      sdkClient: createFakeSdkClient(fakeClient)
     });
-
-    const fakeClient = {
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "sent" } } as WsFrame))
-    };
-
-    const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-    };
-    privateAdapter.wsClient = fakeClient;
-
     await adapter.sendProactiveMessage("group-1", "Build failed, @zhangsan please check.");
 
     expect(fakeClient.sendMessage).toHaveBeenCalledWith("group-1", {
@@ -300,24 +356,22 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.reject(new Error("stream busy"))),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame("sent")))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
       messageHandler,
-      eventLogger: collectingLogger(systemEvents)
+      eventLogger: collectingLogger(systemEvents),
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      replyStream: vi.fn(() => Promise.reject(new Error("stream busy"))),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "sent" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+      handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleTextMessage(
       groupTextFrame("msg-1", "user-1", "group-1", "@Bot 你好")
     );
@@ -340,7 +394,17 @@ describe("WechatSmartBotAdapter replies", () => {
           type: "wechat.reply_stream_failed",
           phase: "initial",
           messageId: "msg-1",
-          chatId: "group-1"
+          chatId: "group-1",
+          streamFailureCount: 1,
+          phaseFailureCount: 1
+        }),
+        expect.objectContaining({
+          type: "wechat.stream.failure",
+          phase: "initial",
+          messageId: "msg-1",
+          chatId: "group-1",
+          streamFailureCount: 1,
+          phaseFailureCount: 1
         }),
         expect.objectContaining({
           type: "wechat.fallback_message_sent",
@@ -357,6 +421,181 @@ describe("WechatSmartBotAdapter replies", () => {
     );
   });
 
+  it("continues processing disconnected frames by default and sends fallback when streaming fails", async () => {
+    const systemEvents: Record<string, unknown>[] = [];
+    const handle = vi.fn(() => Promise.resolve({ text: "HTTP fallback answer" }));
+    const messageHandler: MessageGateway = { handle };
+    const fakeClient = {
+      isConnected: false,
+      replyStream: vi.fn(() => Promise.reject(new Error("wss unavailable"))),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame("sent")))
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      eventLogger: collectingLogger(systemEvents),
+      sdkClient: createFakeSdkClient(fakeClient)
+    });
+
+    const privateAdapter = adapter as unknown as {
+      handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void>;
+    };
+    await privateAdapter.handleTextMessage(
+      groupTextFrame("msg-down-default", "user-1", "group-1", "hello")
+    );
+
+    expect(handle).toHaveBeenCalledOnce();
+    expect(fakeClient.sendMessage).toHaveBeenCalledWith("group-1", {
+      msgtype: "markdown",
+      markdown: { content: "HTTP fallback answer" }
+    });
+    expect(adapter.getSessionMetrics().connectionUnavailableRejectionCount).toBe(0);
+    expect(systemEvents).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "wechat.connection_unavailable_message_rejected" })
+      ])
+    );
+  });
+
+  it("rejects text messages immediately while the WSS connection is unavailable when configured", async () => {
+    const systemEvents: Record<string, unknown>[] = [];
+    const handle = vi.fn(() => Promise.resolve({ text: "should not run" }));
+    const messageHandler: MessageGateway = { handle };
+    const fakeClient = {
+      isConnected: false,
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      rejectWhenConnectionUnavailable: true,
+      eventLogger: collectingLogger(systemEvents),
+      sdkClient: createFakeSdkClient(fakeClient)
+    });
+
+    const privateAdapter = adapter as unknown as {
+      handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void>;
+    };
+    await privateAdapter.handleTextMessage(
+      groupTextFrame("msg-down", "user-1", "group-1", "hello")
+    );
+
+    expect(handle).not.toHaveBeenCalled();
+    expect(fakeClient.replyStream).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.stringContaining("长连接正在重连"),
+      true
+    );
+    expect(fakeClient.sendMessage).not.toHaveBeenCalled();
+    expect(adapter.getSessionMetrics().connectionUnavailableRejectionCount).toBe(1);
+    expect(systemEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "wechat.message_rejected",
+          messageId: "msg-down",
+          reason: "wss disconnected",
+          connected: false,
+          connectionUnavailableRejectionCount: 1
+        }),
+        expect.objectContaining({
+          type: "wechat.connection_unavailable_message_rejected",
+          messageId: "msg-down",
+          reason: "wss disconnected",
+          connected: false,
+          connectionUnavailableRejectionCount: 1
+        })
+      ])
+    );
+  });
+
+  it("rejects image messages while disconnected before downloading attachments when configured", async () => {
+    const systemEvents: Record<string, unknown>[] = [];
+    const handle = vi.fn(() => Promise.resolve({ text: "should not run" }));
+    const messageHandler: MessageGateway = { handle };
+    const fakeClient = {
+      isConnected: false,
+      downloadFile: vi.fn(() => Promise.resolve({ buffer: Buffer.from("image") })),
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      rejectWhenConnectionUnavailable: true,
+      eventLogger: collectingLogger(systemEvents),
+      sdkClient: createFakeSdkClient(fakeClient)
+    });
+
+    const privateAdapter = adapter as unknown as {
+      handleImageMessage(frame: WechatFrame<WechatImageMessage>): Promise<void>;
+    };
+    await privateAdapter.handleImageMessage(
+      imageFrame("msg-img-down", "user-1", "image-url", "aes-key")
+    );
+
+    expect(fakeClient.downloadFile).not.toHaveBeenCalled();
+    expect(handle).not.toHaveBeenCalled();
+    expect(adapter.getSessionMetrics().connectionUnavailableRejectionCount).toBe(1);
+    expect(systemEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "wechat.connection_unavailable_message_rejected",
+          messageId: "msg-img-down",
+          reason: "wss disconnected"
+        })
+      ])
+    );
+  });
+
+  it("rejects mixed messages while disconnected before downloading image items when configured", async () => {
+    const systemEvents: Record<string, unknown>[] = [];
+    const handle = vi.fn(() => Promise.resolve({ text: "should not run" }));
+    const messageHandler: MessageGateway = { handle };
+    const fakeClient = {
+      isConnected: false,
+      downloadFile: vi.fn(() => Promise.resolve({ buffer: Buffer.from("image") })),
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
+    const adapter = new WechatSmartBotAdapter({
+      botId: "bot-id",
+      secret: "secret",
+      messageHandler,
+      rejectWhenConnectionUnavailable: true,
+      eventLogger: collectingLogger(systemEvents),
+      sdkClient: createFakeSdkClient(fakeClient)
+    });
+
+    const privateAdapter = adapter as unknown as {
+      handleMixedMessage(frame: WechatFrame<WechatMixedMessage>): Promise<void>;
+    };
+    await privateAdapter.handleMixedMessage(
+      mixedFrame("msg-mixed-down", "user-1", "@Bot 看图", "image-url", "aes-key")
+    );
+
+    expect(fakeClient.downloadFile).not.toHaveBeenCalled();
+    expect(handle).not.toHaveBeenCalled();
+    expect(adapter.getSessionMetrics().connectionUnavailableRejectionCount).toBe(1);
+    expect(systemEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "wechat.connection_unavailable_message_rejected",
+          messageId: "msg-mixed-down",
+          reason: "wss disconnected"
+        })
+      ])
+    );
+  });
+
   it("passes chatType group for group chat messages", async () => {
     let capturedChatType: string | undefined;
     const messageHandler: MessageGateway = {
@@ -366,23 +605,21 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
-      messageHandler
+      messageHandler,
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+      handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleTextMessage(groupTextFrame("msg-g", "user-1", "group-1", "hello"));
 
     expect(capturedChatType).toBe("group");
@@ -397,23 +634,21 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
-      messageHandler
+      messageHandler,
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleTextMessage(frame: WsFrame<TextMessage>): Promise<void>;
+      handleTextMessage(frame: WechatFrame<WechatTextMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleTextMessage(singleTextFrame("msg-s", "user-2", "hello"));
 
     expect(capturedChatType).toBe("single");
@@ -430,25 +665,23 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      downloadFile: vi.fn(() => Promise.resolve({ buffer: imageBytes })),
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
       messageHandler,
-      uploadRootPath
+      uploadRootPath,
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      downloadFile: vi.fn(() => Promise.resolve({ buffer: imageBytes })),
-      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleImageMessage(frame: WsFrame<ImageMessage>): Promise<void>;
+      handleImageMessage(frame: WechatFrame<WechatImageMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleImageMessage(
       imageFrame("msg-img", "user-1", "image-url", "aes-key")
     );
@@ -477,25 +710,23 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      downloadFile: vi.fn(() => Promise.resolve({ buffer: documentBytes, filename: "notes.md" })),
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
       messageHandler,
-      uploadRootPath
+      uploadRootPath,
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      downloadFile: vi.fn(() => Promise.resolve({ buffer: documentBytes, filename: "notes.md" })),
-      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleFileMessage(frame: WsFrame<FileMessage>): Promise<void>;
+      handleFileMessage(frame: WechatFrame<WechatFileMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleFileMessage(fileFrame("msg-file", "user-1", "file-url", "file-key"));
 
     expect(fakeClient.downloadFile).toHaveBeenCalledWith("file-url", "file-key");
@@ -524,25 +755,23 @@ describe("WechatSmartBotAdapter replies", () => {
       }
     };
 
+    const fakeClient = {
+      downloadFile: vi.fn(() => Promise.resolve({ buffer: imageBytes, filename: "diagram.png" })),
+      replyStream: vi.fn(() => Promise.resolve(ackFrame())),
+      sendMessage: vi.fn(() => Promise.resolve(ackFrame()))
+    };
+
     const adapter = new WechatSmartBotAdapter({
       botId: "bot-id",
       secret: "secret",
       messageHandler,
-      uploadRootPath
+      uploadRootPath,
+      sdkClient: createFakeSdkClient(fakeClient)
     });
 
-    const fakeClient = {
-      downloadFile: vi.fn(() => Promise.resolve({ buffer: imageBytes, filename: "diagram.png" })),
-      replyStream: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame)),
-      sendMessage: vi.fn(() => Promise.resolve({ headers: { req_id: "ok" } } as WsFrame))
-    };
-
     const privateAdapter = adapter as unknown as {
-      wsClient: typeof fakeClient;
-      handleMixedMessage(frame: WsFrame<MixedMessage>): Promise<void>;
+      handleMixedMessage(frame: WechatFrame<WechatMixedMessage>): Promise<void>;
     };
-    privateAdapter.wsClient = fakeClient;
-
     await privateAdapter.handleMixedMessage(
       mixedFrame("msg-mixed", "user-1", "@Bot 请看这张图", "mixed-image-url", "mixed-key")
     );
@@ -565,12 +794,38 @@ function collectingLogger(events: Record<string, unknown>[]): ConversationLogger
   };
 }
 
+function ackFrame(reqId = "ok"): WechatFrame<unknown> {
+  return { headers: { req_id: reqId } };
+}
+
+function createFakeSdkClient(overrides: Partial<WechatSdkClient> = {}): WechatSdkClient {
+  return {
+    isConnected: true,
+    connect(): void {},
+    disconnect(): void {},
+    on(): void {},
+    replyStream(): Promise<WechatFrame<unknown>> {
+      return Promise.resolve(ackFrame());
+    },
+    replyWelcome(): Promise<WechatFrame<unknown>> {
+      return Promise.resolve(ackFrame());
+    },
+    sendMessage(): Promise<WechatFrame<unknown>> {
+      return Promise.resolve(ackFrame());
+    },
+    downloadFile(): Promise<{ readonly buffer: Buffer }> {
+      return Promise.resolve({ buffer: Buffer.alloc(0) });
+    },
+    ...overrides
+  };
+}
+
 function groupTextFrame(
   messageId: string,
   userId: string,
   chatId: string,
   content: string
-): WsFrame<TextMessage> {
+): WechatFrame<WechatTextMessage> {
   return {
     headers: { req_id: `req-${messageId}` },
     body: {
@@ -580,13 +835,17 @@ function groupTextFrame(
       chattype: "group",
       from: { userid: userId },
       create_time: 1_779_786_805,
-      msgtype: MessageType.Text,
+      msgtype: "text",
       text: { content }
     }
   };
 }
 
-function singleTextFrame(messageId: string, userId: string, content: string): WsFrame<TextMessage> {
+function singleTextFrame(
+  messageId: string,
+  userId: string,
+  content: string
+): WechatFrame<WechatTextMessage> {
   return {
     headers: { req_id: `req-${messageId}` },
     body: {
@@ -595,7 +854,7 @@ function singleTextFrame(messageId: string, userId: string, content: string): Ws
       chattype: "single",
       from: { userid: userId },
       create_time: 1_779_786_805,
-      msgtype: MessageType.Text,
+      msgtype: "text",
       text: { content }
     }
   };
@@ -606,7 +865,7 @@ function imageFrame(
   userId: string,
   url: string,
   aeskey: string
-): WsFrame<ImageMessage> {
+): WechatFrame<WechatImageMessage> {
   return {
     headers: { req_id: `req-${messageId}` },
     body: {
@@ -615,7 +874,7 @@ function imageFrame(
       chattype: "single",
       from: { userid: userId },
       create_time: 1_779_786_805,
-      msgtype: MessageType.Image,
+      msgtype: "image",
       image: { url, aeskey }
     }
   };
@@ -626,7 +885,7 @@ function fileFrame(
   userId: string,
   url: string,
   aeskey: string
-): WsFrame<FileMessage> {
+): WechatFrame<WechatFileMessage> {
   return {
     headers: { req_id: `req-${messageId}` },
     body: {
@@ -635,7 +894,7 @@ function fileFrame(
       chattype: "single",
       from: { userid: userId },
       create_time: 1_779_786_805,
-      msgtype: MessageType.File,
+      msgtype: "file",
       file: { url, aeskey }
     }
   };
@@ -647,7 +906,7 @@ function mixedFrame(
   text: string,
   imageUrl: string,
   imageAeskey: string
-): WsFrame<MixedMessage> {
+): WechatFrame<WechatMixedMessage> {
   return {
     headers: { req_id: `req-${messageId}` },
     body: {
@@ -656,7 +915,7 @@ function mixedFrame(
       chattype: "single",
       from: { userid: userId },
       create_time: 1_779_786_805,
-      msgtype: MessageType.Mixed,
+      msgtype: "mixed",
       mixed: {
         msg_item: [
           { msgtype: "text", text: { content: text } },

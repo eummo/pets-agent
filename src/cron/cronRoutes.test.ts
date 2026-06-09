@@ -21,7 +21,13 @@ function makeJob(overrides: Partial<CronJob> = {}): CronJob {
   };
 }
 
-function makeStore(jobs: readonly CronJob[] = []): CronJobStore {
+function makeStore(
+  jobs: readonly CronJob[] = [],
+  runState: Record<
+    string,
+    { readonly nextRunAt?: string; readonly lastResult?: CronJobResult }
+  > = {}
+): CronJobStore {
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
 
   return {
@@ -51,14 +57,14 @@ function makeStore(jobs: readonly CronJob[] = []): CronJobStore {
     delete(id) {
       return Promise.resolve(jobMap.delete(id));
     },
-    getNextRunAt() {
-      return Promise.resolve(undefined);
+    getNextRunAt(id) {
+      return Promise.resolve(runState[id]?.nextRunAt);
     },
     setNextRunAt() {
       return Promise.resolve();
     },
-    getLastResult() {
-      return Promise.resolve(undefined);
+    getLastResult(id) {
+      return Promise.resolve(runState[id]?.lastResult);
     },
     setLastResult() {
       return Promise.resolve();
@@ -79,7 +85,8 @@ function makeScheduler(): CronScheduler {
     start() {},
     stop() {},
     triggerNow: vi.fn(() => Promise.resolve(result)),
-    isRunning: true
+    isRunning: true,
+    isLeader: true
   };
 }
 
@@ -145,6 +152,118 @@ describe("registerCronRoutes", () => {
       expect(response.json()).toEqual([
         expect.objectContaining({ id: "daily-report", name: "Daily Report" })
       ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("lists jobs with flattened run state fields", async () => {
+    const server = Fastify();
+    try {
+      registerCronRoutes(server, {
+        jobStore: makeStore([makeJob()], {
+          "daily-report": {
+            nextRunAt: "2026-05-29T09:00:00.000Z",
+            lastResult: {
+              jobId: "daily-report",
+              startedAt: "2026-05-28T09:00:00.000Z",
+              finishedAt: "2026-05-28T09:00:01.000Z",
+              status: "error",
+              output: "",
+              error: "Delivery failed"
+            }
+          }
+        }),
+        scheduler: makeScheduler(),
+        authorization: makeAuthorization({ admin: ["cron_manage"] })
+      });
+
+      const response = await server.inject({
+        method: "GET",
+        url: "/cron/jobs?userId=admin"
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body: unknown = response.json();
+      expect(body).toMatchObject([
+        {
+          id: "daily-report",
+          nextRunAt: "2026-05-29T09:00:00.000Z",
+          lastStatus: "error",
+          lastError: "Delivery failed",
+          lastResult: {
+            status: "error",
+            error: "Delivery failed"
+          }
+        }
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("returns a single job with flattened run state fields", async () => {
+    const server = Fastify();
+    try {
+      registerCronRoutes(server, {
+        jobStore: makeStore([makeJob()], {
+          "daily-report": {
+            nextRunAt: "2026-05-29T09:00:00.000Z",
+            lastResult: {
+              jobId: "daily-report",
+              startedAt: "2026-05-28T09:00:00.000Z",
+              finishedAt: "2026-05-28T09:00:01.000Z",
+              status: "success",
+              output: "Done"
+            }
+          }
+        }),
+        scheduler: makeScheduler(),
+        authorization: makeAuthorization({ admin: ["cron_manage"] })
+      });
+
+      const response = await server.inject({
+        method: "GET",
+        url: "/cron/jobs/daily-report?userId=admin"
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body: unknown = response.json();
+      expect(body).toMatchObject({
+        id: "daily-report",
+        nextRunAt: "2026-05-29T09:00:00.000Z",
+        lastStatus: "success",
+        lastResult: {
+          status: "success"
+        }
+      });
+      expect(body).not.toHaveProperty("lastError");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reports scheduler leader state in cron status", async () => {
+    const server = Fastify();
+    try {
+      registerCronRoutes(server, {
+        jobStore: makeStore([makeJob()]),
+        scheduler: makeScheduler(),
+        authorization: makeAuthorization({ admin: ["cron_manage"] })
+      });
+
+      const response = await server.inject({
+        method: "GET",
+        url: "/cron/status?userId=admin"
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        running: true,
+        leader: true,
+        totalJobs: 1,
+        enabledJobs: 1
+      });
     } finally {
       await server.close();
     }

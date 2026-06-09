@@ -177,6 +177,30 @@ describe("LlmIntentDetectionService", () => {
     expect(result).toEqual({ type: "mutate" });
   });
 
+  it("overrides model mutation labels for uploaded image acknowledgements", async () => {
+    const rawEvents: Record<string, unknown>[] = [];
+    const service = createService([fauxAssistantMessage([fauxText("mutate")])], {
+      filePath: "memory.jsonl",
+      write(event) {
+        rawEvents.push(event);
+        return Promise.resolve();
+      }
+    });
+
+    const result = await service.detectIntent(
+      "Acknowledge the uploaded image named smoke-diagram.png.",
+      "reviewer"
+    );
+
+    expect(result).toEqual({ type: "query" });
+    expect(rawEvents[2]).toMatchObject({
+      type: "intent.result",
+      intentType: "query",
+      source: "fallback",
+      reason: "deterministic_attachment_query_override"
+    });
+  });
+
   it("classifies Chinese system modification requests", async () => {
     const service = createService([fauxAssistantMessage([fauxText("mutate")])]);
     const result = await service.detectIntent("我想修改订单系统", "reviewer");
