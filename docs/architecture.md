@@ -101,7 +101,39 @@ Gateway responsibilities:
 The gateway must not import Enterprise WeChat, Claude SDK, MiniMax, GitHub, Codex SDK, pi-agent SDK,
 or future provider SDK types directly.
 
-### 3. Domain Services And Stores
+### 3. Loop Control Plane
+
+The loop module (`src/loop`) implements a goal-driven, verifiable, recoverable continuous execution
+system on top of the existing single-turn message gateway. It follows the `plan -> act -> observe ->
+verify -> decide` cycle and does not import provider SDKs or channel adapters directly.
+
+Current implementation:
+
+- `LoopService`: state machine driving run-level (`queued -> running -> completed/failed/paused/cancelled`)
+  and step-level (`plan -> act -> observe -> verify -> decide`) transitions.
+- `LoopStore`: persistence contract for definitions, runs, steps, and checkpoints.
+  Phase 0 uses `InMemoryLoopStore`; Phase 1 will add SQLite-backed persistence.
+- `ActionExecutor`: abstract execution seam. LoopService calls `ActionExecutor.execute()` with
+  `LoopExecutionContext`, an action description, and an `AbortSignal`. The executor returns structured
+  `ActionResult` with output, token usage, and evidence. This seam keeps the loop core independent of
+  `MessageGateway`, Claude, CodeBuddy, Pi, or any specific runtime.
+- `LoopExecutionContext`: correlation context (`loopRunId`, `stepId`, `attempt`, `idempotencyKey`,
+  `requestedBy`, `executionPrincipal`, `authorizedPolicyVersion`) that flows through every log event,
+  executor call, and observable artifact.
+- `LoopEventLogger`: structured event logging (`loop.started`, `loop.step.*`, `loop.completed`, etc.)
+  to the system JSONL log, carrying full execution context on every event.
+
+Key design constraints:
+
+- Loop module depends only on its own types and `ActionExecutor`. It does not import `src/core`,
+  `src/agent`, `src/wechat`, or `src/server`.
+- AbortSignal propagates from trigger through LoopService to ActionExecutor for cancellation.
+- Interrupted steps are never directly replayed; recovery creates new steps that re-observe external
+  state before deciding next action.
+- Step leases with claim owners prevent concurrent execution of the same step.
+- The `loop_manage` capability controls who can create, start, stop, cancel, and view loop runs.
+
+### 4. Domain Services And Stores
 
 Domain services answer business questions for the gateway:
 
@@ -115,7 +147,7 @@ Domain services answer business questions for the gateway:
 Database-backed implementations belong in `src/persistence`. Static or development implementations may live
 in focused adapter folders such as `src/auth` or `src/workspace`.
 
-### 4. Agent Runtime Adapters
+### 5. Agent Runtime Adapters
 
 Agent SDKs sit behind `AgentRuntime`. Adding a new SDK means adding a runtime adapter, not changing
 channel adapters or gateway policy.
@@ -135,7 +167,7 @@ Runtime adapters may know provider SDK details. They receive an already-authoriz
 with the selected workspace path, user text, role-derived configuration, session id, and stream
 callbacks.
 
-### 5. Infrastructure
+### 6. Infrastructure
 
 Infrastructure modules provide storage, logging, configuration, and server lifecycle:
 
@@ -170,6 +202,18 @@ Important contracts:
   keyed by `(channel, userId, workspacePath, chatId?)`. The optional `chatId` isolates group chats
   from each other and from single chats within the same channel.
 
+Loop-specific contracts are exported from `src/loop/index.ts`:
+
+- `LoopService`: state machine for goal-driven continuous execution (`startRun`, `cancelRun`, `pauseRun`,
+  `resumeRun`, `recoverInterruptedSteps`).
+- `LoopStore`: persistence contract for definitions, runs, steps, and checkpoints.
+- `ActionExecutor`: abstract execution seam between LoopService and concrete runtime execution.
+- `LoopExecutionContext`: correlation context flowing through every loop operation and log event.
+- `LoopDecision`: discriminated union (`complete`, `continue`, `pause`, `fail`, `retry`) produced by
+  the decide phase.
+- `LoopDefinition`, `LoopRun`, `LoopStep`: domain objects with Zod-validated schemas.
+- `LoopEventLogger`: structured event logging with `createLoopEvent` helper.
+
 ## Adding A New Channel
 
 1. Create a channel adapter folder, for example `src/tui` or `src/api`.
@@ -201,6 +245,19 @@ Do not import provider SDK types into `src/core`.
 Permissions should be checked before calling `AgentRuntime`. When a user's intent is useful but not
 allowed, the gateway should return a clear denial and save the request into feedback.
 
+## Adding A New Loop Definition
+
+1. Define a `LoopDefinition` with goal, workspace, role, iteration/time/token budgets, and verification
+   strategy.
+2. Ensure the requesting user has the `loop_manage` capability.
+3. Optionally create a custom `ActionExecutor` that wires to `MessageGateway` or another execution
+   backend.
+4. Call `LoopService.startRun(definitionId, requestedBy)` to begin execution.
+5. Monitor progress via `LoopStore` queries or `LoopEventLogger` events in `system.jsonl`.
+
+Loop definitions are provider-neutral. The loop core does not import agent SDKs, channel adapters, or
+the message gateway. All execution goes through the `ActionExecutor` seam.
+
 ## Dependency Rule
 
 Dependencies point inward:
@@ -209,6 +266,7 @@ Dependencies point inward:
 channel adapters  -> core contracts
 agent adapters    -> core contracts
 db adapters       -> core contracts
+loop module       -> loop contracts + ActionExecutor (no core/agent/channel deps)
 composition root  -> all adapters
 core gateway      -> core contracts only
 ```

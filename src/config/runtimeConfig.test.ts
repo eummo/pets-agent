@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { loadRuntimeConfig } from "./runtimeConfig.js";
 
 function validConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -88,6 +88,7 @@ describe("loadRuntimeConfig", () => {
       leaderLeasePath: ".harness/state/cron-jobs.json.leader",
       leaderLeaseTtlMs: 180_000
     });
+    expectTypeOf(config.cron.jobStore).toEqualTypeOf<"sqlite" | "file">();
   });
 
   it("resolves cron WeCom app-message credentials from env", async () => {

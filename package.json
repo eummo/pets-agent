@@ -15,6 +15,7 @@
     "smoke:codebuddy": "tsx src/smoke/codebuddySmoke.ts",
     "smoke:pi": "tsx src/smoke/piSmoke.ts",
     "smoke:deterministic": "tsx src/smoke/deterministicSmoke.ts",
+    "smoke:loop": "tsx src/smoke/loopSmoke.ts",
     "db:backup": "tsx src/persistence/sqliteMaintenanceCli.ts backup",
     "db:restore": "tsx src/persistence/sqliteMaintenanceCli.ts restore",
     "db:verify": "tsx src/persistence/sqliteMaintenanceCli.ts verify",

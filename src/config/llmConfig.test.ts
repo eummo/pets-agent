@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   resolveLlmConfig,
   summarizeLlmConfig,
@@ -190,6 +190,7 @@ describe("resolveActiveAgentSdk", () => {
     expect(resolved.endpoint).toBeUndefined();
     expect(resolved.endpointEnv).toBe("CODEBUDDY_ENDPOINT");
     expect(resolved.apiKey).toBe("");
+    expectTypeOf(resolved.apiKeyEnv).toEqualTypeOf<string | undefined>();
   });
 });
 

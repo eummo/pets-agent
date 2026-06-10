@@ -34,6 +34,9 @@ Before running checks, consider whether the current change requires new or updat
 
 - **Unit test**: needed for new deterministic logic (parsing, routing, authorization, configuration, persistence, formatting).
 - **Smoke test**: needed for runtime/model behavior changes (intent classification, role permissions, workspace grounding, stream events, tool permissions, new API endpoints).
+- **Loop smoke test**: needed for changes to the `src/loop` module. Run `npm run smoke:loop` to verify
+  LoopService with a real LLM. The deterministic loop smoke cases (included in `npm run check`) cover
+  stub-based scenarios; `npm run smoke:loop` verifies end-to-end with actual model calls.
 - If no new test is needed (pure refactor, doc change, config tweak), note why.
 
 This step is not optional — every change must explicitly consider test coverage, even if the conclusion is "no new test needed."
@@ -82,6 +85,7 @@ When a bug is found from logs or browser testing:
 
 - add a focused unit test if it is deterministic;
 - add or update a smoke case in `src/smoke/regressionSmoke.ts` if it is runtime behavior;
+- add or update a loop smoke case in `src/smoke/loopSmoke.ts` if it is loop-related behavior;
 - keep the case small and named after the behavior, not the implementation.
 
 Current fixed regression:

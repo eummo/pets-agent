@@ -42,6 +42,7 @@ npm run dev
 | `npm run harness -- --reset` | 创建/重置本地知识库沙箱           |
 | `npm run smoke`              | 运行时回归测试（需要服务运行中）  |
 | `npm run smoke:codebuddy`    | CodeBuddy 真实 SDK 回归测试       |
+| `npm run smoke:loop`         | Loop 模块真实 LLM 冒烟测试       |
 | `npm run db:backup`          | 备份 SQLite 状态库                |
 | `npm run db:restore`         | 从备份恢复 SQLite 状态库          |
 | `npm run db:verify`          | 校验 SQLite 状态库完整性          |
@@ -76,6 +77,7 @@ src/
 ├── config/               配置加载
 ├── persistence/          持久化适配（SQLite 与文件存储）
 ├── workspace/            工作区解析
+├── loop/                 Loop 持续执行控制面（Phase 0）
 ├── logging/              日志
 └── harness/              开发沙箱工具
 ```
@@ -144,7 +146,7 @@ src/
 
 - `.harness/logs/conversation.jsonl` — 用户输入和最终输出
 - `.harness/logs/llm-raw.jsonl` — LLM 请求/响应/错误事件
-- `.harness/logs/system.jsonl` — 编排、权限、cron、WeCom 连接、`wechat.session_metrics` 周期指标，以及启用 `wechat.rejectWhenConnectionUnavailable` 后的断连期 `wechat.connection_unavailable_message_rejected` 事件
+- `.harness/logs/system.jsonl` — 编排、权限、cron、WeCom 连接、`wechat.session_metrics` 周期指标，以及启用 `wechat.rejectWhenConnectionUnavailable` 后的断连期 `wechat.connection_unavailable_message_rejected` 事件；Loop 模块事件（`loop.started`、`loop.step.*`、`loop.verified`、`loop.completed` 等）也写入此日志，携带 `loopRunId`、`stepId`、`attempt` 执行上下文
 
 请勿在日志中记录 API 密钥、授权头或令牌。
 

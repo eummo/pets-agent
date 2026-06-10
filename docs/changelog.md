@@ -2,6 +2,25 @@
 
 本文件记录已经落地的优化，避免和 `docs/optimization-backlog.md` 中的待办混在一起。
 
+## 2026-06-10
+
+- 新增 `src/loop` 领域模块，实现 Loop Engineering Phase 0：安全执行契约与最小状态机。
+- `LoopService` 支持目标驱动的持续执行，含 run 级（queued/running/completed/failed/paused/cancelled）和 step 级（plan/act/observe/verify/decide）状态机。
+- `InMemoryLoopStore` 提供定义/运行/步骤的 CRUD，含原子 claimStep CAS 和过期恢复查询。
+- `ActionExecutor` 抽象执行缝隙，LoopService 不直接依赖 MessageGateway 或具体 agent runtime。
+- `LoopExecutionContext` 贯穿 gateway、runtime、tool、log，支持按 loopRunId/stepId/attempt/idempotencyKey 追溯。
+- AbortSignal 从 trigger 端到端传播到 ActionExecutor，支持 cancel 和 pause。
+- 步骤租约（claimOwner + leaseExpiry）和 interrupted 状态确保中断步骤不盲目重放。
+- 13 种结构化 loop 事件（`loop.started`、`loop.step.*`、`loop.completed` 等）写入 `system.jsonl`。
+- `RoleCapability` 增加 `loop_manage`，控制 loop 定义的创建、启停、取消和查看。
+- 新增 57 个 vitest 单元测试（35 store + 13 状态机 + 9 恢复与幂等）。
+- 新增 6 个确定性冒烟案例（deterministic loop smoke），纳入 `npm run check` 质量门禁。
+- 新增 `src/smoke/loopSmoke.ts` 真实 LLM 冒烟测试（`npm run smoke:loop`），验证 LoopService 与实际模型端到端工作。
+- 新增 `docs/loop-engineering-upgrade-report.md`，记录 Phase 0-6 升级路线和设计决策。
+- 更新 `docs/architecture.md`，增加 Loop Control Plane 层、loop 系统契约、`loop_manage` 能力和依赖规则。
+- 更新 `README.md`，增加 `src/loop/` 架构条目、`smoke:loop` 命令和 loop 日志事件说明。
+- 更新 `docs/development-workflow.md`，增加 loop 冒烟测试指导。
+
 ## 2026-06-06
 
 - `package.json` 增加 `engines.npm`，明确 npm 10+。

@@ -26,6 +26,14 @@ import { AgentOrchestrator } from "../core/orchestrator.js";
 import { ConfiguredWorkspaceResolver } from "../workspace/configuredWorkspaceResolver.js";
 import { createServer } from "../server/createServer.js";
 import { fallbackIntentFor } from "../core/intentHeuristics.js";
+import { InMemoryLoopStore } from "../loop/loopStore.js";
+import { LoopService } from "../loop/loopService.js";
+import type {
+  ActionExecutor,
+  ActionResult,
+  LoopEventLogger,
+  LoopExecutionContext
+} from "../loop/loopTypes.js";
 
 const stubRuntime: AgentRuntime = {
   name: "stub",
@@ -128,6 +136,13 @@ async function main(): Promise<void> {
   await assertUploadedDocumentReachesRuntime();
   await assertRoleSwitchCarriesHistory();
   assertNoContractsTsRemnants();
+
+  await assertLoopRunCompletesSuccessfully();
+  await assertLoopRunStopsOnMaxIterations();
+  await assertLoopCancelStopsExecution();
+  await assertLoopPauseAndResume();
+  await assertLoopRecoveryTransitionsInterruptedSteps();
+  await assertLoopEventsCarryExecutionContext();
 
   await server.close();
 }
@@ -501,6 +516,324 @@ class InMemoryHistoryStore implements ConversationHistoryStore {
     this.histories.delete(JSON.stringify(key));
     return Promise.resolve();
   }
+}
+
+// ── Loop Smoke Helpers ────────────────────────────────────────────────────────
+
+class StubActionExecutor implements ActionExecutor {
+  private readonly responses: ActionResult[];
+  private nextResponse = 0;
+
+  public constructor(responses: ActionResult[]) {
+    this.responses = responses;
+  }
+
+  public execute(
+    context: LoopExecutionContext,
+    action: string,
+    signal: AbortSignal
+  ): Promise<ActionResult> {
+    // Parameters required by ActionExecutor contract but not used by stub
+    void context;
+    void action;
+    void signal;
+    const response = this.responses[this.nextResponse];
+    if (response === undefined) {
+      return Promise.reject(new Error("No more stub responses"));
+    }
+    this.nextResponse++;
+    return Promise.resolve(response);
+  }
+}
+
+class RecordingLoopEventLogger implements LoopEventLogger {
+  public readonly events: Record<string, unknown>[] = [];
+
+  public write(event: Record<string, unknown>): Promise<void> {
+    this.events.push(event);
+    return Promise.resolve();
+  }
+}
+
+class SlowStubActionExecutor implements ActionExecutor {
+  public constructor(
+    private readonly delayMs: number,
+    private readonly result: ActionResult
+  ) {}
+
+  public execute(
+    _context: LoopExecutionContext,
+    _action: string,
+    signal: AbortSignal
+  ): Promise<ActionResult> {
+    return new Promise<ActionResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        resolve(this.result);
+      }, this.delayMs);
+
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        },
+        { once: true }
+      );
+    });
+  }
+}
+
+async function createLoopDefinition(
+  store: InMemoryLoopStore,
+  overrides?: { maxIterations?: number }
+): Promise<string> {
+  const created = await store.createDefinition({
+    name: "smoke-test",
+    goal: "Smoke test goal",
+    workspacePath: "/workspace/smoke",
+    role: "reviewer",
+    maxIterations: overrides?.maxIterations ?? 3,
+    timeoutMs: 60_000,
+    maxTokenBudget: 100_000,
+    triggerType: "manual",
+    verificationStrategy: "smoke-check"
+  });
+  return created.id;
+}
+
+// ── Loop Smoke Cases ──────────────────────────────────────────────────────────
+
+async function assertLoopRunCompletesSuccessfully(): Promise<void> {
+  const store = new InMemoryLoopStore();
+  const executor = new StubActionExecutor([
+    { output: "Plan: check health", tokenUsage: 50, evidence: "plan-ok" },
+    { output: "DONE: healthy", tokenUsage: 100, evidence: "all-pass" }
+  ]);
+  const service = new LoopService({
+    store,
+    actionExecutor: executor,
+    ownerId: "smoke-service"
+  });
+  const definitionId = await createLoopDefinition(store, { maxIterations: 1 });
+  const run = await service.startRun(definitionId, "smoke-user");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const finalRun = await store.getRun(run.id);
+  if (finalRun?.status !== "completed") {
+    throw new Error(`Expected completed, got ${finalRun?.status ?? "undefined"}`);
+  }
+  if (finalRun.completedAt === null) {
+    throw new Error("Expected completedAt to be set");
+  }
+  const steps = await store.getStepsByRun(run.id);
+  if (steps.length !== 1) {
+    throw new Error(`Expected 1 step, got ${steps.length}`);
+  }
+  const step = steps[0];
+  if (step === undefined) {
+    throw new Error("Step is undefined");
+  }
+  if (step.phase !== "decide") {
+    throw new Error(`Expected phase decide, got ${step.phase}`);
+  }
+  if (step.status !== "succeeded") {
+    throw new Error(`Expected step succeeded, got ${step.status}`);
+  }
+  console.info("[pass] deterministic-loop-run-completes-successfully");
+}
+
+async function assertLoopRunStopsOnMaxIterations(): Promise<void> {
+  const store = new InMemoryLoopStore();
+  const executor = new StubActionExecutor([
+    { output: "Plan: check", tokenUsage: 50, evidence: "plan" },
+    { output: "continue checking", tokenUsage: 50, evidence: "more" },
+    { output: "Plan: check", tokenUsage: 50, evidence: "plan" },
+    { output: "continue checking", tokenUsage: 50, evidence: "more" }
+  ]);
+  const service = new LoopService({
+    store,
+    actionExecutor: executor,
+    ownerId: "smoke-service"
+  });
+  const definitionId = await createLoopDefinition(store, { maxIterations: 2 });
+  const run = await service.startRun(definitionId, "smoke-user");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const finalRun = await store.getRun(run.id);
+  if (finalRun?.status !== "completed") {
+    throw new Error(`Expected completed (max iterations), got ${finalRun?.status ?? "undefined"}`);
+  }
+  const steps = await store.getStepsByRun(run.id);
+  if (steps.length > 2) {
+    throw new Error(`Expected at most 2 steps (maxIterations=2), got ${steps.length}`);
+  }
+  console.info("[pass] deterministic-loop-run-stops-on-max-iterations");
+}
+
+async function assertLoopCancelStopsExecution(): Promise<void> {
+  const store = new InMemoryLoopStore();
+  const executor = new SlowStubActionExecutor(5_000, {
+    output: "slow",
+    tokenUsage: 100,
+    evidence: "slow"
+  });
+  const service = new LoopService({
+    store,
+    actionExecutor: executor,
+    ownerId: "smoke-service"
+  });
+  const definitionId = await createLoopDefinition(store, { maxIterations: 10 });
+  const run = await service.startRun(definitionId, "smoke-user");
+
+  // Cancel immediately while executor is running
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await service.cancelRun(run.id);
+
+  const finalRun = await store.getRun(run.id);
+  if (finalRun?.status !== "cancelled") {
+    throw new Error(`Expected cancelled, got ${finalRun?.status ?? "undefined"}`);
+  }
+
+  const steps = await store.getStepsByRun(run.id);
+  for (const step of steps) {
+    if (step.status === "running") {
+      throw new Error(`Step ${step.id} still in running state after cancel`);
+    }
+  }
+  console.info("[pass] deterministic-loop-cancel-stops-execution");
+}
+
+async function assertLoopPauseAndResume(): Promise<void> {
+  const store = new InMemoryLoopStore();
+  const pauseExecutor = new StubActionExecutor([
+    { output: "Plan: check", tokenUsage: 50, evidence: "plan" },
+    { output: "PAUSE: need approval", tokenUsage: 100, evidence: "pause" }
+  ]);
+  const service = new LoopService({
+    store,
+    actionExecutor: pauseExecutor,
+    ownerId: "smoke-service"
+  });
+  const definitionId = await createLoopDefinition(store, { maxIterations: 5 });
+  const run = await service.startRun(definitionId, "smoke-user");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const pausedRun = await store.getRun(run.id);
+  if (pausedRun?.status !== "paused") {
+    throw new Error(`Expected paused, got ${pausedRun?.status ?? "undefined"}`);
+  }
+
+  // Resume with a new executor that completes
+  const resumeExecutor = new StubActionExecutor([
+    { output: "Plan: resumed", tokenUsage: 50, evidence: "resumed" },
+    { output: "DONE: approved", tokenUsage: 100, evidence: "approved" }
+  ]);
+  const resumeService = new LoopService({
+    store,
+    actionExecutor: resumeExecutor,
+    ownerId: "smoke-service"
+  });
+  await resumeService.resumeRun(run.id);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const finalRun = await store.getRun(run.id);
+  if (finalRun?.status !== "completed") {
+    throw new Error(`Expected completed after resume, got ${finalRun?.status ?? "undefined"}`);
+  }
+  console.info("[pass] deterministic-loop-pause-and-resume");
+}
+
+async function assertLoopRecoveryTransitionsInterruptedSteps(): Promise<void> {
+  const store = new InMemoryLoopStore();
+  const executor = new StubActionExecutor([]);
+  const service = new LoopService({
+    store,
+    actionExecutor: executor,
+    ownerId: "smoke-service"
+  });
+
+  // Manually insert an expired running step
+  await store.createStep({
+    runId: "run-1",
+    iteration: 1,
+    attempt: 1,
+    status: "running",
+    phase: "act",
+    idempotencyKey: "run-1:iter:1:attempt:1",
+    claimOwner: "old-service",
+    leaseExpiry: "2020-01-01T00:00:00",
+    actionDescription: "some action",
+    observation: null,
+    decision: null,
+    completedAt: null
+  });
+
+  const count = await service.recoverInterruptedSteps();
+  if (count !== 1) {
+    throw new Error(`Expected 1 recovered step, got ${count}`);
+  }
+
+  const steps = await store.getStepsByRun("run-1");
+  const step = steps[0];
+  if (step === undefined) {
+    throw new Error("Step not found");
+  }
+  if (step.status !== "interrupted") {
+    throw new Error(`Expected interrupted, got ${step.status}`);
+  }
+  if (step.claimOwner !== null) {
+    throw new Error(`Expected claimOwner cleared, got ${step.claimOwner}`);
+  }
+  console.info("[pass] deterministic-loop-recovery-transitions-interrupted-steps");
+}
+
+async function assertLoopEventsCarryExecutionContext(): Promise<void> {
+  const store = new InMemoryLoopStore();
+  const logger = new RecordingLoopEventLogger();
+  const executor = new StubActionExecutor([
+    { output: "Plan: check", tokenUsage: 50, evidence: "plan" },
+    { output: "DONE: complete", tokenUsage: 100, evidence: "done" }
+  ]);
+  const service = new LoopService({
+    store,
+    actionExecutor: executor,
+    eventLogger: logger,
+    ownerId: "smoke-service"
+  });
+  const definitionId = await createLoopDefinition(store, { maxIterations: 1 });
+  const run = await service.startRun(definitionId, "smoke-user");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const started = logger.events.find((e) => e["type"] === "loop.started");
+  if (started === undefined) {
+    throw new Error("Missing loop.started event");
+  }
+
+  const completed = logger.events.find((e) => e["type"] === "loop.completed");
+  if (completed === undefined) {
+    throw new Error("Missing loop.completed event");
+  }
+
+  const stepEvents = logger.events.filter((e) => {
+    const t = e["type"];
+    return typeof t === "string" && t.startsWith("loop.step.");
+  });
+  if (stepEvents.length === 0) {
+    throw new Error("Missing loop.step.* events");
+  }
+
+  for (const event of stepEvents) {
+    if (event["loopRunId"] !== run.id) {
+      throw new Error(`Step event loopRunId mismatch: ${String(event["loopRunId"])} !== ${run.id}`);
+    }
+    if (typeof event["stepId"] !== "string" || event["stepId"].length === 0) {
+      throw new Error("Step event missing stepId");
+    }
+    if (typeof event["attempt"] !== "number") {
+      throw new Error("Step event missing attempt");
+    }
+  }
+  console.info("[pass] deterministic-loop-events-carry-execution-context");
 }
 
 await main();

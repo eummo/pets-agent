@@ -295,6 +295,26 @@ describe("createAgentRuntimeFactory", () => {
     expect(key).toBeUndefined();
   });
 
+  it("cacheKeyForRole changes when the role config update timestamp changes", async () => {
+    const store = makeRoleConfigStore([
+      makeRoleConfig("reviewer", { updatedAt: "2026-06-09T00:00:00.000Z" }),
+      makeRoleConfig("developer", { updatedAt: "2026-06-09T00:01:00.000Z" })
+    ]);
+    const factory = createAgentRuntimeFactory(
+      rawLogger,
+      store,
+      resolvedLlmConfig,
+      makeAgentSdkConfig("claude")
+    );
+
+    await expect(factory.cacheKeyForRole?.("reviewer")).resolves.toBe(
+      "reviewer:2026-06-09T00:00:00.000Z"
+    );
+    await expect(factory.cacheKeyForRole?.("developer")).resolves.toBe(
+      "developer:2026-06-09T00:01:00.000Z"
+    );
+  });
+
   it("cacheKeyForRole returns undefined for the intent classifier", async () => {
     const store = makeRoleConfigStore([]);
     const factory = createAgentRuntimeFactory(
